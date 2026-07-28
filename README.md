@@ -13,6 +13,11 @@ venv\Scripts\python -m comp1
 
 # run with a real Tello (join the TELLO-xxxx WiFi first)
 venv\Scripts\python -m comp1 --drone tello
+
+# run against the simulator: a randomly generated arena with victim markers
+# and distractors, rendered as synthetic camera frames (new layout each launch;
+# --seed N for a repeatable one, --noise 0.05 for movement drift)
+venv\Scripts\python -m comp1 --drone sim
 ```
 
 The app starts a local server on port 8765 and opens the block-coding UI in your browser (`--no-browser` to skip, `--port` to change). Drag blocks under **🚁 when mission starts** and press **Run**; the currently executing block is highlighted, and the right-hand panel shows the drone camera with the red-circle detection overlay.

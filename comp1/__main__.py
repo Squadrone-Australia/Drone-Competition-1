@@ -9,13 +9,20 @@ from .server import create_app
 
 def main():
     ap = argparse.ArgumentParser("comp1")
-    ap.add_argument("--drone", choices=["mock", "tello"], default="mock")
+    ap.add_argument("--drone", choices=["mock", "tello", "sim"], default="mock")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="sim only: fixed arena layout (default: random each launch)")
+    ap.add_argument("--noise", type=float, default=0.0,
+                    help="sim only: movement drift, e.g. 0.05")
     args = ap.parse_args()
     if args.drone == "tello":
         from .drone.tello import TelloDrone
         drone = TelloDrone()
+    elif args.drone == "sim":
+        from .sim.drone import SimDrone
+        drone = SimDrone(seed=args.seed, noise=args.noise)
     else:
         from .drone.mock import MockDrone
         drone = MockDrone()
