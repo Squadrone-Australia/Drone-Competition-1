@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>COMP1 Drone Coder</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="vendor/blockly.min.js"></script>
+</head>
+<body>
+  <header>
+    <span id="status" class="status">connecting…</span>
+    <span id="found">Victims found: 0</span>
+    <button id="run">▶ Run</button>
+    <button id="stop">⏹ Stop</button>
+    <button id="estop" class="estop">EMERGENCY STOP</button>
+  </header>
+  <main>
+    <div id="blockly"></div>
+    <aside>
+      <img id="video" alt="drone camera">
+      <pre id="console"></pre>
+    </aside>
+  </main>
+  <script src="blocks.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
