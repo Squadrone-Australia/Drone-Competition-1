@@ -99,4 +99,25 @@ class Interpreter:
                 await self._approach()
 
     async def _approach(self):
-        raise NotImplementedError
+        cfg = self._cfg
+        lost = 0
+        for _ in range(cfg.approach_max_steps):
+            if self._stop.is_set():
+                raise _Stopped()
+            det = self._detect()
+            if not det.found:
+                lost += 1
+                if lost >= 3:
+                    return
+                await asyncio.sleep(0.3)
+                continue
+            lost = 0
+            if det.area_ratio >= cfg.approach_stop_area:
+                return                                    # close enough (requirements §3.2)
+            if det.position == "left":
+                await asyncio.to_thread(self._drone.rotate, "ccw", cfg.approach_turn_deg)
+            elif det.position == "right":
+                await asyncio.to_thread(self._drone.rotate, "cw", cfg.approach_turn_deg)
+            else:
+                await asyncio.to_thread(self._drone.move, "forward", cfg.approach_step_cm)
+            await asyncio.sleep(0.2)                      # let video catch up
