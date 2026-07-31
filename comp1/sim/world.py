@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 VICTIM = "victim"
 DISTRACTOR_KINDS = ["red_square", "blue_circle", "green_triangle", "yellow_square"]
+DEFAULT_MARKER_DIAMETER_M = 0.25   # printed A4-ish disc; keep in step with VisionConfig
+DEFAULT_MARKER_HEIGHT_M = 1.0      # tripod-mounted
 
 
 @dataclass(frozen=True)
@@ -10,6 +12,12 @@ class Marker:
     x: float
     y: float
     kind: str
+    size_m: float = DEFAULT_MARKER_DIAMETER_M      # diameter
+    height_m: float = DEFAULT_MARKER_HEIGHT_M
+
+    @property
+    def radius_m(self) -> float:
+        return self.size_m / 2
 
 
 @dataclass

@@ -29,3 +29,15 @@ Run the tests with `venv\Scripts\pytest`. Build the standalone Windows bundle wi
 - [Platform architecture — options, comparison, and decision](docs/architecture/platform-options.md): why the platform is a custom Blockly web frontend + local Python service (FastAPI + djitellopy + OpenCV) packaged with PyInstaller, which alternatives were rejected, and the open items still to confirm (Chromebook support, safe-distance judging threshold).
 - [Architecture planning notes (2026-07-28)](docs/plans/2026-07-28-platform-architecture.md)
 - [Implementation plan (2026-07-28)](docs/plans/2026-07-28-implementation-plan.md)
+- [Simulator design (2026-07-28)](docs/specs/2026-07-28-simulator-design.md) — the hardware-free
+  random arena; partly superseded by the sensing work below.
+- [Target sensing, expression blocks, and the A→B competition (2026-07-31)](docs/plans/2026-07-31-target-sensing-and-expressions.md):
+  the roadmap for exposing distance/direction to students, giving the block language real
+  expressions, adding a Python pathway, and scoring a point A → point B search-and-rescue run.
+  Phase 1 is implemented; includes an assessment of what still needs hardware validation.
+- [Target sensing design (2026-07-31)](docs/specs/2026-07-31-target-sensing-design.md): the camera
+  model, how pixels become metres, multi-target tracking, and the tuning constants — read this
+  before changing anything in `comp1/vision/`.
+
+`CLAUDE.md` holds the working notes for AI coding assistants (architecture invariants, the
+four-places rule for adding a block, and the project constraints that are easy to violate).

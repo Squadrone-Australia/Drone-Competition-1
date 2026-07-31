@@ -15,6 +15,10 @@ class _MissionEnd(Exception):
     pass
 
 
+def _clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
 class Interpreter:
     def __init__(self, drone: DroneAdapter,
                  get_detection: Callable[[], Detection],
@@ -99,6 +103,12 @@ class Interpreter:
                 await self._approach()
 
     async def _approach(self):
+        """Turn toward the target, then close on it, using metric bearing and range.
+
+        Proportional rather than fixed-step: the correction is sized from the
+        measured error, then clamped to what the Tello will actually honour —
+        it ignores rotations below ~10° and refuses translations below 20 cm.
+        """
         cfg = self._cfg
         lost = 0
         for _ in range(cfg.approach_max_steps):
@@ -107,17 +117,24 @@ class Interpreter:
             det = self._detect()
             if not det.found:
                 lost += 1
-                if lost >= 3:
+                if lost >= cfg.approach_lost_limit:
                     return
                 await asyncio.sleep(0.3)
                 continue
             lost = 0
-            if det.area_ratio >= cfg.approach_stop_area:
-                return                                    # close enough (requirements §3.2)
-            if det.position == "left":
-                await asyncio.to_thread(self._drone.rotate, "ccw", cfg.approach_turn_deg)
-            elif det.position == "right":
-                await asyncio.to_thread(self._drone.rotate, "cw", cfg.approach_turn_deg)
+            bearing, distance = det.bearing_deg, det.distance_m
+            if abs(bearing) > cfg.approach_bearing_deadband_deg:
+                deg = _clamp(round(abs(bearing)),
+                             cfg.approach_min_turn_deg, cfg.approach_max_turn_deg)
+                await asyncio.to_thread(self._drone.rotate,
+                                        "cw" if bearing > 0 else "ccw", deg)
+            elif distance > cfg.approach_stop_distance_m:
+                remaining_cm = (distance - cfg.approach_stop_distance_m) * 100
+                if remaining_cm < cfg.approach_min_step_cm:
+                    return                                # closer than one step — done
+                cm = _clamp(round(remaining_cm),
+                            cfg.approach_min_step_cm, cfg.approach_max_step_cm)
+                await asyncio.to_thread(self._drone.move, "forward", cm)
             else:
-                await asyncio.to_thread(self._drone.move, "forward", cfg.approach_step_cm)
+                return                                    # close enough (requirements §3.2)
             await asyncio.sleep(0.2)                      # let video catch up

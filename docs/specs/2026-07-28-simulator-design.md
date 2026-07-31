@@ -2,6 +2,13 @@
 
 **Status:** Approved 2026-07-28 · **Depends on:** platform MVP (`feat/platform-mvp`)
 
+> **Partly superseded 2026-07-31** by
+> [Target sensing design](2026-07-31-target-sensing-design.md). Three details below are now wrong:
+> the camera is no longer a local 83° horizontal FOV (it shares `CameraIntrinsics` with the real
+> hardware, ~70° horizontal); `Marker` carries per-marker `size_m`/`height_m` rather than one global
+> victim radius; and the minimap is **not** drawn into `get_frame()` — it moved to
+> `SimDrone.annotate()` so the detector never sees it.
+
 ## Purpose
 
 Test student block programs and the full vision/approach pipeline (real HSV+contour detector, real interpreter) without a Tello or a venue. The arena is randomly generated per launch — mirroring the competition's "marker locations change between rounds" rule — with a `--seed` option for reproducible layouts.

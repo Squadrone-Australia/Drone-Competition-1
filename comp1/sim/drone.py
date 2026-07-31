@@ -3,7 +3,7 @@ import random
 import time
 
 from ..drone.base import DroneAdapter
-from .render import MARKER_HEIGHT, render
+from .render import MARKER_HEIGHT, draw_minimap, render
 from .world import World
 
 
@@ -82,6 +82,9 @@ class SimDrone(DroneAdapter):
 
     def get_frame(self):
         return render(self.world, self.x, self.y, self.z, self.heading)
+
+    def annotate(self, frame):
+        return draw_minimap(frame, self.world, self.x, self.y, self.heading)
 
     def battery(self):
         return 100

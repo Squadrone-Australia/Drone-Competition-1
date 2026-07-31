@@ -30,3 +30,12 @@ class DroneAdapter(ABC):
 
     @abstractmethod
     def battery(self) -> int: ...
+
+    def annotate(self, frame: np.ndarray) -> np.ndarray:
+        """Adapter-specific debug overlay, applied to the *display* copy only.
+
+        Never call this on a frame headed for the detector — the simulator uses
+        it to draw a minimap, which would otherwise be a red blob in the sensor
+        stream.
+        """
+        return frame

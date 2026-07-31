@@ -12,7 +12,7 @@ from .drone.base import DroneAdapter
 from .interpreter import Interpreter
 from .protocol import Program
 from .vision.config import VisionConfig, DEFAULT_CONFIG
-from .vision.detector import Detection, detect_red_circle, draw_overlay
+from .vision.detector import Detection, TargetTracker, draw_overlay
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 FRAME_INTERVAL = 0.1  # ~10 fps
@@ -23,6 +23,7 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG) -> FastA
     async def lifespan(app: FastAPI):
         drone.connect()
         app.state.latest_detection = Detection(found=False)
+        app.state.tracker = TargetTracker(cfg)
         app.state.clients = set()
         app.state.interp = None
         app.state.video_task = asyncio.create_task(_video_loop(app))
@@ -32,17 +33,34 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG) -> FastA
     app = FastAPI(lifespan=lifespan)
 
     async def _video_loop(app: FastAPI):
+        last_telemetry = None
         while True:
             frame = await asyncio.to_thread(drone.get_frame)
             if frame is not None:
-                det = detect_red_circle(frame, cfg)
+                # detection runs on the raw sensor frame; every overlay below is
+                # applied to a copy, so nothing we draw can be detected
+                det = app.state.tracker.update(frame)
                 app.state.latest_detection = det
                 small = cv2.resize(frame, (640, 480)) if frame.shape[1] != 640 else frame
-                ok, jpeg = cv2.imencode(".jpg", draw_overlay(small, det),
-                                        [cv2.IMWRITE_JPEG_QUALITY, 70])
+                display = drone.annotate(draw_overlay(small, det))
+                ok, jpeg = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 if ok:
                     await _broadcast_bytes(app, jpeg.tobytes())
+                telemetry = _telemetry(det)
+                if telemetry != last_telemetry:
+                    last_telemetry = telemetry
+                    await _broadcast_json(app, telemetry)
             await asyncio.sleep(FRAME_INTERVAL)
+
+    def _telemetry(det: Detection) -> dict:
+        return {
+            "type": "telemetry",
+            "visible": det.found,
+            "count": det.count,
+            "distance_cm": round(det.distance_m * 100) if det.found else None,
+            "bearing_deg": round(det.bearing_deg) if det.found else None,
+            "elevation_deg": round(det.elevation_deg) if det.found else None,
+        }
 
     async def _broadcast_bytes(app, data: bytes):
         for ws in list(app.state.clients):

@@ -15,6 +15,20 @@ function log(msg) {
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
 
+// the same numbers the "distance to victim" / "direction to victim" blocks read,
+// shown live so students can see what their program is reacting to
+function showTelemetry(t) {
+  const visible = document.getElementById("t-visible");
+  visible.textContent = t.visible
+    ? (t.count > 1 ? `yes (${t.count} seen)` : "yes")
+    : "not seen";
+  visible.className = t.visible ? "ok" : "";
+  document.getElementById("t-distance").textContent =
+    t.visible ? `${t.distance_cm} cm` : "—";
+  document.getElementById("t-bearing").textContent =
+    t.visible ? `${t.bearing_deg > 0 ? "+" : ""}${t.bearing_deg}°` : "—";
+}
+
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.binaryType = "blob";
@@ -38,6 +52,7 @@ function connect() {
       workspace.highlightBlock(null);
       log(`mission ${msg.reason}${msg.detail ? ": " + msg.detail : ""}`);
     }
+    else if (msg.type === "telemetry") showTelemetry(msg);
     else if (msg.type === "error") log("⚠ " + msg.message);
     else if (msg.type === "estopped") log("⛔ EMERGENCY STOP");
   };

@@ -4,6 +4,7 @@ from comp1.protocol import Program
 from comp1.interpreter import Interpreter
 from comp1.sim.drone import SimDrone
 from comp1.sim.world import Marker, World, VICTIM
+from comp1.vision.config import DEFAULT_CONFIG
 from comp1.vision.detector import detect_red_circle
 
 SEARCH_PROGRAM = {"version": 1, "blocks": [
@@ -27,7 +28,10 @@ async def test_full_mission_finds_victim_without_hardware():
     assert events[-1] == {"type": "finished", "reason": "done", "detail": ""}
     assert {"type": "found_count", "count": 1} in events
     dist = math.hypot(drone.x - 2.0, drone.y - 4.0)
-    assert dist < 0.8              # approach converged near the victim wall
+    stop = DEFAULT_CONFIG.approach_stop_distance_m
+    # holds off at the configured safe distance rather than flying into the wall;
+    # the band is one minimum Tello step either side
+    assert abs(dist - stop) < 0.25
     assert not drone.flying        # landed
 
 

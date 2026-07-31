@@ -3,6 +3,8 @@ from comp1.drone.mock import MockDrone
 from comp1.vision.detector import Detection
 from comp1.interpreter import Interpreter
 
+from .helpers import seen
+
 
 def prog(blocks):
     return Program.model_validate({"version": 1, "blocks": blocks})
@@ -43,7 +45,7 @@ async def test_mark_found_signals_flip_and_counts():
 
 
 async def test_repeat_until_condition_and_if():
-    seen = Detection(found=True, cx=0.5, area_ratio=0.01, position="center")
+    visible = seen(distance_m=3.0, bearing_deg=0.0)
     drone, events, _ = await run([
         {"id": "a", "op": "if", "cond": {"sensor": "marker_visible"},
          "body": [{"id": "b", "op": "flip", "dir": "forward"}],
@@ -53,7 +55,7 @@ async def test_repeat_until_condition_and_if():
          "body": [{"id": "e", "op": "rotate", "dir": "ccw", "deg": 15}]},
         {"id": "f", "op": "repeat_n", "n": 2,
          "body": [{"id": "g", "op": "move", "dir": "forward", "cm": 20}]},
-    ], det=seen)
+    ], det=visible)
     assert ("flip", "forward") in drone.log            # if-branch taken
     assert ("rotate", "cw", 30) not in drone.log       # else-branch skipped
     assert ("rotate", "ccw", 15) not in drone.log      # until-condition already true

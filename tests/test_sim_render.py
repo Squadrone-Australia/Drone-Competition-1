@@ -17,7 +17,14 @@ def test_victim_ahead_is_detected_centre():
 
 
 def test_victim_to_left_reads_left():
-    assert see(VICTIM, x=0.5).position == "left"
+    # ~27 deg off the nose: inside the real Tello's ~70 deg horizontal FOV
+    assert see(VICTIM, x=1.0).position == "left"
+
+
+def test_marker_outside_the_real_camera_fov_is_not_seen():
+    # ~37 deg off the nose — visible under the old 83 deg sim camera, but past
+    # the edge of the actual hardware's frame
+    assert not see(VICTIM, x=0.5).found
 
 
 def test_distractors_not_detected():
