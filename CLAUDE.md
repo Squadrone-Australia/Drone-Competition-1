@@ -135,6 +135,44 @@ computes it; `CameraIntrinsics.min_area_ratio_for_range` inverts it. Change it d
 `SimDrone` uses this for its minimap — which is drawn in victim-red and would otherwise be clutter
 in the detector's own input.
 
+### The simulator draws two views of one truth
+
+The camera view ([comp1/sim/render.py](comp1/sim/render.py)) projects a real 3D room —
+floor grid, four shaded walls, marker posts and contact shadows — through
+[comp1/sim/scene.py](comp1/sim/scene.py), which uses the *same* `SIM_INTRINSICS` the detector
+inverts. The marker billboard itself is untouched: apparent radius is still `f * R / d`, because
+that one line is what every range estimate in the approach tests comes out of. Change the room
+freely; leave the disc alone.
+
+**Scenery colours must stay blue-dominant in BGR (`B >= G >= R`) and low-saturation.** Walls and
+floor are most of the frame, so a warm-grey wall is a false positive on every frame.
+`test_scenery_alone_is_never_a_victim` sweeps 324 poses to hold this.
+
+The third-person view is browser-side three.js ([comp1/frontend/scene3d.js](comp1/frontend/scene3d.js),
+wired up by [comp1/frontend/view3d.js](comp1/frontend/view3d.js)). It is fed by two WebSocket
+messages: `scene` once on connect, and `pose` at 30 Hz. Pose runs far faster than the 10 fps video
+because a 100 ms step in heading is visible as a stutter no amount of browser-side smoothing hides.
+
+`SimDrone` commands **interpolate** their pose over the command's duration instead of sleeping and
+teleporting, which is what both views animate; each command still ends on the exact arithmetic pose,
+so tests may read `drone.x` straight after the call. `delay=0` disables animation entirely and keeps
+the suite instant.
+
+`DroneAdapter.pose()` / `.scene()` are **display feeds, not sensors** — see §4 below. `MockDrone` and
+`TelloDrone` return `None` and the browser hides the 3D stage and its camera-mode buttons.
+
+**Every run resets first.** The server calls `drone.reset()` and rebuilds the `TargetTracker` before
+starting an `Interpreter`, and broadcasts `{"type":"reset"}` so the browser clears the trail and the
+found count. Students iterate by hitting Run, so an attempt that began wherever the last one ended
+would make their own change impossible to judge. `SimDrone.reset()` re-seeds its RNG but leaves the
+arena alone — same layout, same noise, so a `--seed` run is genuinely repeatable. `reset()` is a
+no-op on hardware, which cannot teleport.
+
+`DroneAdapter.can_reset` is what the UI reports: with a real Tello the reset clears the tracker and
+the counters but the aircraft does not move, and the console says so instead of claiming "back on
+the start pad". Do not make `reset()` land a real drone — a surprise flight command from a button
+labelled Reset is worse than a button that does less than it looks like it does.
+
 ## Project constraints
 
 The **requirements document is external** (not in this repo). Code and docs cite it as `§N`:
@@ -153,9 +191,15 @@ The **requirements document is external** (not in this repo). Code and docs cite
 arena coordinates exist only inside `comp1/sim/` and must not be exposed to the block layer. Any
 mission-pad block must not be repurposable to skip the search phase.
 
-**The frontend must work fully offline.** Blockly is vendored at
-`comp1/frontend/vendor/blockly.min.js`; `tests/test_offline_assets.py` fails the build on any
-external URL in served html/css/js.
+The one crack in that wall is `DroneAdapter.pose()`/`.scene()`, which hand arena coordinates to the
+browser so the 3D view can draw the room. It is a one-way display feed: nothing in
+`comp1/interpreter.py` or `comp1/api.py` may call it, and it must never gain a block or a sensor.
+
+**The frontend must work fully offline.** Blockly and three.js are vendored under
+`comp1/frontend/vendor/`; `tests/test_offline_assets.py` fails the build on any external URL in
+served html/css/js. three.js is loaded as an ES module through the import map in `index.html`
+(`"three"` → `./vendor/three.module.min.js`), which also needs `three.core.min.js` alongside it —
+update all three files together.
 
 ## Documentation
 

@@ -17,6 +17,10 @@ from .vision.detector import Detection, TargetTracker, draw_overlay
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 FRAME_INTERVAL = 0.1  # ~10 fps
+# Pose is a handful of floats, so it can run far faster than video. It has to:
+# at 10 Hz the third-person view stutters, and no amount of browser-side
+# smoothing hides a 100 ms step in heading during a fast yaw.
+POSE_INTERVAL = 1 / 30
 SCRIPT_CLIENT_WAIT = 5.0  # how long a --script run holds off for the browser
 
 
@@ -33,10 +37,12 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         # block program cannot start while a script is running.
         app.state.interp = None
         app.state.video_task = asyncio.create_task(_video_loop(app))
+        app.state.pose_task = asyncio.create_task(_pose_loop(app))
         app.state.script_task = (asyncio.create_task(_script_loop(app))
                                  if script else None)
         yield
         app.state.video_task.cancel()
+        app.state.pose_task.cancel()
         if app.state.script_task:
             # cancelling the task only drops the await — tell the script itself
             if isinstance(app.state.interp, ScriptRun):
@@ -65,6 +71,20 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                     await _broadcast_json(app, telemetry)
             await asyncio.sleep(FRAME_INTERVAL)
 
+    async def _pose_loop(app: FastAPI):
+        """Feed the browser's third-person view.
+
+        Display data only — see ``DroneAdapter.pose``. Adapters that have no
+        arena-absolute pose (mock, real Tello) return None and this loop idles.
+        """
+        last = None
+        while True:
+            pose = drone.pose()
+            if pose is not None and pose != last and app.state.clients:
+                last = pose
+                await _broadcast_json(app, {"type": "pose", **pose})
+            await asyncio.sleep(POSE_INTERVAL)
+
     def _telemetry(det: Detection) -> dict:
         return {
             "type": "telemetry",
@@ -88,6 +108,21 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                 await ws.send_text(json.dumps(data))
             except Exception:
                 app.state.clients.discard(ws)
+
+    async def _reset(app: FastAPI):
+        """Start state, for the drone and for everything watching it.
+
+        The tracker goes too: a marker lock held over from the previous attempt
+        would have the new run reacting to something the drone is no longer
+        looking at.
+        """
+        await asyncio.to_thread(drone.reset)
+        app.state.tracker = TargetTracker(cfg)
+        app.state.latest_detection = Detection(found=False)
+        # `repositioned` is the difference between "the drone is on its pad" and
+        # "the counters are zero but the aircraft has not moved". The browser must
+        # not claim the former on hardware, where reset() is a no-op.
+        await _broadcast_json(app, {"type": "reset", "repositioned": drone.can_reset})
 
     def _emit(ev: dict):
         """Broadcast an event. Must be called on the event loop thread —
@@ -120,6 +155,11 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         def emit(ev):
             loop.create_task(_broadcast_json(app, ev))
 
+        # the arena never changes mid-session, so it is sent once per client
+        # rather than riding along with every pose
+        scene = drone.scene()
+        await ws.send_text(json.dumps({"type": "scene", "scene": scene}))
+
         try:
             while True:
                 msg = json.loads(await ws.receive_text())
@@ -133,6 +173,9 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                         await _broadcast_json(app, {"type": "error",
                                                     "message": f"invalid program: {e}"})
                         continue
+                    # every attempt starts from the same place, so a change in the
+                    # program is the only thing that changed
+                    await _reset(app)
                     interp = Interpreter(drone, lambda: app.state.latest_detection, emit, cfg=cfg)
                     app.state.interp = interp
 
@@ -146,6 +189,12 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                 elif msg["type"] == "stop":
                     if app.state.interp:
                         app.state.interp.request_stop()
+                elif msg["type"] == "reset":
+                    if app.state.interp is not None:
+                        await _broadcast_json(app, {"type": "error",
+                                                    "message": "stop the mission before resetting"})
+                    else:
+                        await _reset(app)
                 elif msg["type"] == "estop":
                     if app.state.interp:
                         app.state.interp.request_stop()

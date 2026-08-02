@@ -4,12 +4,60 @@ header { display: flex; gap: 12px; align-items: center; padding: 8px 12px; backg
 header button { font-size: 16px; padding: 6px 16px; border-radius: 6px; border: 0; cursor: pointer; }
 #run { background: #22c55e; }
 #stop { background: #eab308; }
+#reset { background: #475569; color: #e2e8f0; }
 .estop { background: #dc2626; color: #fff; font-weight: 700; margin-left: auto; }
 main { flex: 1; display: flex; min-height: 0; }
 #blockly { flex: 2; }
-aside { flex: 1; display: flex; flex-direction: column; background: #0f172a; }
-#video { width: 100%; aspect-ratio: 4/3; object-fit: contain; background: #000; }
-#console { flex: 1; color: #94a3b8; padding: 8px; overflow-y: auto; font-size: 13px; }
+aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column; background: #0f172a; }
+
+/* --- 3D stage, with the camera view floating over it --------------------- */
+#stage { position: relative; flex: 1; min-height: 260px; background: #0b1220;
+  overflow: hidden; display: flex; flex-direction: column; }
+/* min-height:0 matters: the canvas keeps its last pixel height as min-content,
+   which would push the bar and a docked camera window out of the stage */
+#view3d { position: relative; flex: 1; min-height: 0; }
+#view3d canvas { display: block; width: 100%; height: 100%; }
+#stage-empty { position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; text-align: center; padding: 24px; color: #64748b;
+  font-size: 14px; line-height: 1.6; }
+/* `display` outranks the `hidden` attribute — without this the placeholder sits
+   on top of a perfectly good 3D view */
+#stage-empty[hidden] { display: none; }
+#stage-empty code { color: #94a3b8; background: #1e293b; padding: 1px 5px; border-radius: 4px; }
+
+#stage-bar { display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+  background: #16233c; border-bottom: 1px solid #24354f; }
+#stage-bar .bar-title { color: #64748b; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .08em; }
+#view-tools { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap;
+  justify-content: flex-end; }
+#view-tools[hidden] { display: none; }
+#view-tools button { background: rgba(15, 23, 42, .78); color: #94a3b8; border: 1px solid #334155;
+  border-radius: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; }
+#view-tools button:hover { color: #e2e8f0; border-color: #64748b; }
+#view-tools button.on { color: #38bdf8; border-color: #38bdf8; background: rgba(56, 189, 248, .14); }
+
+#camera-window { position: absolute; right: 10px; bottom: 10px; width: 44%; min-width: 190px;
+  z-index: 3; background: #020617; border: 1px solid #334155; border-radius: 8px;
+  overflow: hidden; box-shadow: 0 8px 26px rgba(0, 0, 0, .55); }
+#camera-window figcaption { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px;
+  background: #1e293b; color: #94a3b8; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .06em; cursor: grab; user-select: none; }
+#camera-window figcaption:active { cursor: grabbing; }
+#camera-window .dot { width: 6px; height: 6px; border-radius: 50%; background: #ef4444;
+  box-shadow: 0 0 6px #ef4444; }
+#camera-window button { margin-left: auto; background: none; border: 0; color: #64748b;
+  cursor: pointer; font-size: 12px; padding: 0 4px; }
+#camera-window button:hover { color: #e2e8f0; }
+#video { display: block; width: 100%; aspect-ratio: 4/3; object-fit: contain; background: #000; }
+
+/* Docked: the camera view takes the bottom of the stage instead of floating.
+   The stage is already a flex column, so it just has to leave the overlay. */
+#camera-window.docked { position: static; width: auto; border-radius: 0;
+  border: 0; border-top: 1px solid #334155; box-shadow: none; }
+#camera-window.docked figcaption { cursor: default; }
+
+#console { flex: 0 0 22%; min-height: 70px; color: #94a3b8; padding: 8px; overflow-y: auto; font-size: 13px; }
 .status.ok { color: #4ade80; }
 .status.bad { color: #f87171; }
 #telemetry { display: grid; grid-template-columns: auto 1fr auto 1fr auto 1fr;

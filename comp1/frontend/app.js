@@ -10,6 +10,26 @@ const videoEl = document.getElementById("video");
 const foundEl = document.getElementById("found");
 let ws, lastUrl;
 
+/**
+ * Message bus for panels that live in their own module (view3d.js).
+ *
+ * `scene` arrives once, immediately on connect, which can be before a deferred
+ * module has subscribed — so the last one is replayed to late subscribers rather
+ * than lost, leaving an empty 3D stage for the rest of the session.
+ */
+const bus = window.COMP1_BUS = {
+  handlers: [],
+  lastScene: null,
+  on(fn) {
+    this.handlers.push(fn);
+    if (this.lastScene) fn(this.lastScene);
+  },
+  emit(msg) {
+    if (msg.type === "scene") this.lastScene = msg;
+    this.handlers.forEach((fn) => fn(msg));
+  },
+};
+
 function log(msg) {
   consoleEl.textContent += msg + "\n";
   consoleEl.scrollTop = consoleEl.scrollHeight;
@@ -46,6 +66,7 @@ function connect() {
       return;
     }
     const msg = JSON.parse(ev.data);
+    bus.emit(msg);
     if (msg.type === "highlight") workspace.highlightBlock(msg.blockId);
     else if (msg.type === "found_count") foundEl.textContent = `Victims found: ${msg.count}`;
     else if (msg.type === "finished") {
@@ -55,6 +76,16 @@ function connect() {
     else if (msg.type === "telemetry") showTelemetry(msg);
     else if (msg.type === "error") log("⚠ " + msg.message);
     else if (msg.type === "estopped") log("⛔ EMERGENCY STOP");
+    else if (msg.type === "reset") {
+      workspace.highlightBlock(null);
+      foundEl.textContent = "Victims found: 0";
+      // On real hardware reset() cannot move the aircraft, so say what actually
+      // happened. Telling a student the drone is on its pad while it hovers
+      // where they left it is worse than saying nothing.
+      log(msg.repositioned
+        ? "↺ back on the start pad"
+        : "↺ counters cleared — the drone has not moved");
+    }
   };
 }
 connect();
@@ -67,4 +98,7 @@ document.getElementById("run").onclick = () => {
   ws.send(JSON.stringify({ type: "run", program }));
 };
 document.getElementById("stop").onclick = () => ws.send(JSON.stringify({ type: "stop" }));
+// Run resets on the server anyway; this button is for putting the drone back
+// after a stopped or crashed attempt without flying another one.
+document.getElementById("reset").onclick = () => ws.send(JSON.stringify({ type: "reset" }));
 document.getElementById("estop").onclick = () => ws.send(JSON.stringify({ type: "estop" }));

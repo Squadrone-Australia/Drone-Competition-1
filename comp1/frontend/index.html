@@ -5,6 +5,9 @@
   <title>COMP1 Drone Coder</title>
   <link rel="stylesheet" href="style.css">
   <script src="vendor/blockly.min.js"></script>
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.min.js" } }
+  </script>
 </head>
 <body>
   <header>
@@ -12,12 +15,43 @@
     <span id="found">Victims found: 0</span>
     <button id="run">▶ Run</button>
     <button id="stop">⏹ Stop</button>
+    <button id="reset" title="Simulator: back to the start pad. Real drone: clears the counters only — it will not move.">⟲ Reset</button>
     <button id="estop" class="estop">EMERGENCY STOP</button>
   </header>
   <main>
     <div id="blockly"></div>
     <aside>
-      <img id="video" alt="drone camera">
+      <section id="stage">
+        <!-- Named bar rather than bare icons floating on the canvas: the camera
+             modes are the only way to see the drone from outside, and students
+             did not find them when they were unlabelled. -->
+        <div id="stage-bar">
+          <span class="bar-title">3D view</span>
+          <div id="view-tools">
+            <button data-mode="follow" class="on"
+                    title="Third-person camera that follows the drone">🎥 Third person</button>
+            <button data-mode="orbit" title="Drag to look around, scroll to zoom">↻ Orbit</button>
+            <button data-mode="topdown" title="Whole arena from above">🗺 Map</button>
+            <button id="trail" class="on" title="Show the path flown">╌ Trail</button>
+          </div>
+        </div>
+
+        <div id="view3d">
+          <p id="stage-empty" hidden>3D view needs the simulator — start with
+            <code>--drone sim</code>.</p>
+        </div>
+
+        <!-- The camera window floats over the 3D stage: the two views are of the
+             same moment, and side-by-side makes that relationship obvious. -->
+        <figure id="camera-window">
+          <figcaption>
+            <span class="dot"></span>drone camera
+            <button id="cam-dock" title="Dock below / float over the 3D view">▣</button>
+          </figcaption>
+          <img id="video" alt="live view from the drone's onboard camera">
+        </figure>
+      </section>
+
       <div id="telemetry">
         <span class="t-label">target</span><span id="t-visible">—</span>
         <span class="t-label">distance</span><span id="t-distance">—</span>
@@ -28,5 +62,6 @@
   </main>
   <script src="blocks.js"></script>
   <script src="app.js"></script>
+  <script type="module" src="view3d.js"></script>
 </body>
 </html>
