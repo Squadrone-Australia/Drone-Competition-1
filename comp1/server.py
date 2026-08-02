@@ -8,6 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from .api import ScriptRun
 from .drone.base import DroneAdapter
 from .interpreter import Interpreter
 from .protocol import Program
@@ -16,19 +17,31 @@ from .vision.detector import Detection, TargetTracker, draw_overlay
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 FRAME_INTERVAL = 0.1  # ~10 fps
+SCRIPT_CLIENT_WAIT = 5.0  # how long a --script run holds off for the browser
 
 
-def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG) -> FastAPI:
+def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
+               script: str | Path | None = None, script_delay: float = 1.5) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         drone.connect()
         app.state.latest_detection = Detection(found=False)
         app.state.tracker = TargetTracker(cfg)
         app.state.clients = set()
+        # one slot for whatever is flying — Interpreter or ScriptRun. Both expose
+        # request_stop(), so stop/e-stop routing below is pathway-agnostic, and a
+        # block program cannot start while a script is running.
         app.state.interp = None
         app.state.video_task = asyncio.create_task(_video_loop(app))
+        app.state.script_task = (asyncio.create_task(_script_loop(app))
+                                 if script else None)
         yield
         app.state.video_task.cancel()
+        if app.state.script_task:
+            # cancelling the task only drops the await — tell the script itself
+            if isinstance(app.state.interp, ScriptRun):
+                app.state.interp.request_stop()
+            app.state.script_task.cancel()
 
     app = FastAPI(lifespan=lifespan)
 
@@ -75,6 +88,28 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG) -> FastA
                 await ws.send_text(json.dumps(data))
             except Exception:
                 app.state.clients.discard(ws)
+
+    def _emit(ev: dict):
+        """Broadcast an event. Must be called on the event loop thread —
+        ``ScriptRun`` marshals its worker thread's events through it."""
+        asyncio.ensure_future(_broadcast_json(app, ev))
+
+    async def _script_loop(app: FastAPI):
+        # don't fly before the student can see it — wait for the browser, but not
+        # forever, so `--no-browser --script` still runs
+        await asyncio.sleep(script_delay)
+        waited = 0.0
+        while not app.state.clients and waited < SCRIPT_CLIENT_WAIT:
+            await asyncio.sleep(0.05)
+            waited += 0.05
+        run = ScriptRun(drone, lambda: app.state.latest_detection, _emit, cfg=cfg,
+                        path=script)
+        app.state.interp = run
+        try:
+            await run.run()
+        finally:
+            if app.state.interp is run:
+                app.state.interp = None
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):

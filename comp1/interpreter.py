@@ -2,9 +2,15 @@ import asyncio
 from typing import Callable
 
 from .drone.base import DroneAdapter
-from .protocol import Block, Program
+from .protocol import LIMITS, Block, Program
 from .vision.config import VisionConfig, DEFAULT_CONFIG
 from .vision.detector import Detection
+
+MAX_EXPR_DEPTH = 32
+MAX_LOOP_ITERS = 1000
+# no target in view reads as "very far away", not 0: a student writing
+# `repeat until (distance < 120)` must keep searching, not think it has arrived
+NO_TARGET_DISTANCE_CM = 9999.0
 
 
 class _Stopped(Exception):
@@ -19,6 +25,10 @@ def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
+def _truthy(v) -> bool:
+    return v if isinstance(v, bool) else float(v) != 0
+
+
 class Interpreter:
     def __init__(self, drone: DroneAdapter,
                  get_detection: Callable[[], Detection],
@@ -31,11 +41,14 @@ class Interpreter:
         # not cleared in run(): a stop requested before run() must still win
         self._stop = asyncio.Event()
         self.found_count = 0
+        self.vars: dict[str, float | bool] = {}
+        self._block_id = ""            # whose fault a warning is, for events
 
     def request_stop(self):
         self._stop.set()
 
     async def run(self, program: Program):
+        self.vars.clear()
         reason, detail = "done", ""
         try:
             await self._run_blocks(program.blocks)
@@ -59,25 +72,114 @@ class Interpreter:
             self._emit({"type": "highlight", "blockId": b.id})
             await self._exec(b)
 
+    # --- expressions ---
+
+    def _warn(self, message: str, block_id: str | None = None):
+        self._emit({"type": "warning", "blockId": block_id or self._block_id,
+                    "message": message})
+
+    def _sensor(self, s: str):
+        det = self._detect()
+        match s:
+            case "target_visible":
+                return det.found
+            case "target_distance_cm":
+                return det.distance_m * 100 if det.found else NO_TARGET_DISTANCE_CM
+            case "target_bearing_deg":
+                return det.bearing_deg if det.found else 0.0
+            case "target_elevation_deg":
+                return det.elevation_deg if det.found else 0.0
+            case "target_count":
+                return float(det.count) if det.found else 0.0
+            case "target_position_left" | "target_position_center" | "target_position_right":
+                return det.found and det.position == s.removeprefix("target_position_")
+            case "found_count":
+                return float(self.found_count)
+            case "battery":
+                return float(self._drone.battery())
+
+    def _eval(self, node, depth=0):
+        if depth > MAX_EXPR_DEPTH:
+            raise ValueError(f"expression nested deeper than {MAX_EXPR_DEPTH} levels")
+        match node.kind:
+            case "number":
+                return node.value
+            case "sensor":
+                return self._sensor(node.sensor)
+            case "var":
+                if node.name not in self.vars:
+                    self._warn(f"variable '{node.name}' was never set — using 0")
+                    return 0.0
+                return self.vars[node.name]
+            case "unop":
+                v = self._eval(node.operand, depth + 1)
+                if node.op == "not":
+                    return not _truthy(v)
+                return -float(v) if node.op == "neg" else abs(float(v))
+            case "binop":
+                return self._binop(node, depth)
+
+    def _binop(self, node, depth):
+        left = self._eval(node.left, depth + 1)
+        if node.op == "and":                          # short-circuit, like the block reads
+            return _truthy(left) and _truthy(self._eval(node.right, depth + 1))
+        if node.op == "or":
+            return _truthy(left) or _truthy(self._eval(node.right, depth + 1))
+        a, b = float(left), float(self._eval(node.right, depth + 1))
+        match node.op:
+            case "+": return a + b
+            case "-": return a - b
+            case "*": return a * b
+            case "/":
+                if b == 0:
+                    self._warn("division by zero — using 0")
+                    return 0.0
+                return a / b
+            case "<": return a < b
+            case ">": return a > b
+            case "<=": return a <= b
+            case ">=": return a >= b
+            case "==": return a == b
+            case "!=": return a != b
+
     def _cond(self, c) -> bool:
-        if c.sensor == "marker_visible":
-            return self._detect().found
-        if c.sensor.startswith("marker_position_"):
-            det = self._detect()
-            return det.found and det.position == c.sensor.removeprefix("marker_position_")
-        return self.found_count >= c.value            # found_count_gte
+        return _truthy(self._eval(c))
+
+    def _clamp_value(self, node, b: Block, field: str, cast=round):
+        """Evaluate a value field and hold it to its range — warn, never raise.
+
+        Ranges cannot be checked at parse time once a field can be computed, and a
+        student whose arithmetic yields `move forward 3` deserves a nudge, not a
+        mission that dies mid-flight.
+        """
+        lo, hi = LIMITS[field]
+        v = cast(self._eval(node))
+        clamped = cast(_clamp(v, lo, hi))
+        if clamped != v:
+            self._warn(f"{field} {v:g} is outside {lo}..{hi} — using {clamped:g}", b.id)
+        return clamped
+
+    async def _sleep(self, seconds: float):
+        try:                                          # e-stop must cut a long wait short
+            await asyncio.wait_for(self._stop.wait(), timeout=seconds)
+        except asyncio.TimeoutError:
+            return
+        raise _Stopped()
+
+    # --- execution ---
 
     async def _exec(self, b: Block):
         d = self._drone
+        self._block_id = b.id
         match b.op:
             case "takeoff":
                 await asyncio.to_thread(d.takeoff)
             case "land":
                 await asyncio.to_thread(d.land)
             case "move":
-                await asyncio.to_thread(d.move, b.dir, b.cm)
+                await asyncio.to_thread(d.move, b.dir, self._clamp_value(b.cm, b, "cm"))
             case "rotate":
-                await asyncio.to_thread(d.rotate, b.dir, b.deg)
+                await asyncio.to_thread(d.rotate, b.dir, self._clamp_value(b.deg, b, "deg"))
             case "flip":
                 await asyncio.to_thread(d.flip, b.dir)
             case "mark_found":
@@ -87,16 +189,25 @@ class Interpreter:
             case "end_mission":
                 await asyncio.to_thread(d.land)
                 raise _MissionEnd()
+            case "set_var":
+                self.vars[b.name] = self._eval(b.value)
+            case "wait":
+                await self._sleep(self._clamp_value(b.seconds, b, "seconds", cast=float))
             case "repeat_n":
-                for _ in range(b.n):
+                for _ in range(self._clamp_value(b.n, b, "n")):
                     await self._run_blocks(b.body)
-            case "repeat_until":
-                for _ in range(1000):                     # hard safety bound
+            case "repeat_until" | "while":
+                # repeat_until stops when the condition goes true, while when it goes false
+                stop_when = b.op == "repeat_until"
+                for _ in range(MAX_LOOP_ITERS):           # hard safety bound
                     if self._stop.is_set():
                         raise _Stopped()
-                    if self._cond(b.cond):
+                    self._block_id = b.id                 # cond warnings belong to the loop
+                    if self._cond(b.cond) == stop_when:
                         break
                     await self._run_blocks(b.body)
+                else:
+                    self._warn(f"loop gave up after {MAX_LOOP_ITERS} repeats", b.id)
             case "if":
                 await self._run_blocks(b.body if self._cond(b.cond) else b.else_body)
             case "approach_marker":

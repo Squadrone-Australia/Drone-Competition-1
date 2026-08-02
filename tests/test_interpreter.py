@@ -60,3 +60,20 @@ async def test_repeat_until_condition_and_if():
     assert ("rotate", "cw", 30) not in drone.log       # else-branch skipped
     assert ("rotate", "ccw", 15) not in drone.log      # until-condition already true
     assert drone.log.count(("move", "forward", 20)) == 2
+
+
+async def test_v1_program_runs_unchanged_under_the_v2_parser():
+    # the same fixture as above, asserted event-for-event: the upgrade must be invisible
+    blocks = [
+        {"id": "a", "op": "takeoff"},
+        {"id": "b", "op": "repeat_until", "cond": {"sensor": "marker_position_center"},
+         "body": [{"id": "c", "op": "rotate", "dir": "cw", "deg": 20}]},
+        {"id": "d", "op": "if", "cond": {"sensor": "marker_visible"},
+         "body": [{"id": "e", "op": "mark_found"}]},
+        {"id": "f", "op": "land"},
+    ]
+    drone, events, it = await run(blocks, det=seen(distance_m=2.0, bearing_deg=0.0))
+    assert drone.log == [("takeoff",), ("flip", "back"), ("land",)]
+    assert [e["blockId"] for e in events if e["type"] == "highlight"] == ["a", "b", "d", "e", "f"]
+    assert not [e for e in events if e["type"] == "warning"]
+    assert it.found_count == 1

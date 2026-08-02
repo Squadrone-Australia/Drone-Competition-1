@@ -59,7 +59,12 @@ function connect() {
 }
 connect();
 
-document.getElementById("run").onclick = () =>
-  ws.send(JSON.stringify({ type: "run", program: COMP1.serializeProgram(workspace) }));
+document.getElementById("run").onclick = () => {
+  const program = COMP1.serializeProgram(workspace);
+  // empty sockets are filled in with a harmless default rather than refusing to run —
+  // say so out loud so a half-built program isn't a silent mystery
+  COMP1.warnings.forEach((w) => log("⚠ " + w));
+  ws.send(JSON.stringify({ type: "run", program }));
+};
 document.getElementById("stop").onclick = () => ws.send(JSON.stringify({ type: "stop" }));
 document.getElementById("estop").onclick = () => ws.send(JSON.stringify({ type: "estop" }));
