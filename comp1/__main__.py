@@ -1,6 +1,7 @@
 import argparse
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -11,7 +12,8 @@ from .server import create_app
 
 def main():
     ap = argparse.ArgumentParser("comp1")
-    ap.add_argument("--drone", choices=["mock", "tello", "sim"], default="mock")
+    ap.add_argument("--drone", choices=["mock", "tello", "sim"], default="sim",
+                    help="initial drone (default: simulator; the browser can switch to Tello)")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--script", type=Path, default=None,
@@ -37,7 +39,10 @@ def main():
         from .drone.mock import MockDrone
         drone = MockDrone()
     if not args.no_browser:
-        threading.Timer(1.0, lambda: webbrowser.open(f"http://localhost:{args.port}")).start()
+        # A unique query makes an already-open competition tab load the current
+        # frontend instead of merely coming to the foreground with stale HTML.
+        launch_url = f"http://localhost:{args.port}/?launch={time.time_ns()}"
+        threading.Timer(1.0, lambda: webbrowser.open(launch_url)).start()
     uvicorn.run(create_app(drone, script=args.script), host="127.0.0.1", port=args.port)
 
 

@@ -8,16 +8,12 @@ Platform for an autonomous search-and-rescue drone competition (secondary school
 python -m venv venv
 venv\Scripts\pip install -e .[dev]
 
-# run with the built-in mock drone (no hardware needed)
+# start in the simulator (the default; no hardware needed)
 venv\Scripts\python -m comp1
 
-# run with a real Tello (join the TELLO-xxxx WiFi first)
-venv\Scripts\python -m comp1 --drone tello
-
-# run against the simulator: a randomly generated arena with victim markers
-# and distractors, rendered as synthetic camera frames (new layout each launch;
-# --seed N for a repeatable one, --noise 0.05 for movement drift)
-venv\Scripts\python -m comp1 --drone sim
+# The simulator has a randomly generated arena with victim markers and
+# distractors. Use --seed N for a repeatable layout or --noise 0.05 for drift.
+# To fly hardware, join the TELLO-xxxx WiFi and click "Use real Tello" in the UI.
 ```
 
 The app starts a local server on port 8765 and opens the block-coding UI in your browser (`--no-browser` to skip, `--port` to change). Drag blocks under **🚁 when mission starts** and press **Run**; the currently executing block is highlighted, and the right-hand panel shows the drone camera with the red-circle detection overlay, plus a live readout of how far away the victim is and in which direction.
@@ -40,7 +36,7 @@ drone.land()
 ```
 
 ```powershell
-venv\Scripts\python -m comp1 --script examples\02_search_and_mark.py --drone sim
+venv\Scripts\python -m comp1 --script examples\02_search_and_mark.py
 ```
 
 The script runs alongside the server, so the video feed, telemetry panel and **EMERGENCY STOP** button stay live while the student's own code flies the drone. See [`examples/`](examples/) for annotated starting points.

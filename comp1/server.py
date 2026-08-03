@@ -2,6 +2,7 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Callable
 
 import cv2
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -25,17 +26,27 @@ POSE_INTERVAL = 1 / 30
 SCRIPT_CLIENT_WAIT = 5.0  # how long a --script run holds off for the browser
 
 
+def _new_tello() -> DroneAdapter:
+    # Keep this lazy: a simulator launch must not touch the hardware pathway.
+    # The adapter is constructed only after a deliberate click in the browser.
+    from .drone.tello import TelloDrone
+    return TelloDrone()
+
+
 def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
-               script: str | Path | None = None, script_delay: float = 1.5) -> FastAPI:
+               script: str | Path | None = None, script_delay: float = 1.5,
+               tello_factory: Callable[[], DroneAdapter] = _new_tello) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         drone.connect()
+        app.state.drone = drone
+        app.state.drone_switching = False
         app.state.latest_detection = Detection(found=False)
         app.state.tracker = TargetTracker(cfg)
         app.state.clients = set()
         # ground truth for the mission panel; None whenever the adapter has no
         # arena to score against (mock, real Tello)
-        app.state.scorer = _new_scorer()
+        app.state.scorer = _new_scorer(app)
         app.state.mission = None
         # one slot for whatever is flying — Interpreter or ScriptRun. Both expose
         # request_stop(), so stop/e-stop routing below is pathway-agnostic, and a
@@ -59,14 +70,15 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
     async def _video_loop(app: FastAPI):
         last_telemetry = None
         while True:
-            frame = await asyncio.to_thread(drone.get_frame)
+            active_drone = app.state.drone
+            frame = await asyncio.to_thread(active_drone.get_frame)
             if frame is not None:
                 # detection runs on the raw sensor frame; every overlay below is
                 # applied to a copy, so nothing we draw can be detected
                 det = app.state.tracker.update(frame)
                 app.state.latest_detection = det
                 small = cv2.resize(frame, (640, 480)) if frame.shape[1] != 640 else frame
-                display = drone.annotate(draw_overlay(small, det))
+                display = active_drone.annotate(draw_overlay(small, det))
                 ok, jpeg = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 if ok:
                     await _broadcast_bytes(app, jpeg.tobytes())
@@ -84,7 +96,7 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         """
         last = None
         while True:
-            pose = drone.pose()
+            pose = app.state.drone.pose()
             if pose is not None and pose != last and app.state.clients:
                 last = pose
                 await _broadcast_json(app, {"type": "pose", **pose})
@@ -93,28 +105,29 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                 await _publish_mission(app, pose)
             await asyncio.sleep(POSE_INTERVAL)
 
-    def _new_scorer():
-        scene = drone.scene()
+    def _new_scorer(app: FastAPI):
+        scene = app.state.drone.scene()
         return MissionScorer(scene) if scene else None
 
-    def _current_scenery():
-        scene = drone.scene()
+    def _current_scenery(app: FastAPI):
+        scene = app.state.drone.scene()
         return scene.get("name") if scene else None
 
     async def _rebuild_arena(app: FastAPI, **kwargs):
         """Apply an arena edit, then put everything watching back to the start."""
-        await asyncio.to_thread(lambda: drone.load_scenery(**kwargs))
+        active_drone = app.state.drone
+        await asyncio.to_thread(lambda: active_drone.load_scenery(**kwargs))
         await _reset(app)
-        await _broadcast_json(app, {"type": "scene", "scene": drone.scene()})
+        await _broadcast_json(app, {"type": "scene", "scene": active_drone.scene()})
         await _broadcast_json(app, {"type": "sceneries",
-                                    "sceneries": drone.scenery_catalog(),
-                                    "current": _current_scenery()})
+                                    "sceneries": active_drone.scenery_catalog(),
+                                    "current": _current_scenery(app)})
 
     async def _publish_mission(app: FastAPI, pose=None, signal=None):
         scorer = app.state.scorer
         if scorer is None:
             return
-        state = scorer.state(pose if pose is not None else drone.pose())
+        state = scorer.state(pose if pose is not None else app.state.drone.pose())
         if state == app.state.mission and signal is None:
             return
         app.state.mission = state
@@ -151,16 +164,54 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         would have the new run reacting to something the drone is no longer
         looking at.
         """
-        await asyncio.to_thread(drone.reset)
+        active_drone = app.state.drone
+        await asyncio.to_thread(active_drone.reset)
         app.state.tracker = TargetTracker(cfg)
         app.state.latest_detection = Detection(found=False)
-        app.state.scorer = _new_scorer()
+        app.state.scorer = _new_scorer(app)
         app.state.mission = None
         # `repositioned` is the difference between "the drone is on its pad" and
         # "the counters are zero but the aircraft has not moved". The browser must
         # not claim the former on hardware, where reset() is a no-op.
-        await _broadcast_json(app, {"type": "reset", "repositioned": drone.can_reset})
+        await _broadcast_json(app, {"type": "reset", "repositioned": active_drone.can_reset})
         await _publish_mission(app)
+
+    async def _switch_to_tello(app: FastAPI):
+        """Connect hardware first, then atomically make it the active adapter.
+
+        Keeping the simulator active until ``connect`` succeeds means a missing
+        Tello or incorrect Wi-Fi never leaves the application without a usable
+        drone. Missions are refused while the connection attempt is in flight.
+        """
+        app.state.drone_switching = True
+        await _broadcast_json(app, {"type": "drone_mode",
+                                    "mode": app.state.drone.mode,
+                                    "switching": True})
+        try:
+            candidate = tello_factory()
+            await asyncio.to_thread(candidate.connect)
+        except Exception as exc:
+            app.state.drone_switching = False
+            await _broadcast_json(app, {"type": "drone_mode",
+                                        "mode": app.state.drone.mode,
+                                        "switching": False})
+            await _broadcast_json(app, {"type": "error",
+                                        "message": f"could not connect to Tello: {exc}"})
+            return
+
+        app.state.drone = candidate
+        app.state.drone_switching = False
+        app.state.tracker = TargetTracker(cfg)
+        app.state.latest_detection = Detection(found=False)
+        app.state.scorer = _new_scorer(app)
+        app.state.mission = None
+        await _broadcast_json(app, {"type": "scene", "scene": candidate.scene()})
+        await _broadcast_json(app, {"type": "sceneries",
+                                    "sceneries": candidate.scenery_catalog(),
+                                    "current": _current_scenery(app)})
+        await _broadcast_json(app, {"type": "drone_mode",
+                                    "mode": candidate.mode,
+                                    "switching": False})
 
     def _select_nearest_target():
         """Make the closest currently visible marker the new tracker lock."""
@@ -178,7 +229,8 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         """
         if ev.get("type") != "found_count" or app.state.scorer is None:
             return None
-        return "credited" if app.state.scorer.signal(drone.pose()) else "no victim nearby"
+        return ("credited" if app.state.scorer.signal(app.state.drone.pose())
+                else "no victim nearby")
 
     async def _on_event(ev: dict, signal=None):
         await _broadcast_json(app, ev)
@@ -198,7 +250,12 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         while not app.state.clients and waited < SCRIPT_CLIENT_WAIT:
             await asyncio.sleep(0.05)
             waited += 0.05
-        run = ScriptRun(drone, lambda: app.state.latest_detection, _emit, cfg=cfg,
+        # A click during the short startup delay may still be connecting the
+        # Tello. Never capture the simulator halfway through that handoff and
+        # then run it invisibly behind the hardware camera feed.
+        while app.state.drone_switching:
+            await asyncio.sleep(0.05)
+        run = ScriptRun(app.state.drone, lambda: app.state.latest_detection, _emit, cfg=cfg,
                         select_nearest_target=_select_nearest_target,
                         path=script)
         app.state.interp = run
@@ -220,18 +277,26 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         # The arena is sent per client on connect and re-broadcast to everyone
         # whenever the picker or the plan editor changes it — it is static for
         # the length of a run, not for the length of the session.
-        await ws.send_text(json.dumps({"type": "scene", "scene": drone.scene()}))
+        active_drone = app.state.drone
+        await ws.send_text(json.dumps({"type": "scene", "scene": active_drone.scene()}))
         await ws.send_text(json.dumps({"type": "sceneries",
-                                       "sceneries": drone.scenery_catalog(),
-                                       "current": _current_scenery()}))
+                                       "sceneries": active_drone.scenery_catalog(),
+                                       "current": _current_scenery(app)}))
         if app.state.scorer is not None:
             await ws.send_text(json.dumps({"type": "mission", "signal": None,
-                                           **app.state.scorer.state(drone.pose())}))
+                                           **app.state.scorer.state(active_drone.pose())}))
+        await ws.send_text(json.dumps({"type": "drone_mode",
+                                       "mode": active_drone.mode,
+                                       "switching": app.state.drone_switching}))
 
         try:
             while True:
                 msg = json.loads(await ws.receive_text())
                 if msg["type"] == "run":
+                    if app.state.drone_switching:
+                        await _broadcast_json(app, {"type": "error",
+                                                    "message": "wait for the drone connection"})
+                        continue
                     if app.state.interp is not None:
                         await _broadcast_json(app, {"type": "error", "message": "already running"})
                         continue
@@ -244,7 +309,8 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                     # every attempt starts from the same place, so a change in the
                     # program is the only thing that changed
                     await _reset(app)
-                    interp = Interpreter(drone, lambda: app.state.latest_detection, emit, cfg=cfg,
+                    interp = Interpreter(app.state.drone,
+                                         lambda: app.state.latest_detection, emit, cfg=cfg,
                                          select_nearest_target=_select_nearest_target)
                     app.state.interp = interp
 
@@ -259,7 +325,10 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                     if app.state.interp:
                         app.state.interp.request_stop()
                 elif msg["type"] == "reset":
-                    if app.state.interp is not None:
+                    if app.state.drone_switching:
+                        await _broadcast_json(app, {"type": "error",
+                                                    "message": "wait for the drone connection"})
+                    elif app.state.interp is not None:
                         await _broadcast_json(app, {"type": "error",
                                                     "message": "stop the mission before resetting"})
                     else:
@@ -267,7 +336,10 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                 elif msg["type"] in ("scenery", "layout"):
                     # Editing the arena mid-flight would move the ground out from
                     # under a running mission, so it waits — same rule as reset.
-                    if drone.scenery_catalog() is None:
+                    if app.state.drone_switching:
+                        await _broadcast_json(app, {
+                            "type": "error", "message": "wait for the drone connection"})
+                    elif app.state.drone.scenery_catalog() is None:
                         await _broadcast_json(app, {
                             "type": "error",
                             "message": "this drone has no arena to edit"})
@@ -283,8 +355,23 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                 elif msg["type"] == "estop":
                     if app.state.interp:
                         app.state.interp.request_stop()
-                    await asyncio.to_thread(drone.emergency)
+                    await asyncio.to_thread(app.state.drone.emergency)
                     await _broadcast_json(app, {"type": "estopped"})
+                elif msg["type"] == "switch_drone":
+                    if msg.get("mode") != "tello":
+                        await _broadcast_json(app, {"type": "error",
+                                                    "message": "unsupported drone mode"})
+                    elif app.state.drone.mode == "tello":
+                        await _broadcast_json(app, {"type": "drone_mode", "mode": "tello",
+                                                    "switching": False})
+                    elif app.state.interp is not None:
+                        await _broadcast_json(app, {"type": "error",
+                                                    "message": "stop the mission before switching drones"})
+                    elif app.state.drone_switching:
+                        await _broadcast_json(app, {"type": "error",
+                                                    "message": "a drone connection is already in progress"})
+                    else:
+                        await _switch_to_tello(app)
         except WebSocketDisconnect:
             pass
         finally:

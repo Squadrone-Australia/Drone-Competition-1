@@ -5,6 +5,8 @@ from .base import DroneAdapter
 
 
 class TelloDrone(DroneAdapter):
+    mode = "tello"
+
     def __init__(self):
         self._t = Tello()
         self._reader = None

@@ -169,6 +169,52 @@ def test_estop_calls_emergency():
     assert ("emergency",) in drone.log
 
 
+def test_browser_can_switch_from_simulator_to_a_connected_tello():
+    from comp1.sim.drone import SimDrone
+    simulator = SimDrone(seed=2, delay=0)
+    tello = MockDrone()
+    tello.mode = "tello"
+    app = create_app(simulator, tello_factory=lambda: tello)
+
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        initial = collect_until(ws, "drone_mode")
+        assert initial == {"type": "drone_mode", "mode": "sim", "switching": False}
+
+        ws.send_json({"type": "switch_drone", "mode": "tello"})
+        assert collect_until(ws, "drone_mode")["switching"] is True
+        connected = collect_until(ws, "drone_mode")
+        assert connected == {"type": "drone_mode", "mode": "tello", "switching": False}
+
+        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
+            {"id": "a", "op": "takeoff"}, {"id": "b", "op": "land"}]}})
+        assert collect_until(ws, "finished")["reason"] == "done"
+
+    assert ("connect",) in tello.log
+    assert ("takeoff",) in tello.log and ("land",) in tello.log
+
+
+def test_failed_tello_connection_keeps_the_simulator_active():
+    from comp1.sim.drone import SimDrone
+
+    class UnavailableTello(MockDrone):
+        mode = "tello"
+
+        def connect(self):
+            raise RuntimeError("not reachable")
+
+    simulator = SimDrone(seed=2, delay=0)
+    app = create_app(simulator, tello_factory=UnavailableTello)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "drone_mode")
+        ws.send_json({"type": "switch_drone", "mode": "tello"})
+        assert collect_until(ws, "drone_mode")["switching"] is True
+        mode = collect_until(ws, "drone_mode")
+        error = collect_until(ws, "error")
+        assert mode == {"type": "drone_mode", "mode": "sim", "switching": False}
+        assert "could not connect" in error["message"]
+        assert app.state.drone is simulator
+
+
 # --- choosing and editing the arena ---------------------------------------
 
 def collect_where(ws, want_type, pred, limit=400):

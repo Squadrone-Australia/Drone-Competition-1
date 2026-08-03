@@ -9,7 +9,12 @@ const consoleEl = document.getElementById("console");
 const videoEl = document.getElementById("video");
 const foundEl = document.getElementById("found");
 const blockHelpEl = document.querySelector("#block-help span");
+const droneModeEl = document.getElementById("drone-mode");
+const useTelloEl = document.getElementById("use-tello");
 let ws, lastUrl;
+let missionRunning = false;
+let droneMode = null;
+let droneSwitching = false;
 
 const blockDescriptions = new Map(COMP1.blocks.map((block) => [block.type, block.tooltip]));
 workspace.addChangeListener((event) => {
@@ -54,7 +59,26 @@ window.COMP1_SEND = (msg) => {
 // mid-mission, and a panel that only greys itself out after the refusal is a
 // panel that looks broken — so both pathways announce themselves here.
 function setRunning(running) {
+  missionRunning = running;
+  useTelloEl.disabled = running || droneSwitching || droneMode === "tello" || !droneMode;
   bus.emit({ type: "running", running });
+}
+
+function showDroneMode(msg) {
+  const previousMode = droneMode;
+  droneMode = msg.mode;
+  droneSwitching = Boolean(msg.switching);
+  const names = { sim: "simulator", tello: "real Tello", mock: "mock drone" };
+  droneModeEl.textContent = `Drone: ${names[droneMode] || droneMode}`;
+  useTelloEl.textContent = droneSwitching
+    ? "Connecting…"
+    : (droneMode === "tello" ? "Using real Tello" : "Use real Tello");
+  useTelloEl.disabled = missionRunning || droneSwitching || droneMode === "tello";
+  if (previousMode && previousMode !== droneMode) {
+    foundEl.textContent = "Victims found: 0";
+    missionState = null;
+    log(`switched to ${names[droneMode] || droneMode}`);
+  }
 }
 
 // the same numbers the "distance to victim" / "direction to victim" blocks read,
@@ -114,6 +138,7 @@ function connect() {
     else if (msg.type === "script") setRunning(msg.state === "started");
     else if (msg.type === "mission") showMission(msg);
     else if (msg.type === "telemetry") showTelemetry(msg);
+    else if (msg.type === "drone_mode") showDroneMode(msg);
     else if (msg.type === "error") log("⚠ " + msg.message);
     else if (msg.type === "estopped") { log("⛔ EMERGENCY STOP"); setRunning(false); }
     else if (msg.type === "reset") {
@@ -143,4 +168,10 @@ document.getElementById("stop").onclick = () => ws.send(JSON.stringify({ type: "
 // Run resets on the server anyway; this button is for putting the drone back
 // after a stopped or crashed attempt without flying another one.
 document.getElementById("reset").onclick = () => ws.send(JSON.stringify({ type: "reset" }));
+useTelloEl.onclick = () => {
+  const confirmed = window.confirm(
+    "Switch to the real Tello? Join the TELLO Wi-Fi first. Programs will control the physical drone."
+  );
+  if (confirmed) window.COMP1_SEND({ type: "switch_drone", mode: "tello" });
+};
 document.getElementById("estop").onclick = () => ws.send(JSON.stringify({ type: "estop" }));

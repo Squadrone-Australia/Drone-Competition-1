@@ -30,6 +30,7 @@ class SimDrone(DroneAdapter):
     straight after a call.
     """
 
+    mode = "sim"
     can_reset = True        # unlike hardware, this one really can go home
 
     def __init__(self, world=None, noise=0.0, delay=0.3, seed=None, scenery_name="arena"):

@@ -4,6 +4,10 @@ import numpy as np
 
 
 class DroneAdapter(ABC):
+    #: Short identifier sent to the browser so it can make the active flight
+    #: target unambiguous. Concrete adapters override this where appropriate.
+    mode: str = "mock"
+
     @abstractmethod
     def connect(self) -> None: ...
 

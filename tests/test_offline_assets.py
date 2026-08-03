@@ -36,3 +36,12 @@ def test_block_help_is_visible_and_frontend_scripts_are_versioned():
     assert 'id="block-help"' in html
     assert 'src="blocks.js?v=' in html
     assert 'src="app.js?v=' in html
+
+
+def test_frontend_offers_an_explicit_real_tello_switch():
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    app_js = (FRONTEND / "app.js").read_text(encoding="utf-8")
+    assert 'id="drone-mode"' in html
+    assert 'id="use-tello"' in html
+    assert 'type: "switch_drone", mode: "tello"' in app_js
+    assert "window.confirm" in app_js

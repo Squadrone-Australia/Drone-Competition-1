@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>COMP1 Drone Coder</title>
-  <link rel="stylesheet" href="style.css?v=20260803-2">
+  <link rel="stylesheet" href="style.css?v=20260803-4">
   <script src="vendor/blockly.min.js"></script>
   <script type="importmap">
     { "imports": { "three": "./vendor/three.module.min.js" } }
@@ -16,6 +16,8 @@
     <button id="run">▶ Run</button>
     <button id="stop">⏹ Stop</button>
     <button id="reset" title="Simulator: back to the start pad. Real drone: clears the counters only — it will not move.">⟲ Reset</button>
+    <span id="drone-mode" class="drone-mode">Drone: simulator</span>
+    <button id="use-tello" title="Connect to a real DJI Tello" disabled>Use real Tello</button>
     <button id="estop" class="estop">EMERGENCY STOP</button>
   </header>
   <main>
@@ -43,8 +45,7 @@
         </div>
 
         <div id="view3d">
-          <p id="stage-empty" hidden>3D view needs the simulator — start with
-            <code>--drone sim</code>.</p>
+          <p id="stage-empty" hidden>3D view is available in simulator mode.</p>
         </div>
 
         <!-- The camera window floats over the 3D stage: the two views are of the
@@ -84,7 +85,7 @@
     </aside>
   </main>
   <script src="blocks.js?v=20260803-2"></script>
-  <script src="app.js?v=20260803-2"></script>
+  <script src="app.js?v=20260803-3"></script>
   <script src="plan.js?v=20260803-2"></script>
   <script type="module" src="view3d.js?v=20260803-2"></script>
 </body>
