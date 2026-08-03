@@ -204,6 +204,27 @@ def test_browser_can_switch_from_simulator_to_a_connected_tello():
     assert ("takeoff",) in tello.log and ("land",) in tello.log
 
 
+def test_browser_can_switch_from_tello_back_to_the_same_simulator():
+    from comp1.sim.drone import SimDrone
+    simulator = SimDrone(seed=2, delay=0)
+    tello = MockDrone()
+    tello.mode = "tello"
+    app = create_app(simulator, tello_factory=lambda: tello)
+
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "drone_mode")
+        ws.send_json({"type": "switch_drone", "mode": "tello"})
+        collect_until(ws, "drone_mode")  # switching
+        collect_until(ws, "drone_mode")  # connected
+
+        ws.send_json({"type": "switch_drone", "mode": "sim"})
+        assert collect_until(ws, "drone_mode") == {
+            "type": "drone_mode", "mode": "tello", "switching": True}
+        restored = collect_until(ws, "drone_mode")
+        assert restored == {"type": "drone_mode", "mode": "sim", "switching": False}
+        assert app.state.drone is simulator
+
+
 def test_failed_tello_connection_keeps_the_simulator_active():
     from comp1.sim.drone import SimDrone
 

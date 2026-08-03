@@ -101,24 +101,37 @@ aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column; bac
   letter-spacing: .04em; }
 #telemetry .ok { color: #4ade80; }
 
-/* --- translated program + exact adapter calls -------------------------- */
-#debug-panel { flex: 0 0 auto; background: #111c31; color: #cbd5e1;
-  border-top: 1px solid #334155; font-size: 12px; }
-#debug-panel summary { padding: 7px 10px; color: #7dd3fc; cursor: pointer;
-  font-weight: 650; user-select: none; }
-#debug-panel[open] { max-height: 42vh; overflow: hidden; }
-#debug-note { padding: 0 10px 6px; color: #94a3b8; }
-#debug-tabs { display: flex; gap: 5px; padding: 0 8px 6px; }
+/* --- code inspector: attached to Blockly as a bottom drawer ------------ */
+#debug-panel { flex: 0 0 auto; min-width: 0; background: #111c31; color: #cbd5e1;
+  border-top: 2px solid #38bdf8; font-size: 12px; display: flex;
+  flex-direction: column; overflow: hidden; }
+#debug-panel.open { flex: 0 0 clamp(220px, 36vh, 360px); min-height: 0; }
+#debug-toggle { flex: 0 0 auto; width: 100%; padding: 8px 12px; border: 0;
+  background: #111c31; color: #7dd3fc; cursor: pointer; font: inherit;
+  font-weight: 700; text-align: left; user-select: none; }
+#debug-toggle::before { content: "▾"; display: inline-block; width: 16px; color: #38bdf8; }
+#debug-panel:not(.open) #debug-toggle::before { content: "▸"; }
+#debug-toggle small { float: right; margin-top: 2px; color: #64748b;
+  font-size: 10px; font-weight: 500; letter-spacing: .03em; }
+#debug-content { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex;
+  flex-direction: column; overflow: hidden; }
+#debug-panel:not(.open) #debug-content { display: none; }
+#debug-note { flex: 0 0 auto; padding: 0 12px 7px; color: #94a3b8; }
+#debug-tabs { flex: 0 0 auto; display: flex; gap: 5px; padding: 0 10px 7px; }
 #debug-tabs button { padding: 3px 8px; border: 1px solid #475569; border-radius: 5px;
   background: #0f172a; color: #94a3b8; cursor: pointer; font-size: 11px; }
 #debug-tabs button.on { color: #38bdf8; border-color: #38bdf8;
   background: rgba(56, 189, 248, .12); }
-#debug-clear { margin-left: auto; }
-#debug-program, #debug-trace { max-height: calc(42vh - 94px); min-height: 90px;
-  margin: 0; padding: 8px 10px; overflow: auto; border-top: 1px solid #24354f;
+#debug-copy { margin-left: auto; }
+#debug-clear[hidden] { display: none; }
+#debug-panes { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex;
+  overflow: hidden; border-top: 1px solid #24354f; }
+#debug-python, #debug-program, #debug-trace { flex: 1 1 auto; width: 100%; height: 100%;
+  min-width: 0; min-height: 0; max-height: 100%; margin: 0; padding: 10px 12px;
+  overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
   background: #020617; color: #cbd5e1; font: 11px/1.45 ui-monospace, Consolas, monospace;
-  white-space: pre-wrap; overflow-wrap: anywhere; }
-#debug-program[hidden], #debug-trace[hidden] { display: none; }
+  white-space: pre; overflow-wrap: normal; }
+#debug-python[hidden], #debug-program[hidden], #debug-trace[hidden] { display: none; }
 /* category toolbox: big enough to read across a classroom */
 .blocklyToolboxDiv { background: #f1f5f9; padding-top: 4px; }
 .blocklyTreeRow { padding: 4px 0; }

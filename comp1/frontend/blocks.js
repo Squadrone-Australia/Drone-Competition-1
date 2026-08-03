@@ -320,11 +320,143 @@ function chainJson(block, loopDepth = 0) {
   return out;
 }
 
+// A readable, copyable Python equivalent for teaching and debugging. It is
+// display-only: the flight runtime continues to validate and interpret JSON.
+function pythonValue(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "0";
+  if (!value || typeof value !== "object") return "0";
+  switch (value.kind) {
+    case "number":
+      return Number.isFinite(value.value) ? String(value.value) : "0";
+    case "var":
+      return `variables.get(${JSON.stringify(value.name)}, 0)`;
+    case "sensor": {
+      const fixed = {
+        target_visible: "drone.sees_target()",
+        target_distance_cm: '_target_value("distance_cm", 9999)',
+        target_bearing_deg: '_target_value("bearing_deg", 0)',
+        target_elevation_deg: '_target_value("elevation_deg", 0)',
+        target_count: "len(drone.targets())",
+        found_count: "drone.found_count",
+        battery: "drone.battery",
+      };
+      if (fixed[value.sensor]) return fixed[value.sensor];
+      const position = value.sensor.match(/^target_position_(left|center|right)$/);
+      return position
+        ? `_target_value("position", "") == ${JSON.stringify(position[1])}`
+        : "0";
+    }
+    case "unop": {
+      const operand = pythonValue(value.operand);
+      if (value.op === "not") return `(not ${operand})`;
+      if (value.op === "abs") return `abs(${operand})`;
+      return `(-${operand})`;
+    }
+    case "binop": {
+      const left = pythonValue(value.left);
+      const right = pythonValue(value.right);
+      if (value.op === "/") return `_safe_div(${left}, ${right})`;
+      return `(${left} ${value.op} ${right})`;
+    }
+    default:
+      return "0";
+  }
+}
+
+function pythonBlocks(blocks, depth = 0) {
+  const lines = [];
+  const pad = "    ".repeat(depth);
+  const add = (line) => lines.push(pad + line);
+  const child = (items) => {
+    const nested = pythonBlocks(items || [], depth + 1);
+    return nested.length ? nested : ["    ".repeat(depth + 1) + "pass"];
+  };
+
+  for (const block of blocks || []) {
+    add(`# block ${block.op} [${block.id}]`);
+    switch (block.op) {
+      case "takeoff": add("drone.takeoff()"); break;
+      case "land": add("drone.land()"); break;
+      case "move": add(`drone.${block.dir}(${pythonValue(block.cm)})`); break;
+      case "rotate":
+        add(`drone.${block.dir === "cw" ? "turn_right" : "turn_left"}(${pythonValue(block.deg)})`);
+        break;
+      case "flip": add(`drone.flip(${JSON.stringify(block.dir)})`); break;
+      case "approach_marker": add("drone.approach_target()"); break;
+      case "mark_found": add("drone.mark_found()"); break;
+      case "end_mission":
+        add("drone.land()");
+        add("raise SystemExit  # finish without running later blocks");
+        break;
+      case "set_var":
+        add(`variables[${JSON.stringify(block.name)}] = ${pythonValue(block.value)}`);
+        break;
+      case "wait": add(`drone.wait(_clamp(${pythonValue(block.seconds)}, 0, 10))`); break;
+      case "break": add("break"); break;
+      case "continue": add("continue"); break;
+      case "repeat_n":
+        add(`for _ in range(_clamp(round(${pythonValue(block.n)}), 0, 50)):`);
+        lines.push(...child(block.body));
+        break;
+      case "repeat_until":
+        add(`while not ${pythonValue(block.cond)}:`);
+        lines.push(...child(block.body));
+        break;
+      case "while":
+        add(`while ${pythonValue(block.cond)}:`);
+        lines.push(...child(block.body));
+        break;
+      case "if":
+        add(`if ${pythonValue(block.cond)}:`);
+        lines.push(...child(block.body));
+        if ((block.else_body || []).length) {
+          add("else:");
+          lines.push(...child(block.else_body));
+        }
+        break;
+    }
+  }
+  return lines;
+}
+
+function programToPython(program) {
+  const preamble = [
+    "# Display-only Python equivalent.",
+    "# The competition app executes validated JSON, not this generated text.",
+    "from comp1.api import Drone",
+    "",
+    "drone = Drone()",
+    "variables = {}",
+    "",
+    "def mission():",
+  ];
+  const body = pythonBlocks(program?.blocks || [], 1);
+  const mission = body.length
+    ? body
+    : ["    # Connect blocks beneath 'when mission starts' to translate them."];
+  const helpers = [
+    "",
+    "def _clamp(value, low, high):",
+    "    return max(low, min(high, value))",
+    "",
+    "def _safe_div(left, right):",
+    "    return left / right if right else 0",
+    "",
+    "def _target_value(name, default):",
+    "    target = drone.target()",
+    "    return getattr(target, name) if target else default",
+    "",
+    "mission()",
+    "",
+  ];
+  return [...preamble, ...mission, ...helpers].join("\n");
+}
+
 const COMP1 = {
   blocks: BLOCKS,
   toolbox: TOOLBOX,
   warnings: WARNINGS, // filled by serializeProgram; app.js prints these to the console
-  valueJson, blockJson, chainJson,
+  valueJson, blockJson, chainJson, programToPython,
   serializeProgram(workspace) {
     WARNINGS.length = 0;
     const start = workspace.getBlocksByType("start", false)[0];

@@ -6,7 +6,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 
 const COMP1 = require("../../comp1/frontend/blocks.js");
-const { valueJson, serializeProgram, warnings, blocks, toolbox } = COMP1;
+const { valueJson, serializeProgram, programToPython, warnings, blocks, toolbox } = COMP1;
 
 let nextId = 0;
 function fake(type, opts = {}) {
@@ -62,6 +62,43 @@ test("a beginner program looks exactly like it did under v1, but version 2", () 
 test("plain ops carry only id and op", () => {
   for (const op of ["takeoff", "land", "approach_marker", "mark_found", "end_mission"])
     assert.deepStrictEqual(run(fake(op, { id: "x" })).blocks, [{ id: "x", op }]);
+});
+
+test("Python translation uses the public Drone API and keeps block ids", () => {
+  const program = run(chain(
+    fake("takeoff", { id: "launch" }),
+    fake("move", { id: "fly", fields: { DIR: "forward" }, inputs: { CM: n(50) } }),
+    fake("rotate", { id: "turn", fields: { DIR: "cw" }, inputs: { DEG: n(90) } }),
+    fake("mark_found", { id: "found" }),
+    fake("land", { id: "finish" })));
+  const python = programToPython(program);
+  assert.match(python, /from comp1\.api import Drone/);
+  assert.match(python, /# block takeoff \[launch\]\s+drone\.takeoff\(\)/);
+  assert.match(python, /# block move \[fly\]\s+drone\.forward\(50\)/);
+  assert.match(python, /drone\.turn_right\(90\)/);
+  assert.match(python, /drone\.mark_found\(\)/);
+  assert.match(python, /drone\.land\(\)/);
+});
+
+test("Python translation renders expressions, variables, branches, and loops", () => {
+  const python = programToPython({ version: 2, blocks: [
+    { id: "set", op: "set_var", name: "steps taken", value: 2 },
+    { id: "loop", op: "repeat_until",
+      cond: { kind: "sensor", sensor: "target_visible" },
+      body: [{ id: "turn", op: "rotate", dir: "ccw",
+               deg: { kind: "var", name: "steps taken" } }] },
+    { id: "if", op: "if",
+      cond: { kind: "binop", op: "<",
+              left: { kind: "sensor", sensor: "target_distance_cm" },
+              right: { kind: "number", value: 120 } },
+      body: [{ id: "mark", op: "mark_found" }],
+      else_body: [{ id: "wait", op: "wait", seconds: 1 }] },
+  ] });
+  assert.match(python, /variables\["steps taken"\] = 2/);
+  assert.match(python, /while not drone\.sees_target\(\):/);
+  assert.match(python, /drone\.turn_left\(variables\.get\("steps taken", 0\)\)/);
+  assert.match(python, /if \(_target_value\("distance_cm", 9999\) < 120\):/);
+  assert.match(python, /else:\s+# block wait \[wait\]\s+drone\.wait/);
 });
 
 test("wait takes a Value", () => {

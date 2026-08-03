@@ -38,20 +38,30 @@ def test_block_help_is_visible_and_frontend_scripts_are_versioned():
     assert 'src="app.js?v=' in html
 
 
-def test_frontend_offers_an_explicit_real_tello_switch():
+def test_frontend_offers_a_reversible_real_tello_switch():
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     app_js = (FRONTEND / "app.js").read_text(encoding="utf-8")
     assert 'id="drone-mode"' in html
     assert 'id="use-tello"' in html
-    assert 'type: "switch_drone", mode: "tello"' in app_js
+    assert '"Use Simulator"' in app_js
+    assert 'useSimulator ? "sim" : "tello"' in app_js
     assert "window.confirm" in app_js
 
 
 def test_frontend_has_translation_and_execution_debug_views():
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     app_js = (FRONTEND / "app.js").read_text(encoding="utf-8")
+    css = (FRONTEND / "style.css").read_text(encoding="utf-8")
     assert 'id="debug-program"' in html
+    assert 'id="debug-python"' in html
     assert 'id="debug-trace"' in html
-    assert "Blocks are validated JSON, not generated Python" in html
+    assert 'id="debug-toggle"' in html and 'id="debug-panes"' in html
+    assert html.index('id="debug-panel"') < html.index("<aside>")
+    assert "Only blocks connected beneath" in html
+    assert "COMP1.programToPython(program)" in app_js
+    assert 'typeof event.isUiEvent === "function"' in app_js
+    assert "Blocks are present, but none is connected" in app_js
+    assert 'classList.toggle("open")' in app_js
+    assert "#debug-panes" in css and "scrollbar-gutter: stable" in css
     assert 'msg.type === "debug_program"' in app_js
     assert 'msg.type === "execution"' in app_js

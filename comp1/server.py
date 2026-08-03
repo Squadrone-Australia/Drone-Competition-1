@@ -33,13 +33,23 @@ def _new_tello() -> DroneAdapter:
     return TelloDrone()
 
 
+def _new_simulator() -> DroneAdapter:
+    from .sim.drone import SimDrone
+    return SimDrone()
+
+
 def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                script: str | Path | None = None, script_delay: float = 1.5,
-               tello_factory: Callable[[], DroneAdapter] = _new_tello) -> FastAPI:
+               tello_factory: Callable[[], DroneAdapter] = _new_tello,
+               simulator_factory: Callable[[], DroneAdapter] = _new_simulator) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         drone.connect()
         app.state.drone = drone
+        # Keep the configured simulator (seed, scenery, noise, and any teacher
+        # edits) available while a real Tello is active so the UI can switch
+        # back to the same arena rather than silently creating a different one.
+        app.state.simulator = drone if drone.mode == "sim" else None
         app.state.drone_switching = False
         app.state.latest_detection = Detection(found=False)
         app.state.tracker = TargetTracker(cfg)
@@ -94,9 +104,14 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         Display data only — see ``DroneAdapter.pose``. Adapters that have no
         arena-absolute pose (mock, real Tello) return None and this loop idles.
         """
+        last_drone = None
         last = None
         while True:
-            pose = app.state.drone.pose()
+            active_drone = app.state.drone
+            if active_drone is not last_drone:
+                last_drone = active_drone
+                last = None
+            pose = active_drone.pose()
             if pose is not None and pose != last and app.state.clients:
                 last = pose
                 await _broadcast_json(app, {"type": "pose", **pose})
@@ -197,6 +212,40 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                                         "switching": False})
             await _broadcast_json(app, {"type": "error",
                                         "message": f"could not connect to Tello: {exc}"})
+            return
+
+        app.state.drone = candidate
+        app.state.drone_switching = False
+        app.state.tracker = TargetTracker(cfg)
+        app.state.latest_detection = Detection(found=False)
+        app.state.scorer = _new_scorer(app)
+        app.state.mission = None
+        await _broadcast_json(app, {"type": "scene", "scene": candidate.scene()})
+        await _broadcast_json(app, {"type": "sceneries",
+                                    "sceneries": candidate.scenery_catalog(),
+                                    "current": _current_scenery(app)})
+        await _broadcast_json(app, {"type": "drone_mode",
+                                    "mode": candidate.mode,
+                                    "switching": False})
+
+    async def _switch_to_simulator(app: FastAPI):
+        """Restore the configured simulator, creating one for Tello-first launches."""
+        app.state.drone_switching = True
+        await _broadcast_json(app, {"type": "drone_mode",
+                                    "mode": app.state.drone.mode,
+                                    "switching": True})
+        try:
+            candidate = app.state.simulator or simulator_factory()
+            if app.state.simulator is None:
+                await asyncio.to_thread(candidate.connect)
+                app.state.simulator = candidate
+        except Exception as exc:
+            app.state.drone_switching = False
+            await _broadcast_json(app, {"type": "drone_mode",
+                                        "mode": app.state.drone.mode,
+                                        "switching": False})
+            await _broadcast_json(app, {"type": "error",
+                                        "message": f"could not start simulator: {exc}"})
             return
 
         app.state.drone = candidate
@@ -363,11 +412,13 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                     await asyncio.to_thread(app.state.drone.emergency)
                     await _broadcast_json(app, {"type": "estopped"})
                 elif msg["type"] == "switch_drone":
-                    if msg.get("mode") != "tello":
+                    requested_mode = msg.get("mode")
+                    if requested_mode not in ("sim", "tello"):
                         await _broadcast_json(app, {"type": "error",
                                                     "message": "unsupported drone mode"})
-                    elif app.state.drone.mode == "tello":
-                        await _broadcast_json(app, {"type": "drone_mode", "mode": "tello",
+                    elif app.state.drone.mode == requested_mode:
+                        await _broadcast_json(app, {"type": "drone_mode",
+                                                    "mode": requested_mode,
                                                     "switching": False})
                     elif app.state.interp is not None:
                         await _broadcast_json(app, {"type": "error",
@@ -375,8 +426,10 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                     elif app.state.drone_switching:
                         await _broadcast_json(app, {"type": "error",
                                                     "message": "a drone connection is already in progress"})
-                    else:
+                    elif requested_mode == "tello":
                         await _switch_to_tello(app)
+                    else:
+                        await _switch_to_simulator(app)
         except WebSocketDisconnect:
             pass
         finally:

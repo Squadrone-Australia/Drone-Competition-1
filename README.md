@@ -16,7 +16,7 @@ venv\Scripts\python -m comp1
 # To fly hardware, join the TELLO-xxxx WiFi and click "Use real Tello" in the UI.
 ```
 
-The app starts a local server on port 8765 and opens the block-coding UI in your browser (`--no-browser` to skip, `--port` to change). Drag blocks under **🚁 when mission starts** and press **Run**; the currently executing block is highlighted, and the right-hand panel shows the drone camera with the red-circle detection overlay, plus a live readout of how far away the victim is and in which direction. Open **Debug: translation and execution** to inspect the validated JSON program and the exact simulator or Tello adapter calls made while it runs.
+The app starts a local server on port 8765 and opens the block-coding UI in your browser (`--no-browser` to skip, `--port` to change). Drag blocks under **🚁 when mission starts** and press **Run**; the currently executing block is highlighted, and the right-hand panel shows the drone camera with the red-circle detection overlay, plus a live readout of how far away the victim is and in which direction. The **Code inspector** below the blocks shows display-only Python, the validated JSON that actually runs, and the exact simulator or Tello adapter calls made during execution.
 
 ## Two ways to fly
 

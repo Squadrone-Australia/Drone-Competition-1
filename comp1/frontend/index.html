@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>COMP1 Drone Coder</title>
-  <link rel="stylesheet" href="style.css?v=20260803-5">
+  <link rel="stylesheet" href="style.css?v=20260803-8">
   <script src="vendor/blockly.min.js"></script>
   <script type="importmap">
     { "imports": { "three": "./vendor/three.module.min.js" } }
@@ -27,6 +27,27 @@
         <strong>Block description</strong>
         <span>Select a block to see what it does. You can also hover over any block.</span>
       </div>
+      <section id="debug-panel" class="open">
+        <button id="debug-toggle" type="button" aria-expanded="true">
+          <span>Code inspector</span>
+          <small>Python · JSON · live execution</small>
+        </button>
+        <div id="debug-content">
+          <p id="debug-note">Display only. Only blocks connected beneath “when mission starts” are translated.</p>
+          <div id="debug-tabs" role="tablist" aria-label="Code inspector views">
+            <button data-debug-view="python" class="on" role="tab">Python</button>
+            <button data-debug-view="program" role="tab">Validated JSON</button>
+            <button data-debug-view="trace" role="tab">Live execution</button>
+            <button id="debug-copy" title="Copy the current code view">Copy</button>
+            <button id="debug-clear" title="Clear the execution trace" hidden>Clear trace</button>
+          </div>
+          <div id="debug-panes">
+            <pre id="debug-python" aria-label="Display-only Python translation"></pre>
+            <pre id="debug-program" aria-label="Translated block program" hidden></pre>
+            <pre id="debug-trace" aria-label="Live execution trace" hidden>Run a program to see adapter calls.</pre>
+          </div>
+        </div>
+      </section>
     </section>
     <aside>
       <section id="stage">
@@ -65,18 +86,6 @@
         <span class="t-label">direction</span><span id="t-bearing">—</span>
       </div>
 
-      <details id="debug-panel">
-        <summary>🐞 Debug: translation and execution</summary>
-        <p id="debug-note">Blocks are validated JSON, not generated Python.</p>
-        <div id="debug-tabs">
-          <button data-debug-view="program" class="on">Translated JSON</button>
-          <button data-debug-view="trace">Execution trace</button>
-          <button id="debug-clear" title="Clear the execution trace">Clear trace</button>
-        </div>
-        <pre id="debug-program" aria-label="Translated block program"></pre>
-        <pre id="debug-trace" aria-label="Live execution trace" hidden>Run a program to see adapter calls.</pre>
-      </details>
-
       <!-- Arena panel: the floor plan is the only place the room can be laid
            out, so it stays visible rather than hiding behind a camera mode.
            Hidden entirely for drones with no arena (mock, real Tello). -->
@@ -96,8 +105,8 @@
       <pre id="console"></pre>
     </aside>
   </main>
-  <script src="blocks.js?v=20260803-2"></script>
-  <script src="app.js?v=20260803-4"></script>
+  <script src="blocks.js?v=20260803-4"></script>
+  <script src="app.js?v=20260803-8"></script>
   <script src="plan.js?v=20260803-2"></script>
   <script type="module" src="view3d.js?v=20260803-2"></script>
 </body>

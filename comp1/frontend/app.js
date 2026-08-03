@@ -11,6 +11,8 @@ const foundEl = document.getElementById("found");
 const blockHelpEl = document.querySelector("#block-help span");
 const droneModeEl = document.getElementById("drone-mode");
 const useTelloEl = document.getElementById("use-tello");
+const debugNoteEl = document.getElementById("debug-note");
+const debugPythonEl = document.getElementById("debug-python");
 const debugProgramEl = document.getElementById("debug-program");
 const debugTraceEl = document.getElementById("debug-trace");
 const debugViewButtons = document.querySelectorAll("[data-debug-view]");
@@ -20,6 +22,7 @@ let droneMode = null;
 let droneSwitching = false;
 let debugSequence = 0;
 let debugHasTrace = false;
+let debugView = "python";
 
 const blockDescriptions = new Map(COMP1.blocks.map((block) => [block.type, block.tooltip]));
 workspace.addChangeListener((event) => {
@@ -56,13 +59,21 @@ function log(msg) {
 }
 
 function showDebugProgram(program) {
+  debugPythonEl.textContent = COMP1.programToPython(program);
   debugProgramEl.textContent = JSON.stringify(program, null, 2);
 }
 
 function updateDebugProgram() {
   try {
-    showDebugProgram(COMP1.serializeProgram(workspace));
+    const program = COMP1.serializeProgram(workspace);
+    showDebugProgram(program);
+    const hasLooseBlocks = workspace.getAllBlocks(false)
+      .some((block) => block.type !== "start");
+    debugNoteEl.textContent = hasLooseBlocks && program.blocks.length === 0
+      ? "Blocks are present, but none is connected beneath “when mission starts”."
+      : "Display only. Only blocks connected beneath “when mission starts” are translated.";
   } catch (error) {
+    debugPythonEl.textContent = `Could not translate workspace: ${error.message}`;
     debugProgramEl.textContent = `Could not translate workspace: ${error.message}`;
   }
 }
@@ -97,20 +108,46 @@ function showExecution(msg) {
 }
 
 function selectDebugView(view) {
+  debugView = view;
+  debugPythonEl.hidden = view !== "python";
   debugProgramEl.hidden = view !== "program";
   debugTraceEl.hidden = view !== "trace";
   debugViewButtons.forEach((button) => {
-    button.classList.toggle("on", button.dataset.debugView === view);
+    const selected = button.dataset.debugView === view;
+    button.classList.toggle("on", selected);
+    button.setAttribute("aria-selected", String(selected));
   });
+  document.getElementById("debug-clear").hidden = view !== "trace";
 }
 
 debugViewButtons.forEach((button) => {
   button.onclick = () => selectDebugView(button.dataset.debugView);
 });
 document.getElementById("debug-clear").onclick = clearDebugTrace;
+document.getElementById("debug-toggle").onclick = () => {
+  const panel = document.getElementById("debug-panel");
+  const open = panel.classList.toggle("open");
+  document.getElementById("debug-toggle").setAttribute("aria-expanded", String(open));
+  requestAnimationFrame(() => Blockly.svgResize(workspace));
+};
+document.getElementById("debug-copy").onclick = async () => {
+  const panes = { python: debugPythonEl, program: debugProgramEl, trace: debugTraceEl };
+  const button = document.getElementById("debug-copy");
+  try {
+    await navigator.clipboard.writeText(panes[debugView].textContent);
+    button.textContent = "Copied";
+    setTimeout(() => { button.textContent = "Copy"; }, 1200);
+  } catch (_error) {
+    log("⚠ could not copy the code inspector text");
+  }
+};
 workspace.addChangeListener((event) => {
-  if (!event.isUiEvent) updateDebugProgram();
+  const isUiEvent = typeof event.isUiEvent === "function"
+    ? event.isUiEvent()
+    : Boolean(event.isUiEvent);
+  if (!isUiEvent) requestAnimationFrame(updateDebugProgram);
 });
+selectDebugView("python");
 updateDebugProgram();
 
 /** The one socket, shared with panels that live in their own file. */
@@ -123,7 +160,7 @@ window.COMP1_SEND = (msg) => {
 // panel that looks broken — so both pathways announce themselves here.
 function setRunning(running) {
   missionRunning = running;
-  useTelloEl.disabled = running || droneSwitching || droneMode === "tello" || !droneMode;
+  useTelloEl.disabled = running || droneSwitching || !droneMode;
   bus.emit({ type: "running", running });
 }
 
@@ -134,9 +171,12 @@ function showDroneMode(msg) {
   const names = { sim: "simulator", tello: "real Tello", mock: "mock drone" };
   droneModeEl.textContent = `Drone: ${names[droneMode] || droneMode}`;
   useTelloEl.textContent = droneSwitching
-    ? "Connecting…"
-    : (droneMode === "tello" ? "Using real Tello" : "Use real Tello");
-  useTelloEl.disabled = missionRunning || droneSwitching || droneMode === "tello";
+    ? "Switching…"
+    : (droneMode === "tello" ? "Use Simulator" : "Use real Tello");
+  useTelloEl.title = droneMode === "tello"
+    ? "Switch back to the simulator"
+    : "Connect to a real DJI Tello";
+  useTelloEl.disabled = missionRunning || droneSwitching || !droneMode;
   if (previousMode && previousMode !== droneMode) {
     foundEl.textContent = "Victims found: 0";
     missionState = null;
@@ -237,9 +277,12 @@ document.getElementById("stop").onclick = () => ws.send(JSON.stringify({ type: "
 // after a stopped or crashed attempt without flying another one.
 document.getElementById("reset").onclick = () => ws.send(JSON.stringify({ type: "reset" }));
 useTelloEl.onclick = () => {
-  const confirmed = window.confirm(
-    "Switch to the real Tello? Join the TELLO Wi-Fi first. Programs will control the physical drone."
-  );
-  if (confirmed) window.COMP1_SEND({ type: "switch_drone", mode: "tello" });
+  const useSimulator = droneMode === "tello";
+  const confirmed = window.confirm(useSimulator
+    ? "Switch to the simulator? Make sure the real Tello is safely landed first. Programs will stop controlling the physical drone."
+    : "Switch to the real Tello? Join the TELLO Wi-Fi first. Programs will control the physical drone.");
+  if (confirmed) {
+    window.COMP1_SEND({ type: "switch_drone", mode: useSimulator ? "sim" : "tello" });
+  }
 };
 document.getElementById("estop").onclick = () => ws.send(JSON.stringify({ type: "estop" }));
