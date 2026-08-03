@@ -13,7 +13,8 @@ from .server import create_app
 def main():
     ap = argparse.ArgumentParser("comp1")
     ap.add_argument("--drone", choices=["mock", "tello", "sim"], default="sim",
-                    help="initial drone (default: simulator; the browser can switch to Tello)")
+                    help="initial drone (default: simulator; the browser can switch between "
+                         "the simulator and Tello)")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--script", type=Path, default=None,

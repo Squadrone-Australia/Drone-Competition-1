@@ -14,9 +14,21 @@ venv\Scripts\python -m comp1
 # The simulator has a randomly generated arena with victim markers and
 # distractors. Use --seed N for a repeatable layout or --noise 0.05 for drift.
 # To fly hardware, join the TELLO-xxxx WiFi and click "Use real Tello" in the UI.
+# Once connected, the same button becomes "Use Simulator" so you can switch back.
 ```
 
 The app starts a local server on port 8765 and opens the block-coding UI in your browser (`--no-browser` to skip, `--port` to change). Drag blocks under **🚁 when mission starts** and press **Run**; the currently executing block is highlighted, and the right-hand panel shows the drone camera with the red-circle detection overlay, plus a live readout of how far away the victim is and in which direction. The **Code inspector** below the blocks shows display-only Python, the validated JSON that actually runs, and the exact simulator or Tello adapter calls made during execution.
+
+### Switching between the simulator and Tello
+
+The header shows the active drone. From the simulator, click **Use real Tello** after joining the
+`TELLO-xxxx` Wi-Fi network. The simulator remains active if the Tello connection fails. After a
+successful connection, the button changes to **Use Simulator**; clicking it restores the same
+simulator instance, including its seed, selected scenery, and edited victim layout.
+
+Switching is available only while no mission is running. Before switching away from a real Tello,
+land it safely: changing to the simulator changes where future programs are sent, but deliberately
+does not issue an automatic landing or emergency command to the physical aircraft.
 
 ## Two ways to fly
 
@@ -62,6 +74,8 @@ Run the tests with `venv\Scripts\pytest`. Build the standalone Windows bundle wi
   contract shared by `comp1/protocol.py` and `comp1/frontend/blocks.js`.
 - [Python pathway (2026-07-31)](docs/specs/2026-07-31-python-pathway.md): the student-facing
   `comp1.api` surface, how `--script` runs alongside the server, and the stop mechanism.
+- [Runtime drone switching (2026-08-03)](docs/specs/2026-08-03-drone-mode-switching.md): the
+  reversible Simulator/Tello UI, WebSocket messages, retained simulator state, and safety rules.
 
 `CLAUDE.md` holds the working notes for AI coding assistants (architecture invariants, the
 four-places rule for adding a block, and the project constraints that are easy to violate).

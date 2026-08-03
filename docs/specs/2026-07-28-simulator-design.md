@@ -1,6 +1,6 @@
 # Simulator Design — Random Arena for Hardware-Free Testing
 
-**Status:** Approved 2026-07-28 · **Depends on:** platform MVP (`feat/platform-mvp`)
+**Status:** Approved 2026-07-28, updated 2026-08-03 · **Depends on:** platform MVP (`feat/platform-mvp`)
 
 > **Partly superseded 2026-07-31** by
 > [Target sensing design](2026-07-31-target-sensing-design.md). Three details below are now wrong:
@@ -36,7 +36,14 @@ Test student block programs and the full vision/approach pipeline (real HSV+cont
 
 ## Integration
 
-- CLI: `python -m comp1 --drone sim [--seed N] [--noise 0.05]`. No frontend or server changes — frames flow through the existing video loop and detection overlay.
+- CLI: `python -m comp1 --drone sim [--seed N] [--noise 0.05]`; simulator mode is the default.
+- Frames flow through the same server video loop, detector, telemetry feed, and overlay as Tello
+  frames. The browser also receives simulator-only `scene` and `pose` display data for its plan and
+  3D views.
+- The header's drone button switches from the simulator to a real Tello and then becomes **Use
+  Simulator**. The server retains the configured `SimDrone`, so switching back preserves the seed,
+  scenery, and teacher-edited layout. See
+  [Runtime drone switching](2026-08-03-drone-mode-switching.md) for the protocol and safety rules.
 
 ## Testing
 
