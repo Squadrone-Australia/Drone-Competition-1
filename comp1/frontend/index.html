@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>COMP1 Drone Coder</title>
-  <link rel="stylesheet" href="style.css?v=20260803-4">
+  <link rel="stylesheet" href="style.css?v=20260803-5">
   <script src="vendor/blockly.min.js"></script>
   <script type="importmap">
     { "imports": { "three": "./vendor/three.module.min.js" } }
@@ -65,6 +65,18 @@
         <span class="t-label">direction</span><span id="t-bearing">—</span>
       </div>
 
+      <details id="debug-panel">
+        <summary>🐞 Debug: translation and execution</summary>
+        <p id="debug-note">Blocks are validated JSON, not generated Python.</p>
+        <div id="debug-tabs">
+          <button data-debug-view="program" class="on">Translated JSON</button>
+          <button data-debug-view="trace">Execution trace</button>
+          <button id="debug-clear" title="Clear the execution trace">Clear trace</button>
+        </div>
+        <pre id="debug-program" aria-label="Translated block program"></pre>
+        <pre id="debug-trace" aria-label="Live execution trace" hidden>Run a program to see adapter calls.</pre>
+      </details>
+
       <!-- Arena panel: the floor plan is the only place the room can be laid
            out, so it stays visible rather than hiding behind a camera mode.
            Hidden entirely for drones with no arena (mock, real Tello). -->
@@ -85,7 +97,7 @@
     </aside>
   </main>
   <script src="blocks.js?v=20260803-2"></script>
-  <script src="app.js?v=20260803-3"></script>
+  <script src="app.js?v=20260803-4"></script>
   <script src="plan.js?v=20260803-2"></script>
   <script type="module" src="view3d.js?v=20260803-2"></script>
 </body>

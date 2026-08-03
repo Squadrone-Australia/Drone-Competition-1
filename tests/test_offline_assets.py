@@ -45,3 +45,13 @@ def test_frontend_offers_an_explicit_real_tello_switch():
     assert 'id="use-tello"' in html
     assert 'type: "switch_drone", mode: "tello"' in app_js
     assert "window.confirm" in app_js
+
+
+def test_frontend_has_translation_and_execution_debug_views():
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    app_js = (FRONTEND / "app.js").read_text(encoding="utf-8")
+    assert 'id="debug-program"' in html
+    assert 'id="debug-trace"' in html
+    assert "Blocks are validated JSON, not generated Python" in html
+    assert 'msg.type === "debug_program"' in app_js
+    assert 'msg.type === "execution"' in app_js

@@ -28,6 +28,24 @@ async def test_sequential_ops_and_highlights():
     assert events[-1] == {"type": "finished", "reason": "done", "detail": ""}
 
 
+async def test_debug_events_show_blocks_and_exact_adapter_calls():
+    _, events, _ = await run([
+        {"id": "a", "op": "takeoff"},
+        {"id": "b", "op": "move", "dir": "forward", "cm": 50},
+        {"id": "c", "op": "mark_found"},
+    ])
+    blocks = [(e["blockId"], e["op"]) for e in events
+              if e["type"] == "execution" and e["kind"] == "block"]
+    calls = [(e["adapter"], e["method"], e["args"]) for e in events
+             if e["type"] == "execution" and e["kind"] == "call"]
+    assert blocks == [("a", "takeoff"), ("b", "move"), ("c", "mark_found")]
+    assert calls == [
+        ("MockDrone", "takeoff", []),
+        ("MockDrone", "move", ["forward", 50]),
+        ("MockDrone", "flip", ["back"]),
+    ]
+
+
 async def test_stop_flag_halts_and_lands():
     drone, events = MockDrone(), []
     it = Interpreter(drone, lambda: Detection(found=False), events.append)

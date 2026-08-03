@@ -37,6 +37,17 @@ def test_run_program_executes_and_reports():
     assert ("takeoff",) in drone.log and ("land",) in drone.log
 
 
+def test_run_reports_the_validated_program_for_the_debug_panel():
+    app = create_app(MockDrone())
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
+            {"id": "a", "op": "move", "dir": "forward", "cm": 50}]}})
+        debug = collect_until(ws, "debug_program")
+    assert debug["program"]["version"] == 2
+    assert debug["program"]["blocks"][0]["op"] == "move"
+    assert debug["program"]["blocks"][0]["cm"] == {"kind": "number", "value": 50.0}
+
+
 def test_video_frames_are_jpeg():
     app = create_app(MockDrone(frame_factory=red_frame))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:

@@ -53,6 +53,7 @@ class Interpreter:
         self.found_count = 0
         self.vars: dict[str, float | bool] = {}
         self._block_id = ""            # whose fault a warning is, for events
+        self._block_op = ""
 
     def request_stop(self):
         self._stop.set()
@@ -70,7 +71,7 @@ class Interpreter:
             reason, detail = "error", str(exc)
         if reason != "done":
             try:
-                await asyncio.to_thread(self._drone.land)
+                await self._call_drone("land", block_op="automatic_land")
             except Exception:
                 pass
         self._emit({"type": "finished", "reason": reason, "detail": detail})
@@ -79,7 +80,10 @@ class Interpreter:
         for b in blocks:
             if self._stop.is_set():
                 raise _Stopped()
+            self._block_id, self._block_op = b.id, b.op
             self._emit({"type": "highlight", "blockId": b.id})
+            self._emit({"type": "execution", "kind": "block",
+                        "blockId": b.id, "op": b.op})
             await self._exec(b)
 
     # --- expressions ---
@@ -106,7 +110,12 @@ class Interpreter:
             case "found_count":
                 return float(self.found_count)
             case "battery":
-                return float(self._drone.battery())
+                result = float(self._drone.battery())
+                self._emit({"type": "execution", "kind": "call",
+                            "blockId": self._block_id, "op": self._block_op,
+                            "adapter": type(self._drone).__name__,
+                            "method": "battery", "args": [], "result": result})
+                return result
 
     def _eval(self, node, depth=0):
         if depth > MAX_EXPR_DEPTH:
@@ -178,26 +187,37 @@ class Interpreter:
 
     # --- execution ---
 
+    async def _call_drone(self, method: str, *args,
+                          block_op: str | None = None):
+        """Trace and invoke the exact adapter method behind a block action."""
+        self._emit({"type": "execution", "kind": "call",
+                    "blockId": self._block_id,
+                    "op": block_op or self._block_op,
+                    "adapter": type(self._drone).__name__,
+                    "method": method, "args": list(args)})
+        return await asyncio.to_thread(getattr(self._drone, method), *args)
+
     async def _exec(self, b: Block):
-        d = self._drone
-        self._block_id = b.id
+        self._block_id, self._block_op = b.id, b.op
         match b.op:
             case "takeoff":
-                await asyncio.to_thread(d.takeoff)
+                await self._call_drone("takeoff")
             case "land":
-                await asyncio.to_thread(d.land)
+                await self._call_drone("land")
             case "move":
-                await asyncio.to_thread(d.move, b.dir, self._clamp_value(b.cm, b, "cm"))
+                await self._call_drone("move", b.dir,
+                                       self._clamp_value(b.cm, b, "cm"))
             case "rotate":
-                await asyncio.to_thread(d.rotate, b.dir, self._clamp_value(b.deg, b, "deg"))
+                await self._call_drone("rotate", b.dir,
+                                       self._clamp_value(b.deg, b, "deg"))
             case "flip":
-                await asyncio.to_thread(d.flip, b.dir)
+                await self._call_drone("flip", b.dir)
             case "mark_found":
-                await asyncio.to_thread(d.flip, "back")   # victory signal (requirements §2.1)
+                await self._call_drone("flip", "back")   # victory signal (requirements §2.1)
                 self.found_count += 1
                 self._emit({"type": "found_count", "count": self.found_count})
             case "end_mission":
-                await asyncio.to_thread(d.land)
+                await self._call_drone("land")
                 raise _MissionEnd()
             case "set_var":
                 self.vars[b.name] = self._eval(b.value)
@@ -221,7 +241,7 @@ class Interpreter:
                 for _ in range(MAX_LOOP_ITERS):           # hard safety bound
                     if self._stop.is_set():
                         raise _Stopped()
-                    self._block_id = b.id                 # cond warnings belong to the loop
+                    self._block_id, self._block_op = b.id, b.op
                     if self._cond(b.cond) == stop_when:
                         break
                     try:
@@ -265,15 +285,15 @@ class Interpreter:
             if abs(bearing) > cfg.approach_bearing_deadband_deg:
                 deg = _clamp(round(abs(bearing)),
                              cfg.approach_min_turn_deg, cfg.approach_max_turn_deg)
-                await asyncio.to_thread(self._drone.rotate,
-                                        "cw" if bearing > 0 else "ccw", deg)
+                await self._call_drone("rotate",
+                                       "cw" if bearing > 0 else "ccw", deg)
             elif distance > cfg.approach_stop_distance_m:
                 remaining_cm = (distance - cfg.approach_stop_distance_m) * 100
                 if remaining_cm < cfg.approach_min_step_cm:
                     return                                # closer than one step — done
                 cm = _clamp(round(remaining_cm),
                             cfg.approach_min_step_cm, cfg.approach_max_step_cm)
-                await asyncio.to_thread(self._drone.move, "forward", cm)
+                await self._call_drone("move", "forward", cm)
             else:
                 return                                    # close enough (requirements §3.2)
             await asyncio.sleep(0.2)                      # let video catch up

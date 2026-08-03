@@ -306,6 +306,11 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                         await _broadcast_json(app, {"type": "error",
                                                     "message": f"invalid program: {e}"})
                         continue
+                    # This is the canonical program the interpreter will run,
+                    # after schema validation and v1-to-v2 compatibility lifts.
+                    await _broadcast_json(app, {"type": "debug_program",
+                                                "program": program.model_dump(
+                                                    mode="json", exclude_none=True)})
                     # every attempt starts from the same place, so a change in the
                     # program is the only thing that changed
                     await _reset(app)

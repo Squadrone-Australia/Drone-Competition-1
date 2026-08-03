@@ -11,10 +11,15 @@ const foundEl = document.getElementById("found");
 const blockHelpEl = document.querySelector("#block-help span");
 const droneModeEl = document.getElementById("drone-mode");
 const useTelloEl = document.getElementById("use-tello");
+const debugProgramEl = document.getElementById("debug-program");
+const debugTraceEl = document.getElementById("debug-trace");
+const debugViewButtons = document.querySelectorAll("[data-debug-view]");
 let ws, lastUrl;
 let missionRunning = false;
 let droneMode = null;
 let droneSwitching = false;
+let debugSequence = 0;
+let debugHasTrace = false;
 
 const blockDescriptions = new Map(COMP1.blocks.map((block) => [block.type, block.tooltip]));
 workspace.addChangeListener((event) => {
@@ -49,6 +54,64 @@ function log(msg) {
   consoleEl.textContent += msg + "\n";
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
+
+function showDebugProgram(program) {
+  debugProgramEl.textContent = JSON.stringify(program, null, 2);
+}
+
+function updateDebugProgram() {
+  try {
+    showDebugProgram(COMP1.serializeProgram(workspace));
+  } catch (error) {
+    debugProgramEl.textContent = `Could not translate workspace: ${error.message}`;
+  }
+}
+
+function clearDebugTrace() {
+  debugSequence = 0;
+  debugHasTrace = false;
+  debugTraceEl.textContent = "Run a program to see adapter calls.";
+}
+
+function appendDebugLine(line) {
+  if (!debugHasTrace) {
+    debugTraceEl.textContent = "";
+    debugHasTrace = true;
+  }
+  debugSequence += 1;
+  debugTraceEl.textContent += `${String(debugSequence).padStart(3, "0")}  ${line}\n`;
+  debugTraceEl.scrollTop = debugTraceEl.scrollHeight;
+}
+
+function showExecution(msg) {
+  if (msg.kind === "block") {
+    appendDebugLine(`block ${msg.op}  [${msg.blockId}]`);
+    return;
+  }
+  if (msg.kind === "call") {
+    const args = (msg.args || []).map((arg) => JSON.stringify(arg)).join(", ");
+    const result = Object.prototype.hasOwnProperty.call(msg, "result")
+      ? ` → ${JSON.stringify(msg.result)}` : "";
+    appendDebugLine(`  ↳ ${msg.adapter}.${msg.method}(${args})${result}`);
+  }
+}
+
+function selectDebugView(view) {
+  debugProgramEl.hidden = view !== "program";
+  debugTraceEl.hidden = view !== "trace";
+  debugViewButtons.forEach((button) => {
+    button.classList.toggle("on", button.dataset.debugView === view);
+  });
+}
+
+debugViewButtons.forEach((button) => {
+  button.onclick = () => selectDebugView(button.dataset.debugView);
+});
+document.getElementById("debug-clear").onclick = clearDebugTrace;
+workspace.addChangeListener((event) => {
+  if (!event.isUiEvent) updateDebugProgram();
+});
+updateDebugProgram();
 
 /** The one socket, shared with panels that live in their own file. */
 window.COMP1_SEND = (msg) => {
@@ -129,10 +192,13 @@ function connect() {
     const msg = JSON.parse(ev.data);
     bus.emit(msg);
     if (msg.type === "highlight") workspace.highlightBlock(msg.blockId);
+    else if (msg.type === "debug_program") showDebugProgram(msg.program);
+    else if (msg.type === "execution") showExecution(msg);
     else if (msg.type === "found_count") foundEl.textContent = `Victims found: ${msg.count}`;
     else if (msg.type === "finished") {
       workspace.highlightBlock(null);
       log(`mission ${msg.reason}${msg.detail ? ": " + msg.detail : ""}`);
+      appendDebugLine(`finished: ${msg.reason}${msg.detail ? ` (${msg.detail})` : ""}`);
       setRunning(false);
     }
     else if (msg.type === "script") setRunning(msg.state === "started");
@@ -158,6 +224,8 @@ connect();
 
 document.getElementById("run").onclick = () => {
   const program = COMP1.serializeProgram(workspace);
+  showDebugProgram(program);
+  clearDebugTrace();
   // empty sockets are filled in with a harmless default rather than refusing to run —
   // say so out loud so a half-built program isn't a silent mystery
   COMP1.warnings.forEach((w) => log("⚠ " + w));

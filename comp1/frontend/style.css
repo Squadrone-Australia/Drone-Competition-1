@@ -100,6 +100,25 @@ aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column; bac
 #telemetry .t-label { color: #64748b; font-size: 11px; text-transform: uppercase;
   letter-spacing: .04em; }
 #telemetry .ok { color: #4ade80; }
+
+/* --- translated program + exact adapter calls -------------------------- */
+#debug-panel { flex: 0 0 auto; background: #111c31; color: #cbd5e1;
+  border-top: 1px solid #334155; font-size: 12px; }
+#debug-panel summary { padding: 7px 10px; color: #7dd3fc; cursor: pointer;
+  font-weight: 650; user-select: none; }
+#debug-panel[open] { max-height: 42vh; overflow: hidden; }
+#debug-note { padding: 0 10px 6px; color: #94a3b8; }
+#debug-tabs { display: flex; gap: 5px; padding: 0 8px 6px; }
+#debug-tabs button { padding: 3px 8px; border: 1px solid #475569; border-radius: 5px;
+  background: #0f172a; color: #94a3b8; cursor: pointer; font-size: 11px; }
+#debug-tabs button.on { color: #38bdf8; border-color: #38bdf8;
+  background: rgba(56, 189, 248, .12); }
+#debug-clear { margin-left: auto; }
+#debug-program, #debug-trace { max-height: calc(42vh - 94px); min-height: 90px;
+  margin: 0; padding: 8px 10px; overflow: auto; border-top: 1px solid #24354f;
+  background: #020617; color: #cbd5e1; font: 11px/1.45 ui-monospace, Consolas, monospace;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+#debug-program[hidden], #debug-trace[hidden] { display: none; }
 /* category toolbox: big enough to read across a classroom */
 .blocklyToolboxDiv { background: #f1f5f9; padding-top: 4px; }
 .blocklyTreeRow { padding: 4px 0; }
