@@ -19,13 +19,13 @@ let ws, lastUrl;
  */
 const bus = window.COMP1_BUS = {
   handlers: [],
-  lastScene: null,
+  sticky: {},                       // last `scene` / `sceneries`, replayed on subscribe
   on(fn) {
     this.handlers.push(fn);
-    if (this.lastScene) fn(this.lastScene);
+    Object.values(this.sticky).forEach(fn);
   },
   emit(msg) {
-    if (msg.type === "scene") this.lastScene = msg;
+    if (msg.type === "scene" || msg.type === "sceneries") this.sticky[msg.type] = msg;
     this.handlers.forEach((fn) => fn(msg));
   },
 };
@@ -33,6 +33,18 @@ const bus = window.COMP1_BUS = {
 function log(msg) {
   consoleEl.textContent += msg + "\n";
   consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+/** The one socket, shared with panels that live in their own file. */
+window.COMP1_SEND = (msg) => {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+};
+
+// Whether something is flying, as a bus message. The server refuses arena edits
+// mid-mission, and a panel that only greys itself out after the refusal is a
+// panel that looks broken — so both pathways announce themselves here.
+function setRunning(running) {
+  bus.emit({ type: "running", running });
 }
 
 // the same numbers the "distance to victim" / "direction to victim" blocks read,
@@ -47,6 +59,21 @@ function showTelemetry(t) {
     t.visible ? `${t.distance_cm} cm` : "—";
   document.getElementById("t-bearing").textContent =
     t.visible ? `${t.bearing_deg > 0 ? "+" : ""}${t.bearing_deg}°` : "—";
+}
+
+// The simulator scores a find against where the victims actually are, so with an
+// arena in play the header shows the *credited* count rather than the number of
+// times the student pressed the button.
+let missionState = null;
+function showMission(m) {
+  foundEl.textContent = `Victims found: ${m.found} / ${m.total}`;
+  if (m.signal === "no victim nearby") {
+    log("⚠ no victim close enough to that signal — it did not count");
+  }
+  if (m.state === "success" && missionState !== "success") {
+    log("🏆 mission success — every victim found and landed at the destination");
+  }
+  missionState = m.state;
 }
 
 function connect() {
@@ -72,13 +99,17 @@ function connect() {
     else if (msg.type === "finished") {
       workspace.highlightBlock(null);
       log(`mission ${msg.reason}${msg.detail ? ": " + msg.detail : ""}`);
+      setRunning(false);
     }
+    else if (msg.type === "script") setRunning(msg.state === "started");
+    else if (msg.type === "mission") showMission(msg);
     else if (msg.type === "telemetry") showTelemetry(msg);
     else if (msg.type === "error") log("⚠ " + msg.message);
-    else if (msg.type === "estopped") log("⛔ EMERGENCY STOP");
+    else if (msg.type === "estopped") { log("⛔ EMERGENCY STOP"); setRunning(false); }
     else if (msg.type === "reset") {
       workspace.highlightBlock(null);
       foundEl.textContent = "Victims found: 0";
+      missionState = null;
       // On real hardware reset() cannot move the aircraft, so say what actually
       // happened. Telling a student the drone is on its pad while it hovers
       // where they left it is worse than saying nothing.
@@ -96,6 +127,7 @@ document.getElementById("run").onclick = () => {
   // say so out loud so a half-built program isn't a silent mystery
   COMP1.warnings.forEach((w) => log("⚠ " + w));
   ws.send(JSON.stringify({ type: "run", program }));
+  setRunning(true);
 };
 document.getElementById("stop").onclick = () => ws.send(JSON.stringify({ type: "stop" }));
 // Run resets on the server anyway; this button is for putting the drone back

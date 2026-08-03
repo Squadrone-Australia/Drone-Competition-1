@@ -76,5 +76,19 @@ class DroneAdapter(ABC):
         return None
 
     def scene(self) -> dict | None:
-        """Static arena description for rendering: size, wall height, markers."""
+        """Static arena description for rendering: extents, wall height, markers."""
+        return None
+
+    # --- authoring feed ---------------------------------------------------
+    # The mirror of the display feeds: the browser's arena panel writes marker
+    # coordinates back so a teacher can lay a problem out by hand. Same rule —
+    # WebSocket only, never a block, never a sensor (requirements §4). An
+    # adapter with no arena to author returns None and the panel stays hidden.
+
+    def scenery_catalog(self) -> list | None:
+        """The sceneries this adapter can fly in, or None if it has no arena."""
+        return None
+
+    def load_scenery(self, name=None, victims=None, randomise=False):
+        """Swap scenery or replace the victim layout. No-op without an arena."""
         return None

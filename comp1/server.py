@@ -12,6 +12,7 @@ from .api import ScriptRun
 from .drone.base import DroneAdapter
 from .interpreter import Interpreter
 from .protocol import Program
+from .sim.mission import MissionScorer
 from .vision.config import VisionConfig, DEFAULT_CONFIG
 from .vision.detector import Detection, TargetTracker, draw_overlay
 
@@ -32,6 +33,10 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         app.state.latest_detection = Detection(found=False)
         app.state.tracker = TargetTracker(cfg)
         app.state.clients = set()
+        # ground truth for the mission panel; None whenever the adapter has no
+        # arena to score against (mock, real Tello)
+        app.state.scorer = _new_scorer()
+        app.state.mission = None
         # one slot for whatever is flying — Interpreter or ScriptRun. Both expose
         # request_stop(), so stop/e-stop routing below is pathway-agnostic, and a
         # block program cannot start while a script is running.
@@ -83,7 +88,37 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
             if pose is not None and pose != last and app.state.clients:
                 last = pose
                 await _broadcast_json(app, {"type": "pose", **pose})
+                # arrival and landing are pose facts, so this is where success is
+                # noticed — on change only, like telemetry
+                await _publish_mission(app, pose)
             await asyncio.sleep(POSE_INTERVAL)
+
+    def _new_scorer():
+        scene = drone.scene()
+        return MissionScorer(scene) if scene else None
+
+    def _current_scenery():
+        scene = drone.scene()
+        return scene.get("name") if scene else None
+
+    async def _rebuild_arena(app: FastAPI, **kwargs):
+        """Apply an arena edit, then put everything watching back to the start."""
+        await asyncio.to_thread(lambda: drone.load_scenery(**kwargs))
+        await _reset(app)
+        await _broadcast_json(app, {"type": "scene", "scene": drone.scene()})
+        await _broadcast_json(app, {"type": "sceneries",
+                                    "sceneries": drone.scenery_catalog(),
+                                    "current": _current_scenery()})
+
+    async def _publish_mission(app: FastAPI, pose=None, signal=None):
+        scorer = app.state.scorer
+        if scorer is None:
+            return
+        state = scorer.state(pose if pose is not None else drone.pose())
+        if state == app.state.mission and signal is None:
+            return
+        app.state.mission = state
+        await _broadcast_json(app, {"type": "mission", "signal": signal, **state})
 
     def _telemetry(det: Detection) -> dict:
         return {
@@ -119,15 +154,36 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         await asyncio.to_thread(drone.reset)
         app.state.tracker = TargetTracker(cfg)
         app.state.latest_detection = Detection(found=False)
+        app.state.scorer = _new_scorer()
+        app.state.mission = None
         # `repositioned` is the difference between "the drone is on its pad" and
         # "the counters are zero but the aircraft has not moved". The browser must
         # not claim the former on hardware, where reset() is a no-op.
         await _broadcast_json(app, {"type": "reset", "repositioned": drone.can_reset})
+        await _publish_mission(app)
+
+    def _score(ev: dict):
+        """Credit a ``mark found`` at the instant it happens.
+
+        ``mark found`` is a bare counter in the interpreter and in comp1.api —
+        neither can know whether the drone was actually beside a victim, and the
+        simulator can. This has to be synchronous: broadcasting is a task, and a
+        whole program can run to completion before a task gets a turn, by which
+        point the drone is nowhere near the victim it was signalling.
+        """
+        if ev.get("type") != "found_count" or app.state.scorer is None:
+            return None
+        return "credited" if app.state.scorer.signal(drone.pose()) else "no victim nearby"
+
+    async def _on_event(ev: dict, signal=None):
+        await _broadcast_json(app, ev)
+        if signal is not None:
+            await _publish_mission(app, signal=signal)
 
     def _emit(ev: dict):
         """Broadcast an event. Must be called on the event loop thread —
         ``ScriptRun`` marshals its worker thread's events through it."""
-        asyncio.ensure_future(_broadcast_json(app, ev))
+        asyncio.ensure_future(_on_event(ev, _score(ev)))
 
     async def _script_loop(app: FastAPI):
         # don't fly before the student can see it — wait for the browser, but not
@@ -153,12 +209,18 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         loop = asyncio.get_running_loop()
 
         def emit(ev):
-            loop.create_task(_broadcast_json(app, ev))
+            loop.create_task(_on_event(ev, _score(ev)))
 
-        # the arena never changes mid-session, so it is sent once per client
-        # rather than riding along with every pose
-        scene = drone.scene()
-        await ws.send_text(json.dumps({"type": "scene", "scene": scene}))
+        # The arena is sent per client on connect and re-broadcast to everyone
+        # whenever the picker or the plan editor changes it — it is static for
+        # the length of a run, not for the length of the session.
+        await ws.send_text(json.dumps({"type": "scene", "scene": drone.scene()}))
+        await ws.send_text(json.dumps({"type": "sceneries",
+                                       "sceneries": drone.scenery_catalog(),
+                                       "current": _current_scenery()}))
+        if app.state.scorer is not None:
+            await ws.send_text(json.dumps({"type": "mission", "signal": None,
+                                           **app.state.scorer.state(drone.pose())}))
 
         try:
             while True:
@@ -195,6 +257,22 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                                                     "message": "stop the mission before resetting"})
                     else:
                         await _reset(app)
+                elif msg["type"] in ("scenery", "layout"):
+                    # Editing the arena mid-flight would move the ground out from
+                    # under a running mission, so it waits — same rule as reset.
+                    if drone.scenery_catalog() is None:
+                        await _broadcast_json(app, {
+                            "type": "error",
+                            "message": "this drone has no arena to edit"})
+                    elif app.state.interp is not None:
+                        await _broadcast_json(app, {
+                            "type": "error",
+                            "message": "stop the mission before changing the arena"})
+                    elif msg["type"] == "scenery":
+                        await _rebuild_arena(app, name=msg.get("name"),
+                                             randomise=bool(msg.get("randomise")))
+                    else:
+                        await _rebuild_arena(app, victims=msg.get("victims") or [])
                 elif msg["type"] == "estop":
                     if app.state.interp:
                         app.state.interp.request_stop()

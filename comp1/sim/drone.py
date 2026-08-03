@@ -3,8 +3,8 @@ import random
 import time
 
 from ..drone.base import DroneAdapter
+from . import scenery
 from .render import MARKER_HEIGHT, WALL_HEIGHT_M, draw_minimap, render
-from .world import World
 
 ANIM_FPS = 60           # pose updates per second while a command is in flight
 MAX_ALT_M = 2.5
@@ -32,15 +32,16 @@ class SimDrone(DroneAdapter):
 
     can_reset = True        # unlike hardware, this one really can go home
 
-    def __init__(self, world=None, noise=0.0, delay=0.3, seed=None):
-        self.world = world if world is not None else World.random(seed=seed)
+    def __init__(self, world=None, noise=0.0, delay=0.3, seed=None, scenery_name="arena"):
+        self.scenery_name = world.name if world is not None else scenery_name
+        self.world = world if world is not None else scenery.build(scenery_name, seed=seed)
         self.noise = noise
         self.delay = delay
         self._seed = seed
         self.reset()
 
     def reset(self):
-        """Back to the start pad, mid-arena and landed.
+        """Back to the start pad and landed.
 
         The arena itself is left alone: students iterate against the same layout,
         and re-rolling the markers under them would make each Run a different
@@ -48,8 +49,7 @@ class SimDrone(DroneAdapter):
         and all.
         """
         self._rng = random.Random(self._seed)
-        self.x = self.world.size_m / 2
-        self.y = self.world.size_m / 2
+        self.x, self.y = self.world.start_xy
         self.z = 0.0
         self.heading = 0.0
         self.flying = False
@@ -132,11 +132,12 @@ class SimDrone(DroneAdapter):
         elif direction == "down":
             dz = max(MIN_ALT_M, z0 - dist) - z0
         margin = 0.2
-        lo, hi = margin, self.world.size_m - margin
+        x_lo, x_hi = margin, self.world.width_m - margin
+        y_lo, y_hi = margin, self.world.depth_m - margin
 
         def step(t):
-            self.x = min(max(x0 + dx * t, lo), hi)
-            self.y = min(max(y0 + dy * t, lo), hi)
+            self.x = min(max(x0 + dx * t, x_lo), x_hi)
+            self.y = min(max(y0 + dy * t, y_lo), y_hi)
             self.z = z0 + dz * t
             # tip into the move and level out again — a quadcopter that translates
             # perfectly flat looks like a lift, not a drone
@@ -201,10 +202,43 @@ class SimDrone(DroneAdapter):
         }
 
     def scene(self):
+        # size_m is kept as an alias for width_m: it is what every square-arena
+        # caller has always read, and dropping it would break them for nothing.
         return {
-            "size_m": self.world.size_m,
+            "name": self.world.name,
+            "size_m": self.world.width_m,
+            "width_m": self.world.width_m,
+            "depth_m": self.world.depth_m,
+            "start": list(self.world.start_xy),
             "wall_height_m": WALL_HEIGHT_M,
             "markers": [{"x": m.x, "y": m.y, "kind": m.kind,
                          "size_m": m.size_m, "height_m": m.height_m}
                         for m in self.world.markers],
         }
+
+    # --- authoring feed ----------------------------------------------------
+    # The mirror of the display feeds above: the browser's arena panel writes
+    # marker coordinates back through here so a teacher can lay out a problem.
+    # Same rule applies — this is reachable only over the WebSocket, and neither
+    # comp1.interpreter nor comp1.api may ever call it (requirements §4).
+
+    def scenery_catalog(self):
+        return scenery.catalog()
+
+    def load_scenery(self, name=None, victims=None, randomise=False):
+        """Swap or edit the arena, then go back to the start pad.
+
+        ``victims`` replaces just the victim markers and leaves the rest of the
+        room where it was. Otherwise ``name`` picks a scenery (``None`` keeps
+        the current one), built from the launch ``--seed`` so a seeded session
+        stays repeatable — unless ``randomise``, which is the panel's dice
+        button asking for a genuinely new layout.
+        """
+        if victims is not None:
+            self.world = scenery.with_victims(self.world, victims)
+        else:
+            self.scenery_name = name or self.scenery_name
+            self.world = scenery.build(self.scenery_name,
+                                       seed=None if randomise else self._seed)
+        self.reset()
+        return self.world

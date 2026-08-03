@@ -21,6 +21,9 @@ def main():
                     help="sim only: fixed arena layout (default: random each launch)")
     ap.add_argument("--noise", type=float, default=0.0,
                     help="sim only: movement drift, e.g. 0.05")
+    ap.add_argument("--scenery", choices=["arena", "corridor"], default="arena",
+                    help="sim only: which arena to start in (also switchable in "
+                         "the browser)")
     args = ap.parse_args()
     if args.script and not args.script.is_file():
         sys.exit(f"comp1: no such script: {args.script}")
@@ -29,7 +32,7 @@ def main():
         drone = TelloDrone()
     elif args.drone == "sim":
         from .sim.drone import SimDrone
-        drone = SimDrone(seed=args.seed, noise=args.noise)
+        drone = SimDrone(seed=args.seed, noise=args.noise, scenery_name=args.scenery)
     else:
         from .drone.mock import MockDrone
         drone = MockDrone()

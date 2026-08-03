@@ -57,11 +57,29 @@
         <span class="t-label">distance</span><span id="t-distance">—</span>
         <span class="t-label">direction</span><span id="t-bearing">—</span>
       </div>
+
+      <!-- Arena panel: the floor plan is the only place the room can be laid
+           out, so it stays visible rather than hiding behind a camera mode.
+           Hidden entirely for drones with no arena (mock, real Tello). -->
+      <section id="arena-panel" hidden>
+        <div id="arena-bar">
+          <span class="bar-title">Arena</span>
+          <select id="scenery" title="Which arena to fly in"></select>
+          <button id="plan-edit" title="Click the plan to add or remove victims">✎ Edit</button>
+          <button id="plan-randomise" title="New random victim layout">🎲</button>
+          <button id="plan-clear" title="Remove every victim">↺</button>
+        </div>
+        <canvas id="arena-plan"></canvas>
+        <p id="plan-note"></p>
+        <p id="mission"></p>
+      </section>
+
       <pre id="console"></pre>
     </aside>
   </main>
   <script src="blocks.js"></script>
   <script src="app.js"></script>
+  <script src="plan.js"></script>
   <script type="module" src="view3d.js"></script>
 </body>
 </html>

@@ -18,7 +18,7 @@ import numpy as np
 
 from ..vision.camera import SIM_INTRINSICS
 from .scene import Camera, draw_line, fill_quad, shade
-from .world import VICTIM, DEFAULT_MARKER_HEIGHT_M
+from .world import DESTINATION, VICTIM, DEFAULT_MARKER_HEIGHT_M
 
 # The camera model is shared with the real hardware (comp1/vision/camera.py) so
 # that anything tuned in the simulator transfers to the arena. It used to be a
@@ -51,6 +51,10 @@ _WALL_SHADE = {(1, 0): 1.00, (0, -1): 0.93, (-1, 0): 0.86, (0, 1): 0.79}
 
 KIND_STYLE = {
     VICTIM:           ("circle",   (0, 0, 220)),
+    # Byte-identical to a victim, on purpose: the destination sign is a red
+    # circle and the detector cannot tell them apart. Telling them apart is the
+    # student's problem, not the renderer's.
+    DESTINATION:      ("circle",   (0, 0, 220)),
     "red_square":     ("square",   (0, 0, 220)),
     "blue_circle":    ("circle",   (220, 60, 0)),
     "green_triangle": ("triangle", (60, 180, 0)),
@@ -68,30 +72,31 @@ def render(world, x, y, z, heading, w=640, h=480):
     cam = Camera.at(INTRINSICS, x, y, z, heading, w, h)
     img = np.empty((h, w, 3), np.uint8)
     img[:] = CEILING_BGR                       # backdrop for any gap at the seams
-    _draw_room(img, cam, world.size_m)
+    _draw_room(img, cam, world.width_m, world.depth_m)
     _draw_markers(img, cam, world, x, y, z, heading, w, h)
     return img
 
 
 # --- room -----------------------------------------------------------------
 
-def _draw_room(img, cam, size):
-    s, top = size, WALL_HEIGHT_M
-    fill_quad(img, cam, [(0, 0, 0), (s, 0, 0), (s, s, 0), (0, s, 0)], FLOOR_BGR)
-    _draw_floor_grid(img, cam, s)
-    fill_quad(img, cam, [(0, 0, top), (s, 0, top), (s, s, top), (0, s, top)], CEILING_BGR)
-    _draw_ceiling_panels(img, cam, s)
+def _draw_room(img, cam, width, depth):
+    """The box: floor, ceiling and four walls of a ``width`` x ``depth`` room."""
+    a, b, top = width, depth, WALL_HEIGHT_M
+    fill_quad(img, cam, [(0, 0, 0), (a, 0, 0), (a, b, 0), (0, b, 0)], FLOOR_BGR)
+    _draw_floor_grid(img, cam, a, b)
+    fill_quad(img, cam, [(0, 0, top), (a, 0, top), (a, b, top), (0, b, top)], CEILING_BGR)
+    _draw_ceiling_panels(img, cam, a, b)
 
     # Walls furthest-first: they never overlap each other from inside the room,
     # but the trim lines are drawn per wall and would otherwise cross a nearer face.
     walls = [
-        ((-1, 0), [(s, 0, 0), (s, s, 0), (s, s, top), (s, 0, top)]),   # east
-        ((1, 0),  [(0, s, 0), (0, 0, 0), (0, 0, top), (0, s, top)]),   # west
-        ((0, -1), [(0, s, 0), (s, s, 0), (s, s, top), (0, s, top)]),   # north
-        ((0, 1),  [(s, 0, 0), (0, 0, 0), (0, 0, top), (s, 0, top)]),   # south
+        ((-1, 0), [(a, 0, 0), (a, b, 0), (a, b, top), (a, 0, top)]),   # east
+        ((1, 0),  [(0, b, 0), (0, 0, 0), (0, 0, top), (0, b, top)]),   # west
+        ((0, -1), [(0, b, 0), (a, b, 0), (a, b, top), (0, b, top)]),   # north
+        ((0, 1),  [(a, 0, 0), (0, 0, 0), (0, 0, top), (a, 0, top)]),   # south
     ]
-    centre = {(-1, 0): (s, s / 2, top / 2), (1, 0): (0, s / 2, top / 2),
-              (0, -1): (s / 2, s, top / 2), (0, 1): (s / 2, 0, top / 2)}
+    centre = {(-1, 0): (a, b / 2, top / 2), (1, 0): (0, b / 2, top / 2),
+              (0, -1): (a / 2, b, top / 2), (0, 1): (a / 2, 0, top / 2)}
     for normal, corners in sorted(walls, key=lambda wl: -cam.depth_of(centre[wl[0]])):
         _draw_wall(img, cam, corners, _WALL_SHADE[normal])
 
@@ -109,22 +114,37 @@ def _draw_wall(img, cam, corners, lighting):
                   shade(WALL_TRIM_BGR, lighting), 1)
 
 
-def _draw_floor_grid(img, cam, size):
-    n = int(round(size / GRID_STEP_M))
-    for i in range(n + 1):
-        t = i * size / n
-        draw_line(img, cam, (t, 0, 0), (t, size, 0), FLOOR_GRID_BGR, 1)
-        draw_line(img, cam, (0, t, 0), (size, t, 0), FLOOR_GRID_BGR, 1)
+def _draw_floor_grid(img, cam, width, depth):
+    nx = max(1, int(round(width / GRID_STEP_M)))
+    ny = max(1, int(round(depth / GRID_STEP_M)))
+    for i in range(nx + 1):
+        t = i * width / nx
+        draw_line(img, cam, (t, 0, 0), (t, depth, 0), FLOOR_GRID_BGR, 1)
+    for i in range(ny + 1):
+        t = i * depth / ny
+        draw_line(img, cam, (0, t, 0), (width, t, 0), FLOOR_GRID_BGR, 1)
 
 
-def _draw_ceiling_panels(img, cam, size):
-    """Two strip lights. Pure parallax furniture — without them the ceiling is a
-    flat colour and forward motion is invisible when no marker is in view."""
+PANEL_PITCH_M = 3.0       # how often a strip light repeats down a long room
+
+
+def _draw_ceiling_panels(img, cam, width, depth):
+    """Strip lights. Pure parallax furniture — without them the ceiling is a flat
+    colour and forward motion is invisible when no marker is in view.
+
+    They tile along the room's length rather than spanning it: one 9 m smear
+    down a corridor gives no parallax at all, which is the case that needs it
+    most.
+    """
     top = WALL_HEIGHT_M - 0.01
-    for cx in (size / 3, 2 * size / 3):
-        fill_quad(img, cam, [(cx - 0.12, size * 0.2, top), (cx + 0.12, size * 0.2, top),
-                             (cx + 0.12, size * 0.8, top), (cx - 0.12, size * 0.8, top)],
-                  CEILING_PANEL_BGR)
+    rows = max(1, int(round(depth / PANEL_PITCH_M)))
+    for cx in (width / 3, 2 * width / 3):
+        for j in range(rows):
+            y0 = depth * (j + 0.2) / rows
+            y1 = depth * (j + 0.8) / rows
+            fill_quad(img, cam, [(cx - 0.12, y0, top), (cx + 0.12, y0, top),
+                                 (cx + 0.12, y1, top), (cx - 0.12, y1, top)],
+                      CEILING_PANEL_BGR)
 
 
 # --- markers --------------------------------------------------------------
@@ -189,17 +209,28 @@ def _draw_stand(img, cam, m):
 # --- display-only overlay -------------------------------------------------
 
 def draw_minimap(img, world, x, y, heading, size=140, pad=10):
-    """Debug inset — display only. Never draw this on a frame the detector sees."""
+    """Debug inset — display only. Never draw this on a frame the detector sees.
+
+    ``size`` is the longest side: the inset takes the room's own aspect, so a
+    corridor reads as a corridor rather than being squashed into a square.
+    """
     out = img.copy()
-    s = size / world.size_m
-    x0, y0 = out.shape[1] - size - pad, pad
-    cv2.rectangle(out, (x0, y0), (x0 + size, y0 + size), (255, 255, 255), -1)
-    cv2.rectangle(out, (x0, y0), (x0 + size, y0 + size), (60, 60, 60), 2)
+    s = size / max(world.width_m, world.depth_m)
+    mw, mh = int(world.width_m * s), int(world.depth_m * s)
+    x0, y0 = out.shape[1] - mw - pad, pad
+    cv2.rectangle(out, (x0, y0), (x0 + mw, y0 + mh), (255, 255, 255), -1)
+    cv2.rectangle(out, (x0, y0), (x0 + mw, y0 + mh), (60, 60, 60), 2)
 
     def to_px(wx, wy):
-        return (int(x0 + wx * s), int(y0 + (world.size_m - wy) * s))
+        return (int(x0 + wx * s), int(y0 + (world.depth_m - wy) * s))
 
+    sx, sy = world.start_xy
+    cv2.drawMarker(out, to_px(sx, sy), (120, 120, 120), cv2.MARKER_TILTED_CROSS, 8, 1)
     for m in world.markers:
+        if m.kind == DESTINATION:
+            px, py = to_px(m.x, m.y)
+            cv2.rectangle(out, (px - 4, py - 4), (px + 4, py + 4), (0, 140, 0), -1)
+            continue
         color = (0, 0, 220) if m.kind == VICTIM else (140, 140, 140)
         cv2.circle(out, to_px(m.x, m.y), 4, color, -1)
     hr = math.radians(heading)

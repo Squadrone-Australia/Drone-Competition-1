@@ -16,7 +16,8 @@ venv\Scripts\pyinstaller comp1.spec --noconfirm # -> dist\comp1\comp1.exe
 node --test tests\js\blocks.test.js             # frontend serializer tests
 ```
 
-`--drone sim` flags: `--seed N` (repeatable arena), `--noise 0.05` (movement drift).
+`--drone sim` flags: `--seed N` (repeatable arena), `--noise 0.05` (movement drift),
+`--scenery {arena,corridor}` (also switchable in the browser).
 Server flags: `--port`, `--no-browser`. Default port 8765.
 
 There is no linter, formatter, or CI configured. `pytest-asyncio` runs in `asyncio_mode = "auto"`,
@@ -146,12 +147,48 @@ freely; leave the disc alone.
 
 **Scenery colours must stay blue-dominant in BGR (`B >= G >= R`) and low-saturation.** Walls and
 floor are most of the frame, so a warm-grey wall is a false positive on every frame.
-`test_scenery_alone_is_never_a_victim` sweeps 324 poses to hold this.
+`test_scenery_alone_is_never_a_victim` sweeps 324 poses of the square arena and
+`test_corridor_scenery_alone_is_never_a_victim` another 540 of the corridor to hold this.
 
 The third-person view is browser-side three.js ([comp1/frontend/scene3d.js](comp1/frontend/scene3d.js),
 wired up by [comp1/frontend/view3d.js](comp1/frontend/view3d.js)). It is fed by two WebSocket
-messages: `scene` once on connect, and `pose` at 30 Hz. Pose runs far faster than the 10 fps video
-because a 100 ms step in heading is visible as a stutter no amount of browser-side smoothing hides.
+messages: `scene` on connect *and whenever the arena changes*, and `pose` at 30 Hz. Pose runs far
+faster than the 10 fps video because a 100 ms step in heading is visible as a stutter no amount of
+browser-side smoothing hides.
+
+### Sceneries: the arena is a rectangle now
+
+`World` ([comp1/sim/world.py](comp1/sim/world.py)) holds `size_m` (x extent) plus optional
+`length_m` (y extent) and `start` (the start pad). `size_m` stays the first positional field and
+means "square" when the others are unset, so every old call site still works — but **read
+`width_m`/`depth_m`/`start_xy` downstream, never `size_m`**.
+
+[comp1/sim/scenery.py](comp1/sim/scenery.py) is the registry: `catalog()`, `build(name, seed)`, and
+`with_victims(world, points)`. Two exist — `arena` (the 4 m square, markers on the walls) and
+`corridor` (2.5 x 10 m, drone at one end, a fixed `DESTINATION` marker at the other, victims
+sprinkled free-standing down the middle by rejection sampling against `WALL_CLEARANCE_M` /
+`MIN_VICTIM_SEP_M` / `PAD_CLEARANCE_M`).
+
+**The destination sign is byte-identical to a victim in the camera** — same red circle, same
+`KIND_STYLE` entry. The detector cannot tell them apart and must not learn how: distinguishing them
+is the exercise. `MissionScorer` knows the difference because it reads the arena, not the frame.
+
+Markers no longer need a wall to lean on, so **both views billboard every marker face**. The camera
+renderer always did; `scene3d.js` used to rotate them to face the room centre, which is wrong for
+anything standing in the open.
+
+### Mission success is scored against sim truth
+
+`mark_found` is a bare counter in `interpreter.py` and `api.py` — neither can know whether the drone
+was actually beside a victim. [comp1/sim/mission.py](comp1/sim/mission.py) can, and `server.py`
+scores every find through it: a signal credits the nearest un-credited victim within
+`CREDIT_RADIUS_M`, and the mission succeeds when all victims are credited *and* the drone has landed
+within `ARRIVAL_RADIUS_M` of the destination. A scenery with no destination succeeds on victims
+alone; a corridor cleared of victims succeeds on arrival alone.
+
+**Crediting is synchronous, broadcasting is not.** `server._score` runs inside the `emit` callback,
+before the task that broadcasts. With `delay=0` a whole program finishes before a scheduled task
+gets a turn, and scoring against `drone.pose()` at that point credits nothing.
 
 `SimDrone` commands **interpolate** their pose over the command's duration instead of sleeping and
 teleporting, which is what both views animate; each command still ends on the exact arithmetic pose,
@@ -161,9 +198,9 @@ the suite instant.
 `DroneAdapter.pose()` / `.scene()` are **display feeds, not sensors** — see §4 below. `MockDrone` and
 `TelloDrone` return `None` and the browser hides the 3D stage and its camera-mode buttons.
 
-**Every run resets first.** The server calls `drone.reset()` and rebuilds the `TargetTracker` before
-starting an `Interpreter`, and broadcasts `{"type":"reset"}` so the browser clears the trail and the
-found count. Students iterate by hitting Run, so an attempt that began wherever the last one ended
+**Every run resets first.** The server calls `drone.reset()` and rebuilds the `TargetTracker` and the
+`MissionScorer` before starting an `Interpreter`, and broadcasts `{"type":"reset"}` so the browser
+clears the trail and the found count. Students iterate by hitting Run, so an attempt that began wherever the last one ended
 would make their own change impossible to judge. `SimDrone.reset()` re-seeds its RNG but leaves the
 arena alone — same layout, same noise, so a `--seed` run is genuinely repeatable. `reset()` is a
 no-op on hardware, which cannot teleport.
@@ -191,9 +228,18 @@ The **requirements document is external** (not in this repo). Code and docs cite
 arena coordinates exist only inside `comp1/sim/` and must not be exposed to the block layer. Any
 mission-pad block must not be repurposable to skip the search phase.
 
-The one crack in that wall is `DroneAdapter.pose()`/`.scene()`, which hand arena coordinates to the
-browser so the 3D view can draw the room. It is a one-way display feed: nothing in
-`comp1/interpreter.py` or `comp1/api.py` may call it, and it must never gain a block or a sensor.
+The cracks in that wall are all one-way and all live in `server.py` plus `comp1/sim/`:
+
+- **Display** — `DroneAdapter.pose()`/`.scene()` hand arena coordinates to the browser so the 3D
+  view and the plan panel can draw the room.
+- **Authoring** — `DroneAdapter.scenery_catalog()`/`.load_scenery()` let the browser's arena panel
+  pick a scenery and write victim coordinates back, so a teacher can lay a problem out by hand.
+- **Scoring** — `MissionScorer` reads both to decide whether a find counted.
+
+Nothing in `comp1/interpreter.py` or `comp1/api.py` may call any of them, and **none of them may
+ever gain a block or a sensor**: no "fly to the destination" block, no `at_destination` sensor, no
+`victims_remaining` sensor. The drone finds the destination the way it finds a victim — by looking
+at it.
 
 **The frontend must work fully offline.** Blockly and three.js are vendored under
 `comp1/frontend/vendor/`; `tests/test_offline_assets.py` fails the build on any external URL in

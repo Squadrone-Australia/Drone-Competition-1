@@ -27,8 +27,10 @@ const COL = {
   victim: 0xdc2626, post: 0x475569, trail: 0x38bdf8, fov: 0x38bdf8,
 };
 const MARKER_COL = {
-  victim: COL.victim, red_square: COL.victim, blue_circle: 0x2563eb,
-  green_triangle: 0x16a34a, yellow_square: 0xeab308,
+  // `destination` is the same red as a victim on purpose — the camera cannot
+  // tell them apart, and a 3D view that could would be teaching the wrong thing.
+  victim: COL.victim, destination: COL.victim, red_square: COL.victim,
+  blue_circle: 0x2563eb, green_triangle: 0x16a34a, yellow_square: 0xeab308,
 };
 
 const deg = (d) => (d * Math.PI) / 180;
@@ -67,6 +69,7 @@ export function createStage(container, { hfovDeg = 70, aspect = 4 / 3 } = {}) {
   Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8, far: 30 });
   sun.shadow.camera.updateProjectionMatrix();
   scene.add(sun);
+  scene.add(sun.target);
 
   const arena = new THREE.Group();
   scene.add(arena);
@@ -88,21 +91,35 @@ export function createStage(container, { hfovDeg = 70, aspect = 4 / 3 } = {}) {
   let started = false;
   let mode = "follow";
   let showTrail = true;
-  let arenaSize = 4;
+  let arenaW = 4, arenaD = 4;
+  let billboards = [];             // marker faces that turn to face the camera
   const clock = new THREE.Clock();
 
   function setScene(desc) {
     disposeChildren(arena);          // a reconnect rebuilds the arena from scratch
     trail.reset();
+    billboards = [];
     if (!desc) { drone.group.visible = drone.shadow.visible = false; return; }
-    arenaSize = desc.size_m;
-    buildArena(arena, desc);
+    arenaW = desc.width_m ?? desc.size_m;
+    arenaD = desc.depth_m ?? desc.size_m;
+    billboards = buildArena(arena, desc);
     // fog only for the void beyond the arena — pulled in any closer it greys out
     // the room itself, worst of all from the top-down camera
-    scene.fog.near = desc.size_m * 2.5;
-    scene.fog.far = desc.size_m * 9;
+    const span = Math.max(arenaW, arenaD);
+    scene.fog.near = span * 2.5;
+    scene.fog.far = span * 9;
+    // The sun's shadow frustum is a fixed box, so it has to be resized to the
+    // room — left at the square arena's size, a 10 m corridor loses every
+    // shadow past the halfway point.
+    sun.position.set(arenaW / 2 + span * 0.35, span * 1.4, -arenaD / 2 + span * 0.45);
+    sun.target.position.set(arenaW / 2, 0, -arenaD / 2);
+    sun.target.updateMatrixWorld();
+    Object.assign(sun.shadow.camera,
+                  { left: -span, right: span, top: span, bottom: -span, far: span * 5 });
+    sun.shadow.camera.updateProjectionMatrix();
     drone.group.visible = drone.shadow.visible = true;
-    Object.assign(target, { x: desc.size_m / 2, y: desc.size_m / 2, z: 0 });
+    const [sx, sy] = desc.start ?? [arenaW / 2, arenaD / 2];
+    Object.assign(target, { x: sx, y: sy, z: 0 });
     Object.assign(shown, target);
     started = false;
   }
@@ -164,7 +181,14 @@ export function createStage(container, { hfovDeg = 70, aspect = 4 / 3 } = {}) {
 
     if (showTrail && target.flying) trail.push(pos);
 
-    updateCamera(camera, controls, mode, pos, arenaSize, dt);
+    updateCamera(camera, controls, mode, pos, arenaW, arenaD, dt);
+    // Markers are flat discs and the sensor renderer billboards every one of
+    // them, so this view does too — otherwise a marker standing in the middle of
+    // a corridor is edge-on and invisible from exactly the angle you approach it.
+    for (const face of billboards) {
+      face.rotation.y = Math.atan2(camera.position.x - face.parent.position.x,
+                                   camera.position.z - face.parent.position.z);
+    }
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }
@@ -175,11 +199,14 @@ export function createStage(container, { hfovDeg = 70, aspect = 4 / 3 } = {}) {
 
 // --- camera rigs ------------------------------------------------------------
 
-function updateCamera(camera, controls, mode, pos, size, dt) {
+function updateCamera(camera, controls, mode, pos, w, d, dt) {
   const k = 1 - Math.exp(-6 * dt);
   if (mode === "follow") {
     camera.up.set(0, 1, 0);
-    camera.position.lerp(new THREE.Vector3(pos.x, pos.y + size * 0.45, pos.z + size), k);
+    // Stand-off is capped: in a 10 m corridor a camera the length of the room
+    // behind the drone is outside the room and looking at a wall.
+    const back = Math.min(Math.max(w, d), 6);
+    camera.position.lerp(new THREE.Vector3(pos.x, pos.y + back * 0.45, pos.z + back), k);
     camera.lookAt(pos);
   } else if (mode === "topdown") {
     // Frames the whole arena, not the drone: this is the view a student reads as
@@ -188,8 +215,8 @@ function updateCamera(camera, controls, mode, pos, size, dt) {
     // the roll is undefined and the arena spins during the transition — point up
     // at arena north instead, which is also the orientation of the minimap.
     camera.up.set(0, 0, -1);
-    const centre = new THREE.Vector3(size / 2, 0, -size / 2);
-    camera.position.lerp(new THREE.Vector3(centre.x, fitHeight(camera, size), centre.z), k);
+    const centre = new THREE.Vector3(w / 2, 0, -d / 2);
+    camera.position.lerp(new THREE.Vector3(centre.x, fitHeight(camera, w, d), centre.z), k);
     camera.lookAt(centre);
   } else {
     camera.up.set(0, 1, 0);
@@ -198,11 +225,17 @@ function updateCamera(camera, controls, mode, pos, size, dt) {
   }
 }
 
-/** Height at which a `size` x `size` arena fits the narrower of the two FOVs. */
-function fitHeight(camera, size) {
+/**
+ * Height at which a `w` x `d` arena fits both FOVs.
+ *
+ * The camera's up vector points at arena north, so the room's depth is framed by
+ * the *vertical* FOV and its width by the horizontal one — take whichever needs
+ * more height, or a corridor gets cropped at both ends.
+ */
+function fitHeight(camera, w, d) {
   const halfV = deg(camera.fov) / 2;
   const halfH = Math.atan(Math.tan(halfV) * camera.aspect);
-  return (size / 2) * 1.15 / Math.tan(Math.min(halfV, halfH));
+  return Math.max((d / 2) / Math.tan(halfV), (w / 2) / Math.tan(halfH)) * 1.15;
 }
 
 // --- arena ------------------------------------------------------------------
@@ -216,48 +249,90 @@ function disposeChildren(group) {
   group.clear();
 }
 
+/** Builds the room and returns the marker faces that need billboarding. */
 function buildArena(group, desc) {
-  const s = desc.size_m, top = desc.wall_height_m ?? 2.8;
+  const w = desc.width_m ?? desc.size_m;
+  const d = desc.depth_m ?? desc.size_m;
+  const top = desc.wall_height_m ?? 2.8;
 
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(s, s),
+    new THREE.PlaneGeometry(w, d),
     new THREE.MeshStandardMaterial({ color: COL.floor, roughness: 0.95 }),
   );
   floor.rotation.x = -Math.PI / 2;
-  floor.position.set(s / 2, 0, -s / 2);
+  floor.position.set(w / 2, 0, -d / 2);
   floor.receiveShadow = true;
   group.add(floor);
 
-  const grid = new THREE.GridHelper(s, Math.round(s / 0.5), COL.gridMajor, COL.grid);
-  grid.position.set(s / 2, 0.004, -s / 2);
+  const grid = buildGrid(w, d, 0.5);
+  grid.position.y = 0.004;
   group.add(grid);
 
   // Glass box: solid enough to read as a room, transparent enough to fly behind.
   const walls = new THREE.Mesh(
-    new THREE.BoxGeometry(s, top, s),
+    new THREE.BoxGeometry(w, top, d),
     new THREE.MeshStandardMaterial({
       color: COL.wall, transparent: true, opacity: 0.07,
       side: THREE.BackSide, roughness: 1,
     }),
   );
-  walls.position.set(s / 2, top / 2, -s / 2);
+  walls.position.set(w / 2, top / 2, -d / 2);
   group.add(walls);
 
   const edges = new THREE.LineSegments(
-    new THREE.EdgesGeometry(new THREE.BoxGeometry(s, top, s)),
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(w, top, d)),
     new THREE.LineBasicMaterial({ color: COL.wall, transparent: true, opacity: 0.45 }),
   );
   edges.position.copy(walls.position);
   group.add(edges);
 
-  for (const m of desc.markers) group.add(buildMarker(m, s));
+  if (desc.start) group.add(buildStartPad(desc.start));
+
+  const faces = [];
+  for (const m of desc.markers) {
+    const marker = buildMarker(m);
+    group.add(marker.group);
+    faces.push(marker.face);
+  }
+  return faces;
 }
 
-function buildMarker(m, size) {
+/** GridHelper is square-only, so a rectangular room draws its own lines. */
+function buildGrid(w, d, step) {
+  const pts = [];
+  const nx = Math.max(1, Math.round(w / step));
+  const nz = Math.max(1, Math.round(d / step));
+  for (let i = 0; i <= nx; i++) {
+    const x = (i * w) / nx;
+    pts.push(x, 0, 0, x, 0, -d);
+  }
+  for (let i = 0; i <= nz; i++) {
+    const z = -(i * d) / nz;
+    pts.push(0, 0, z, w, 0, z);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+  return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: COL.grid }));
+}
+
+/** Where the drone starts every run — the other end of the A-to-B trip. */
+function buildStartPad([x, y]) {
+  const pad = new THREE.Mesh(
+    new THREE.RingGeometry(0.18, 0.26, 24),
+    new THREE.MeshBasicMaterial({
+      color: COL.trail, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+    }),
+  );
+  pad.rotation.x = -Math.PI / 2;
+  pad.position.copy(toThree(x, y, 0.006));
+  return pad;
+}
+
+function buildMarker(m) {
   const g = new THREE.Group();
   g.position.copy(toThree(m.x, m.y, 0));
   const color = MARKER_COL[m.kind] ?? 0x94a3b8;
-  const isVictim = m.kind === "victim";
+  const isVictim = m.kind === "victim" || m.kind === "destination";
 
   const post = new THREE.Mesh(
     new THREE.CylinderGeometry(0.02, 0.02, m.height_m, 8),
@@ -283,17 +358,14 @@ function buildMarker(m, size) {
   );
   face.position.y = m.height_m;
   face.castShadow = true;
-  // Markers stand against an arena wall, so they face the middle of the room.
-  // A plane's normal is +Z, which a rotation of t about Y sends to
-  // (sin t, 0, cos t); three.z = -y, so pointing it at the centre needs
-  // t = atan2(dx, -dy). Get this wrong and every marker is drawn edge-on.
-  const dx = size / 2 - m.x, dy = size / 2 - m.y;
-  face.rotation.y = Math.atan2(dx, -dy);
+  // Facing is set per frame by the billboard pass in createStage — a marker in
+  // the middle of a corridor has no wall to lean against, and the sensor
+  // renderer billboards every marker anyway.
   g.add(face);
 
   if (isVictim) g.add(new THREE.PointLight(color, 1.6, 1.6, 2)
     .translateY(m.height_m));
-  return g;
+  return { group: g, face };
 }
 
 function markerGeometry(m) {

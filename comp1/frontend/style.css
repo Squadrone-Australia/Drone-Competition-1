@@ -57,6 +57,30 @@ aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column; bac
   border: 0; border-top: 1px solid #334155; box-shadow: none; }
 #camera-window.docked figcaption { cursor: default; }
 
+/* --- arena panel: scenery picker + editable floor plan ------------------- */
+#arena-panel { display: flex; flex-direction: column; background: #0b1220;
+  border-top: 1px solid #24354f; }
+#arena-panel[hidden] { display: none; }
+#arena-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+  background: #16233c; border-bottom: 1px solid #24354f; }
+#arena-bar .bar-title { color: #64748b; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .08em; }
+#arena-bar select { margin-left: auto; background: #0f172a; color: #e2e8f0;
+  border: 1px solid #334155; border-radius: 6px; padding: 3px 6px; font-size: 11px; }
+#arena-bar button { background: rgba(15, 23, 42, .78); color: #94a3b8; border: 1px solid #334155;
+  border-radius: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; }
+#arena-bar button:hover:not(:disabled) { color: #e2e8f0; border-color: #64748b; }
+#arena-bar button.on { color: #38bdf8; border-color: #38bdf8; background: rgba(56, 189, 248, .14); }
+#arena-bar button:disabled, #arena-bar select:disabled { opacity: .4; cursor: default; }
+/* The plan is a fixed slab rather than a flex child: it has to survive the
+   console and the 3D stage both wanting the same vertical space. */
+#arena-plan { display: block; width: 100%; height: 150px; }
+#arena-plan.editing { cursor: crosshair; }
+#plan-note { color: #eab308; font-size: 11px; padding: 0 8px; min-height: 14px; }
+#mission { color: #94a3b8; font-size: 12px; padding: 2px 8px 6px;
+  font-variant-numeric: tabular-nums; }
+#mission.success { color: #4ade80; font-weight: 700; }
+
 #console { flex: 0 0 22%; min-height: 70px; color: #94a3b8; padding: 8px; overflow-y: auto; font-size: 13px; }
 .status.ok { color: #4ade80; }
 .status.bad { color: #f87171; }

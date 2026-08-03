@@ -2,6 +2,10 @@ import random
 from dataclasses import dataclass
 
 VICTIM = "victim"
+# The destination sign is a red circle, exactly like a victim, and the detector
+# cannot tell the two apart — that is the point. Distinguishing them (the
+# destination is the one at the end of the corridor) is the student's problem.
+DESTINATION = "destination"
 DISTRACTOR_KINDS = ["red_square", "blue_circle", "green_triangle", "yellow_square"]
 DEFAULT_MARKER_DIAMETER_M = 0.25   # printed A4-ish disc; keep in step with VisionConfig
 DEFAULT_MARKER_HEIGHT_M = 1.0      # tripod-mounted
@@ -22,8 +26,19 @@ class Marker:
 
 @dataclass
 class World:
+    """A rectangular room.
+
+    ``size_m`` is the x extent and stays the first positional field: it was the
+    side of the square arena, and every caller that only ever wanted a square
+    still gets one. A scenery with a different y extent sets ``length_m``.
+    Read ``width_m``/``depth_m`` downstream, never ``size_m``.
+    """
+
     size_m: float
     markers: list
+    length_m: float | None = None       # y extent; None -> square
+    start: tuple | None = None          # (x, y) start pad; None -> centre
+    name: str = "arena"
 
     @classmethod
     def random(cls, seed=None, n_victims=3, n_distractors=4, size_m=4.0):
@@ -42,6 +57,26 @@ class World:
                 markers.append(Marker(x, y, kinds.pop()))
         return cls(size_m=size_m, markers=markers)
 
+    # --- extents -----------------------------------------------------------
+
+    @property
+    def width_m(self) -> float:
+        return self.size_m
+
+    @property
+    def depth_m(self) -> float:
+        return self.size_m if self.length_m is None else self.length_m
+
+    @property
+    def start_xy(self) -> tuple:
+        return self.start if self.start is not None else (self.width_m / 2, self.depth_m / 2)
+
+    # --- markers -----------------------------------------------------------
+
     @property
     def victims(self):
         return [m for m in self.markers if m.kind == VICTIM]
+
+    @property
+    def destination(self):
+        return next((m for m in self.markers if m.kind == DESTINATION), None)
