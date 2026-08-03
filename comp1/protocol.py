@@ -81,7 +81,7 @@ class Block(BaseModel):
     id: str
     op: Literal["takeoff", "land", "move", "rotate", "flip", "approach_marker",
                 "mark_found", "end_mission", "repeat_n", "repeat_until", "while",
-                "if", "set_var", "wait"]
+                "if", "set_var", "wait", "break", "continue"]
     dir: str | None = None
     cm: Value | None = None
     deg: Value | None = None
@@ -143,6 +143,19 @@ class Program(BaseModel):
         if data.get("version") == 1:
             data["version"] = 2
         return data
+
+    @model_validator(mode="after")
+    def check_loop_controls(self):
+        def visit(blocks: list[Block], loop_depth: int):
+            for block in blocks:
+                if block.op in {"break", "continue"} and loop_depth == 0:
+                    raise ValueError(f"{block.op} block '{block.id}' must be inside a loop")
+                child_depth = loop_depth + (block.op in {"repeat_n", "repeat_until", "while"})
+                visit(block.body, child_depth)
+                visit(block.else_body, loop_depth)
+
+        visit(self.blocks, 0)
+        return self
 
 
 for _m in (BinOp, UnOp, Block):

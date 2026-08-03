@@ -29,3 +29,10 @@ def test_three_js_is_vendored():
 def test_the_import_map_points_at_the_vendored_three():
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     assert '"three": "./vendor/three.module.min.js"' in html
+
+
+def test_block_help_is_visible_and_frontend_scripts_are_versioned():
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    assert 'id="block-help"' in html
+    assert 'src="blocks.js?v=' in html
+    assert 'src="app.js?v=' in html

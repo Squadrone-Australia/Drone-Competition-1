@@ -74,3 +74,27 @@ async def test_stops_without_overshooting_below_the_minimum_step():
 async def test_gives_up_when_marker_lost():
     drone = await run_seq([seen(distance_m=3.0), lost(), lost(), lost()])
     assert len(drone.log) <= 2  # one step at most, then abort — no runaway
+
+
+async def test_reacquires_the_nearest_target_when_approach_starts():
+    readings = []
+    selected = 0
+
+    def select_nearest():
+        nonlocal selected
+        selected += 1
+        readings.extend([
+            seen(distance_m=3.0, bearing_deg=30.0),
+            seen(distance_m=1.0, bearing_deg=0.0),
+        ])
+
+    def det():
+        return readings.pop(0)
+
+    drone, events = MockDrone(), []
+    interp = Interpreter(drone, det, events.append,
+                         select_nearest_target=select_nearest)
+    await interp.run(prog())
+
+    assert selected == 1
+    assert drone.log == [("rotate", "cw", 30)]

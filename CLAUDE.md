@@ -122,6 +122,11 @@ primary target is whichever blob is largest *this frame*, and two similar marker
 controller oscillate. Use `TargetTracker` for anything stateful; `detect_red_circle` is the
 stateless single-frame helper.
 
+When `approach_marker` / `approach_target()` starts, it deliberately drops any earlier search lock
+and re-acquires the nearest visible candidate once. The normal bearing lock then resumes around
+that target for the maneuver. Preserve both halves: nearest-at-start prevents approaching a farther
+stale lock, while locking afterward prevents similar targets from making the controller ping-pong.
+
 `Detection` exposes `.cx` / `.area_ratio` / `.position` as back-compat properties delegating to
 `.target`.
 

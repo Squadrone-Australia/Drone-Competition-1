@@ -7,7 +7,13 @@ header button { font-size: 16px; padding: 6px 16px; border-radius: 6px; border: 
 #reset { background: #475569; color: #e2e8f0; }
 .estop { background: #dc2626; color: #fff; font-weight: 700; margin-left: auto; }
 main { flex: 1; display: flex; min-height: 0; }
-#blockly { flex: 2; }
+#coding { flex: 2; min-width: 0; display: flex; flex-direction: column; }
+#blockly { flex: 1; min-height: 0; }
+#block-help { flex: 0 0 auto; display: flex; gap: 10px; align-items: baseline;
+  min-height: 44px; padding: 9px 12px; border-top: 1px solid #cbd5e1;
+  background: #f8fafc; color: #334155; font-size: 14px; }
+#block-help strong { color: #0f172a; white-space: nowrap; }
+#block-help span { line-height: 1.35; }
 aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column; background: #0f172a; }
 
 /* --- 3D stage, with the camera view floating over it --------------------- */

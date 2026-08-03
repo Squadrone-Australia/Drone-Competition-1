@@ -66,3 +66,20 @@ def test_unknown_value_kind_rejected():
     with pytest.raises(ValidationError):
         Program.model_validate(make([{"id": "a", "op": "if", "cond": {"kind": "lambda"}}],
                                     version=2))
+
+
+@pytest.mark.parametrize("op", ["break", "continue"])
+def test_loop_control_must_be_inside_a_loop(op):
+    with pytest.raises(ValidationError, match="must be inside a loop"):
+        Program.model_validate(make([{"id": "control", "op": op}], version=2))
+
+
+def test_loop_control_inside_nested_if_is_valid():
+    program = Program.model_validate(make([{
+        "id": "loop", "op": "repeat_n", "n": 2, "body": [{
+            "id": "choice", "op": "if", "cond": 1,
+            "body": [{"id": "stop", "op": "break"}],
+            "else_body": [{"id": "skip", "op": "continue"}],
+        }],
+    }], version=2))
+    assert program.blocks[0].body[0].body[0].op == "break"

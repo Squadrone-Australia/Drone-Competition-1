@@ -62,6 +62,34 @@ async def test_repeat_until_condition_and_if():
     assert drone.log.count(("move", "forward", 20)) == 2
 
 
+async def test_continue_skips_to_the_next_repeat():
+    drone, events, _ = await run([{
+        "id": "loop", "op": "repeat_n", "n": 3, "body": [
+            {"id": "flip", "op": "flip", "dir": "left"},
+            {"id": "continue", "op": "continue"},
+            {"id": "move", "op": "move", "dir": "forward", "cm": 20},
+        ],
+    }])
+    assert drone.log == [("flip", "left")] * 3
+    highlights = [e["blockId"] for e in events if e["type"] == "highlight"]
+    assert highlights.count("continue") == 3
+    assert "move" not in highlights
+
+
+async def test_break_inside_if_exits_the_nearest_loop():
+    drone, events, _ = await run([
+        {"id": "loop", "op": "repeat_n", "n": 5, "body": [
+            {"id": "flip", "op": "flip", "dir": "right"},
+            {"id": "if", "op": "if", "cond": 1,
+             "body": [{"id": "break", "op": "break"}]},
+            {"id": "move", "op": "move", "dir": "forward", "cm": 20},
+        ]},
+        {"id": "turn", "op": "rotate", "dir": "cw", "deg": 30},
+    ])
+    assert drone.log == [("flip", "right"), ("rotate", "cw", 30)]
+    assert events[-1] == {"type": "finished", "reason": "done", "detail": ""}
+
+
 async def test_v1_program_runs_unchanged_under_the_v2_parser():
     # the same fixture as above, asserted event-for-event: the upgrade must be invisible
     blocks = [

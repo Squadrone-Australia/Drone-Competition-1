@@ -151,6 +151,16 @@ def test_approach_gives_up_when_the_target_is_never_seen():
     session, adapter = mock_session(detection=lost())
     d = Drone(); d._s, d._d = session, adapter
     assert d.approach_target() is False
+
+
+def test_approach_requests_the_nearest_target_before_moving():
+    selected = []
+    session, adapter = mock_session(
+        seen(distance_m=1.0), select_nearest_target=lambda: selected.append(True))
+    d = Drone(); d._s, d._d = session, adapter
+
+    assert d.approach_target()
+    assert selected == [True]
     assert adapter.log == []
 
 

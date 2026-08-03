@@ -21,6 +21,14 @@ class _MissionEnd(Exception):
     pass
 
 
+class _LoopBreak(Exception):
+    pass
+
+
+class _LoopContinue(Exception):
+    pass
+
+
 def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
@@ -33,11 +41,13 @@ class Interpreter:
     def __init__(self, drone: DroneAdapter,
                  get_detection: Callable[[], Detection],
                  on_event: Callable[[dict], None],
-                 cfg: VisionConfig = DEFAULT_CONFIG):
+                 cfg: VisionConfig = DEFAULT_CONFIG,
+                 select_nearest_target: Callable[[], None] = lambda: None):
         self._drone = drone
         self._detect = get_detection
         self._emit = on_event
         self._cfg = cfg
+        self._select_nearest_target = select_nearest_target
         # not cleared in run(): a stop requested before run() must still win
         self._stop = asyncio.Event()
         self.found_count = 0
@@ -193,9 +203,18 @@ class Interpreter:
                 self.vars[b.name] = self._eval(b.value)
             case "wait":
                 await self._sleep(self._clamp_value(b.seconds, b, "seconds", cast=float))
+            case "break":
+                raise _LoopBreak()
+            case "continue":
+                raise _LoopContinue()
             case "repeat_n":
                 for _ in range(self._clamp_value(b.n, b, "n")):
-                    await self._run_blocks(b.body)
+                    try:
+                        await self._run_blocks(b.body)
+                    except _LoopContinue:
+                        continue
+                    except _LoopBreak:
+                        break
             case "repeat_until" | "while":
                 # repeat_until stops when the condition goes true, while when it goes false
                 stop_when = b.op == "repeat_until"
@@ -205,7 +224,12 @@ class Interpreter:
                     self._block_id = b.id                 # cond warnings belong to the loop
                     if self._cond(b.cond) == stop_when:
                         break
-                    await self._run_blocks(b.body)
+                    try:
+                        await self._run_blocks(b.body)
+                    except _LoopContinue:
+                        continue
+                    except _LoopBreak:
+                        break
                 else:
                     self._warn(f"loop gave up after {MAX_LOOP_ITERS} repeats", b.id)
             case "if":
@@ -221,6 +245,10 @@ class Interpreter:
         it ignores rotations below ~10° and refuses translations below 20 cm.
         """
         cfg = self._cfg
+        # Searching may have left the shared tracker locked to a marker that is
+        # no longer the closest. Re-acquire once, then keep that lock while
+        # moving so similarly sized markers cannot make the controller ping-pong.
+        self._select_nearest_target()
         lost = 0
         for _ in range(cfg.approach_max_steps):
             if self._stop.is_set():

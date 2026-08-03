@@ -126,6 +126,21 @@ test("if keeps its else branch", () => {
   assert.deepStrictEqual(prog.blocks[0].else_body, [{ id: "l", op: "land" }]);
 });
 
+test("break and continue serialize inside loops", () => {
+  const body = chain(fake("break", { id: "b" }), fake("continue", { id: "c" }));
+  const prog = run(fake("repeat_n", { id: "r", inputs: { N: n(2), BODY: body } }));
+  assert.deepStrictEqual(prog.blocks[0].body, [
+    { id: "b", op: "break" }, { id: "c", op: "continue" },
+  ]);
+  assert.deepStrictEqual(warnings, []);
+});
+
+test("loop control outside a loop produces a clear warning", () => {
+  assert.deepStrictEqual(run(fake("break", { id: "b" })).blocks,
+    [{ id: "b", op: "break" }]);
+  assert.ok(warnings.some((w) => w.includes("must be placed inside a loop")));
+});
+
 // ── value blocks ────────────────────────────────────────────────────────────
 test("every sensor block maps to its schema sensor name", () => {
   const expected = {
@@ -341,6 +356,13 @@ test("every toolbox block is defined, and every defined block is reachable", () 
     }
   // `start` is placed by app.js, not dragged out of the toolbox
   for (const t of defined) if (t !== "start") assert.ok(used.has(t), `${t} is not in the toolbox`);
+});
+
+test("every custom block has a useful description", () => {
+  for (const block of blocks) {
+    assert.strictEqual(typeof block.tooltip, "string", `${block.type} has no tooltip`);
+    assert.ok(block.tooltip.trim().length >= 12, `${block.type} tooltip is too short`);
+  }
 });
 
 test("number sockets ship a shadow so beginners still see a typeable number", () => {

@@ -8,7 +8,17 @@ const statusEl = document.getElementById("status");
 const consoleEl = document.getElementById("console");
 const videoEl = document.getElementById("video");
 const foundEl = document.getElementById("found");
+const blockHelpEl = document.querySelector("#block-help span");
 let ws, lastUrl;
+
+const blockDescriptions = new Map(COMP1.blocks.map((block) => [block.type, block.tooltip]));
+workspace.addChangeListener((event) => {
+  if (!blockHelpEl || event.type !== Blockly.Events.SELECTED) return;
+  const block = event.newElementId ? workspace.getBlockById(event.newElementId) : null;
+  blockHelpEl.textContent = block
+    ? blockDescriptions.get(block.type) || "This is a built-in Blockly value block."
+    : "Select a block to see what it does. You can also hover over any block.";
+});
 
 /**
  * Message bus for panels that live in their own module (view3d.js).

@@ -162,6 +162,11 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         await _broadcast_json(app, {"type": "reset", "repositioned": drone.can_reset})
         await _publish_mission(app)
 
+    def _select_nearest_target():
+        """Make the closest currently visible marker the new tracker lock."""
+        app.state.latest_detection = app.state.tracker.reacquire_nearest(
+            app.state.latest_detection)
+
     def _score(ev: dict):
         """Credit a ``mark found`` at the instant it happens.
 
@@ -194,6 +199,7 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
             await asyncio.sleep(0.05)
             waited += 0.05
         run = ScriptRun(drone, lambda: app.state.latest_detection, _emit, cfg=cfg,
+                        select_nearest_target=_select_nearest_target,
                         path=script)
         app.state.interp = run
         try:
@@ -238,7 +244,8 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                     # every attempt starts from the same place, so a change in the
                     # program is the only thing that changed
                     await _reset(app)
-                    interp = Interpreter(drone, lambda: app.state.latest_detection, emit, cfg=cfg)
+                    interp = Interpreter(drone, lambda: app.state.latest_detection, emit, cfg=cfg,
+                                         select_nearest_target=_select_nearest_target)
                     app.state.interp = interp
 
                     async def _run(interp=interp, program=program):

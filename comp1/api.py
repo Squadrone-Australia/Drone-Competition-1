@@ -66,6 +66,7 @@ class Session:
     """
     drone: DroneAdapter
     get_detection: Callable[[], Detection]
+    select_nearest_target: Callable[[], None] = lambda: None
     emit: Callable[[dict], None] = lambda ev: None
     stop: threading.Event = field(default_factory=threading.Event)
     cfg: VisionConfig = field(default_factory=lambda: DEFAULT_CONFIG)
@@ -135,7 +136,7 @@ def _standalone_session(adapter=None, *, sim=False, seed=None,
     adapter.connect()
     # no server video loop here, so detect on demand — hence settle_s stays 0
     tracker = TargetTracker(cfg)
-    return Session(drone=adapter, cfg=cfg,
+    return Session(drone=adapter, cfg=cfg, select_nearest_target=tracker.reset,
                    get_detection=lambda: tracker.update(adapter.get_frame()))
 
 
@@ -289,7 +290,7 @@ class Drone:
     # ---------------------------------------------------------------- missions
 
     def approach_target(self, stop_distance_cm: float | None = None) -> bool:
-        """Turn towards the victim, fly to it, and stop a safe distance short.
+        """Choose the nearest victim, fly to it, and stop a safe distance short.
 
         Returns True once it is in position, False if the victim was lost or it
         ran out of steps. Same controller as the `approach marker` block: turn
@@ -297,6 +298,7 @@ class Drone:
         error, both clamped to what the drone will actually honour.
         """
         cfg = self._s.cfg
+        self._s.select_nearest_target()
         stop_m = (cfg.approach_stop_distance_m if stop_distance_cm is None
                   else stop_distance_cm / 100.0)
         lost = 0
@@ -376,6 +378,7 @@ class ScriptRun:
                  get_detection: Callable[[], Detection],
                  emit: Callable[[dict], None],
                  cfg: VisionConfig = DEFAULT_CONFIG, *,
+                 select_nearest_target: Callable[[], None] = lambda: None,
                  path: str | Path | None = None, name: str | None = None,
                  settle_s: float = 0.2, grace_s: float = 3.0):
         self._drone = drone
@@ -384,6 +387,7 @@ class ScriptRun:
         self.name = name or (self.path.name if self.path else "script")
         self.grace_s = grace_s
         self.session = Session(drone=drone, get_detection=get_detection,
+                               select_nearest_target=select_nearest_target,
                                emit=self._emit, cfg=cfg, settle_s=settle_s)
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: int | None = None

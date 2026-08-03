@@ -7,8 +7,10 @@ const C = { flight: 210, sense: 0, mission: 280, flow: 120, logic: 160, math: 23
 const BLOCKS = [
   // ── flight ────────────────────────────────────────────────────────────────
   { type: "takeoff", message0: "take off", colour: C.flight,
+    tooltip: "Starts the motors and rises to the drone's normal take-off height.",
     previousStatement: null, nextStatement: null },
   { type: "land", message0: "land", colour: C.flight,
+    tooltip: "Descends vertically and stops the motors.",
     previousStatement: null, nextStatement: null },
   { type: "move", message0: "fly %1 %2 cm", colour: C.flight, inputsInline: true,
     args0: [
@@ -28,6 +30,7 @@ const BLOCKS = [
   { type: "flip", message0: "flip %1", colour: C.flight,
     args0: [{ type: "field_dropdown", name: "DIR", options: [
       ["forward", "forward"], ["back", "back"], ["left", "left"], ["right", "right"]] }],
+    tooltip: "Performs one aerial flip in the selected direction.",
     previousStatement: null, nextStatement: null },
   { type: "sense_battery", message0: "battery %", colour: C.flight, output: "Number",
     tooltip: "Charge left, 0 to 100." },
@@ -39,6 +42,7 @@ const BLOCKS = [
   { type: "marker_position_is", message0: "victim marker is %1", colour: C.sense,
     args0: [{ type: "field_dropdown", name: "POS", options: [
       ["on the left", "left"], ["in the centre", "center"], ["on the right", "right"]] }],
+    tooltip: "True when the visible victim marker is in the selected part of the camera view.",
     output: "Boolean" },
   { type: "sense_distance", message0: "distance to victim (cm)", colour: C.sense,
     tooltip: "How far away the victim is. Reads 9999 when nothing is in view, " +
@@ -56,17 +60,23 @@ const BLOCKS = [
 
   // ── mission ───────────────────────────────────────────────────────────────
   { type: "approach_marker", message0: "approach victim and stop", colour: C.mission,
+    tooltip: "Chooses the closest visible victim, flies toward it, and stops at the configured safe distance.",
     previousStatement: null, nextStatement: null },
   { type: "mark_found", message0: "signal victim found 🎉", colour: C.mission,
+    tooltip: "Performs the required signal and adds one to the victims-found count.",
     previousStatement: null, nextStatement: null },
   { type: "sense_found_count", message0: "victims found so far", colour: C.mission,
+    tooltip: "The number of times this program has used 'signal victim found'.",
     output: "Number" },
   { type: "found_count_gte", message0: "victims found ≥ %1", colour: C.mission,
     args0: [{ type: "field_number", name: "N", value: 3, min: 1, max: 20 }],
+    tooltip: "True when the victims-found count is at least the selected number.",
     output: "Boolean" },
   { type: "end_mission", message0: "end mission and land 🏁", colour: C.mission,
+    tooltip: "Lands immediately and finishes the program without running later blocks.",
     previousStatement: null },
   { type: "start", message0: "🚁 when mission starts", colour: C.mission,
+    tooltip: "The program begins here. Connect the first command underneath this block.",
     nextStatement: null, deletable: false },
 
   // ── control ───────────────────────────────────────────────────────────────
@@ -89,6 +99,13 @@ const BLOCKS = [
     args0: [{ type: "input_value", name: "COND", check: "Boolean" },
             { type: "input_statement", name: "BODY" },
             { type: "input_statement", name: "ELSE" }],
+    tooltip: "Runs the 'then' blocks when the test is true; otherwise runs the 'else' blocks.",
+    previousStatement: null, nextStatement: null },
+  { type: "break", message0: "break out of loop", colour: C.flow,
+    tooltip: "Stops the nearest repeat, while, or keep-doing-until loop and continues after it.",
+    previousStatement: null, nextStatement: null },
+  { type: "continue", message0: "continue with next loop", colour: C.flow,
+    tooltip: "Skips the remaining blocks in the nearest loop and begins its next repeat.",
     previousStatement: null, nextStatement: null },
   { type: "wait", message0: "wait %1 seconds", colour: C.flow, inputsInline: true,
     args0: [{ type: "input_value", name: "SECONDS", check: "Number" }],
@@ -156,7 +173,8 @@ const TOOLBOX = { kind: "categoryToolbox", contents: [
     blk("found_count_gte"), blk("end_mission")]),
   cat("Control", C.flow, [
     blk("repeat_n", { N: shadowNum(4) }), blk("repeat_until"), blk("while_block"),
-    blk("if_block"), blk("wait", { SECONDS: shadowNum(2) })]),
+    blk("if_block"), blk("break"), blk("continue"),
+    blk("wait", { SECONDS: shadowNum(2) })]),
   cat("Logic", C.logic, [
     blk("compare", { A: shadowNum(0), B: shadowNum(0) }), blk("logic_op"), blk("logic_not")]),
   cat("Maths", C.math, [
@@ -243,11 +261,14 @@ function valueJson(b) {
   }
 }
 
-function blockJson(b) {
+function blockJson(b, loopDepth = 0) {
   const base = { id: b.id };
   switch (b.type) {
     case "takeoff": case "land": case "approach_marker":
     case "mark_found": case "end_mission":
+      return { ...base, op: b.type };
+    case "break": case "continue":
+      if (loopDepth === 0) warn(`'${b.type}' must be placed inside a loop`);
       return { ...base, op: b.type };
     case "move":
       return { ...base, op: "move", dir: b.getFieldValue("DIR"),
@@ -266,34 +287,34 @@ function blockJson(b) {
     case "repeat_n":
       return { ...base, op: "repeat_n",
                n: slot(b, "N", "the count in a 'repeat' block", 0, "n"),
-               body: chainJson(b.getInputTargetBlock("BODY")) };
+               body: chainJson(b.getInputTargetBlock("BODY"), loopDepth + 1) };
     // An empty test makes its block do nothing at all, which is the one guess that can
     // never surprise a student mid-flight — note that means 1, not 0, for repeat_until.
     case "repeat_until":
       return { ...base, op: "repeat_until",
                cond: slot(b, "COND", "the test in a 'keep doing until' block", 1, null,
                           "so the loop stops straight away"),
-               body: chainJson(b.getInputTargetBlock("BODY")) };
+               body: chainJson(b.getInputTargetBlock("BODY"), loopDepth + 1) };
     case "while_block":
       return { ...base, op: "while",
                cond: slot(b, "COND", "the test in a 'while' block", 0, null,
                           "so the loop is skipped"),
-               body: chainJson(b.getInputTargetBlock("BODY")) };
+               body: chainJson(b.getInputTargetBlock("BODY"), loopDepth + 1) };
     case "if_block":
       return { ...base, op: "if",
                cond: slot(b, "COND", "the test in an 'if' block", 0, null,
                           "so the 'then' part never runs"),
-               body: chainJson(b.getInputTargetBlock("BODY")),
-               else_body: chainJson(b.getInputTargetBlock("ELSE")) };
+               body: chainJson(b.getInputTargetBlock("BODY"), loopDepth),
+               else_body: chainJson(b.getInputTargetBlock("ELSE"), loopDepth) };
     default:
       return null; // value blocks are consumed by valueJson
   }
 }
 
-function chainJson(block) {
+function chainJson(block, loopDepth = 0) {
   const out = [];
   for (let b = block; b; b = b.getNextBlock()) {
-    const j = blockJson(b);
+    const j = blockJson(b, loopDepth);
     if (j) out.push(j);
   }
   return out;

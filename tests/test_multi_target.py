@@ -52,6 +52,23 @@ def test_lock_survives_the_other_target_becoming_larger():
     assert second.target is not second.targets[0]
 
 
+def test_reacquire_nearest_replaces_an_old_farther_lock():
+    tracker = TargetTracker()
+    tracker.update(frame((200, 50), (450, 40)))       # initial lock: left
+    changed = tracker.update(frame((200, 38), (450, 52)))
+    assert changed.target.cx < 0.5
+    assert changed.targets[0].cx > 0.5                # right is now closest
+
+    reacquired = tracker.reacquire_nearest(changed)
+    assert reacquired.target is reacquired.targets[0]
+    assert reacquired.target.cx > 0.5
+
+    # The following frame keeps the newly selected target locked instead of
+    # immediately jumping back to the old bearing.
+    following = tracker.update(frame((200, 38), (450, 52)))
+    assert following.target.cx > 0.5
+
+
 def test_lock_reacquires_after_the_target_stays_missing():
     tracker = TargetTracker()
     tracker.update(frame((200, 50)))

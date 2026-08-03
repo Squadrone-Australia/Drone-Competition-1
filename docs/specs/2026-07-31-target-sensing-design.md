@@ -94,6 +94,10 @@ The tracker keeps the candidate closest in **bearing** to the previous lock, pro
 under `lock_max_bearing_jump_deg` (25°); otherwise it re-acquires the nearest. The lock survives
 `lock_lost_frames` (5) missed frames before decaying, so a brief occlusion does not drop it.
 
+Starting either approach controller explicitly re-acquires the nearest visible candidate once,
+then keeps the resulting bearing lock for the maneuver. This prevents a search-time lock from
+pulling the drone toward a farther marker without restoring per-frame target switching.
+
 `test_lock_survives_the_other_target_becoming_larger` is the regression test: it asserts the primary
 target stays put *and* is genuinely no longer the nearest candidate.
 

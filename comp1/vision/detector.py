@@ -147,6 +147,20 @@ class TargetTracker:
     def reset(self) -> None:
         self._locked, self._lost = None, 0
 
+    def reacquire_nearest(self, detection: Detection) -> Detection:
+        """Drop the old lock and immediately make the nearest candidate primary.
+
+        Approach controllers call this once when they start. Subsequent frames
+        rebuild the normal bearing lock around that candidate, so choosing the
+        closest target does not reintroduce frame-to-frame oscillation.
+        """
+        self.reset()
+        targets = detection.targets
+        if not targets:
+            return Detection(found=False)
+        self._locked = targets[0]
+        return Detection.of(self._locked, targets)
+
     def update(self, frame_bgr: np.ndarray | None) -> Detection:
         if frame_bgr is None:
             return self._miss([])
