@@ -1,112 +1,228 @@
-# Drone-Competition-1
+# Drone Competition — Search & Rescue
 
-Platform for an autonomous search-and-rescue drone competition (secondary school division): students use block-based programming to make a DJI Tello patrol a caged arena, detect red circular "victim" markers with an onboard-video OpenCV pipeline, signal each find, and return to start.
+This is a program that lets students fly a small drone (a DJI Tello) and teach it to search a
+room, find red "victim" markers, and signal each one it finds — by dragging together colourful
+puzzle-piece blocks, like Scratch. No coding experience is needed to get started, and there's a
+built-in flight simulator so students can practice and compete without ever touching a real drone.
 
-## Requirements
+This page is written for anyone setting the program up for the first time — teachers, students,
+or helpers — with no assumption you've used a terminal or installed developer tools before.
 
-- **Python 3.11+** — the only hard runtime requirement. Everything else (FastAPI, OpenCV, NumPy,
-  djitellopy, etc.) is a pip package pulled in by the install step below.
-- **Windows** with PowerShell — the commands in this README target `venv\Scripts\...`. The same
-  packages work cross-platform (`source venv/bin/activate` instead of `venv\Scripts\Activate.ps1`
-  on macOS/Linux), but this project is developed and tested on Windows.
-- **No Node.js/npm install needed to run the app.** The block-coding UI's dependencies —
-  [Blockly](comp1/frontend/vendor/blockly.min.js) and
-  [three.js](comp1/frontend/vendor/three.module.min.js) (plus `three.core.min.js` and
-  `OrbitControls.js`) — are vendored under `comp1/frontend/vendor/` and served as static files by
-  the Python backend. There is no `npm install` step and no build/bundle step for the frontend.
-- **Node.js** (any recent LTS) is only needed if you want to run the frontend serializer tests
-  (`node --test tests\js\blocks.test.js`). They use Node's built-in `node:test` runner, so there
-  are no npm packages to install there either.
-- A **DJI Tello EDU** is only required for `--drone tello`; `--drone sim` (or the default
-  `MockDrone`) needs no hardware.
+---
 
-## Installation
+## What you'll end up with
 
-1. **Clone the repo** and `cd` into it.
+A local website that opens in your normal web browser (Chrome, Edge, Firefox). It shows:
 
-2. **Create a virtual environment** (Python 3.11+ must already be on `PATH`):
+- A **block-coding area** where students drag blocks together to build a flight plan.
+- A **live camera view** — either a simulated drone flying around a virtual room, or the video
+  feed from a real Tello drone.
+- A **Run** button and a big red **EMERGENCY STOP** button.
 
-   ```powershell
-   python -m venv venv
-   ```
+Nothing is installed onto the internet or "in the cloud" — everything runs on the one computer,
+and nobody outside the room can see or reach it.
 
-3. **Install the package.** `-e .[dev]` installs `comp1` in editable mode plus the `dev` extras
-   (pytest, httpx, PyInstaller) needed for testing and building:
+---
 
-   ```powershell
-   venv\Scripts\pip install -e .[dev]
-   ```
+## Before you start
 
-   This alone pulls in every backend dependency — FastAPI, Uvicorn, Pydantic, djitellopy,
-   OpenCV, NumPy — there is nothing else to install for the Python side.
+You need two things on the computer:
 
-   > If `venv\Scripts\Activate.ps1` refuses to run in a fresh PowerShell (execution-policy
-   > error), you don't need to activate it at all — every command in this README calls the
-   > venv's `python`/`pip`/`pytest` binaries directly by path.
+1. **Windows** (10 or 11). This guide is written for Windows; see the bottom of this page if
+   you're on Mac or Linux.
+2. **Python**, version 3.11 or newer. This is free software that the program runs on top of.
 
-4. **The frontend needs no install step.** Blockly and three.js
-   (`comp1/frontend/vendor/blockly.min.js`, `three.module.min.js`, `three.core.min.js`,
-   `OrbitControls.js`) are already committed to the repo and are served as static files — skip
-   straight past this step if you were expecting an `npm install`.
+### Do you already have Python?
 
-5. **(Optional) Install Node.js** if you want to run the frontend serializer tests. Any recent
-   LTS works; no `npm install` is needed since the tests use Node's built-in `node:test` runner:
+Open the **Start Menu**, type `cmd`, press Enter to open a black command-prompt window, then
+type:
 
-   ```powershell
-   node --test tests\js\blocks.test.js
-   ```
+```text
+python --version
+```
 
-6. **Verify the install** by running the Python test suite:
+- If you see something like `Python 3.12.4`, you're set — skip to [Setting up the
+  program](#setting-up-the-program).
+- If you see an error, or a version older than `3.11`, you need to install it (next step).
 
-   ```powershell
-   venv\Scripts\pytest
-   ```
+### Installing Python
 
-   All tests are hardware-free (`djitellopy` is monkeypatched and `SimDrone` stands in for a
-   real Tello), so this works offline with no drone or Wi-Fi connection.
+1. Go to [python.org/downloads](https://www.python.org/downloads/) and download the latest
+   version for Windows.
+2. Run the installer. **Important:** on the very first screen, tick the box that says **"Add
+   python.exe to PATH"** before clicking Install. If you miss this, the rest of this guide won't
+   work and you'll need to reinstall.
+3. Once it finishes, close and reopen the command-prompt window and run `python --version` again
+   to confirm it worked.
 
-7. **Run the app**:
+---
 
-   ```powershell
-   venv\Scripts\python -m comp1
-   ```
+## Setting up the program
 
-   This starts a local server on port 8765 and opens the block-coding UI in your browser, using
-   the built-in simulator — no hardware required. See [Quick start](#quick-start) below for what
-   to do next, and [`--drone tello`](#switching-between-the-simulator-and-tello) for flying real
-   hardware.
+You only need to do this once per computer.
 
-## Quick start
+1. Download this project onto the computer. If you were sent a `.zip` file, right-click it and
+   choose **Extract All...**, then open the folder it creates. (If you're comfortable with `git`,
+   `git clone` works too.)
+2. Open that folder in File Explorer.
+3. Double-click **`start.bat`**.
+
+A black window will pop up and do some work automatically — this is normal, and the first time
+can take a few minutes while it downloads what it needs. You'll see it:
+
+- create a private Python environment just for this program (so it doesn't affect anything else
+  on the computer),
+- install everything the program depends on,
+- then start the program itself and open your web browser to the block-coding screen.
+
+**That's it — setup is done.** From now on, double-clicking `start.bat` again starts the program
+in seconds (it skips the download step once everything's already installed).
+
+> Leave the black window open while you use the program — closing it shuts the program down.
+> When you're finished, just close that window.
+
+---
+
+## Using the program
+
+When your browser opens, you'll see the block-coding screen. A few things to try:
+
+- Drag blocks from the left-hand palette under **🚁 when mission starts** to build a flight
+  plan — for example, take off, turn, move forward, check whether a marker is visible.
+- Click **Run** to fly the plan. The block currently being run is highlighted so you can follow
+  along.
+- The right-hand panel shows what the drone "sees" through its camera, with the detected red
+  marker circled, plus how far away it is and which direction to turn.
+- The big **EMERGENCY STOP** button immediately halts the drone, no matter what it's doing.
+
+By default the drone is a **simulator** — a virtual drone in a virtual room — so there's nothing
+to break and no real hardware needed. This is the best way to build and test a flight plan before
+trying it on a real Tello.
+
+### Flying a real Tello drone
+
+1. Turn on the Tello and, on the computer, connect its Wi-Fi network — it will be named something
+   like `TELLO-A1B2C3`.
+2. In the browser window, click **Use real Tello** near the top.
+3. Fly as normal — the same blocks, the same Run button, the same EMERGENCY STOP.
+4. To switch back to practicing in the simulator, click **Use Simulator**. Land the real drone
+   first — switching away from it doesn't automatically land it.
+
+### Trying the example flight plans
+
+The `examples\` folder has a few ready-made flight plans if you want to see something working
+right away without building it from scratch — open the app, then use the **Load** option (or ask
+whoever is running the session to load one for you).
+
+---
+
+## Troubleshooting
+
+**"start.bat" flashes and closes immediately.**
+Right-click `start.bat`, choose **Edit**, and check the file matches the version in this repo —
+or open a command prompt in the project folder and run `start.bat` from there so any error message
+stays on screen instead of disappearing.
+
+**It says Python isn't recognized / isn't found.**
+Python isn't on your PATH. Reinstall Python from
+[python.org/downloads](https://www.python.org/downloads/) and make sure to tick **"Add python.exe
+to PATH"** during install.
+
+**Nothing opens in the browser.**
+Give it a few extra seconds the first time. If it still doesn't open, manually go to
+`http://localhost:8765` in your browser while the black window is still open.
+
+**The browser can't reach the real Tello / video is choppy.**
+Make sure the computer is connected to the Tello's own Wi-Fi network (not your normal home/school
+Wi-Fi) — the Tello doesn't use the internet at all, it creates its own local network.
+
+**I want to start fresh.**
+Delete the `venv` folder inside the project folder and double-click `start.bat` again — it will
+rebuild everything from scratch.
+
+---
+
+## For technically-inclined readers
+
+The section above is intentionally simplified. If you're comfortable with a terminal and want more
+control — manual setup, running tests, building a standalone `.exe`, developing on macOS/Linux, or
+understanding the architecture — see below.
+
+### What `start.bat` actually does
+
+It's a small wrapper that runs `start.ps1`, a PowerShell script equivalent to:
+
+```powershell
+python -m venv venv                     # create an isolated environment
+venv\Scripts\pip install -e .[dev]      # install dependencies
+venv\Scripts\python -m comp1            # run the app
+```
+
+It's safe to re-run any time; it skips steps that are already done. Any extra arguments are
+passed straight through to the app, e.g.:
+
+```powershell
+.\start.ps1 --drone sim --seed 42
+.\start.ps1 --drone tello
+```
+
+### Manual setup (Windows)
 
 ```powershell
 python -m venv venv
 venv\Scripts\pip install -e .[dev]
-
-# start in the simulator (the default; no hardware needed)
-venv\Scripts\python -m comp1
-
-# The simulator has a randomly generated arena with victim markers and
-# distractors. Use --seed N for a repeatable layout or --noise 0.05 for drift.
-# To fly hardware, join the TELLO-xxxx WiFi and click "Use real Tello" in the UI.
-# Once connected, the same button becomes "Use Simulator" so you can switch back.
+venv\Scripts\pytest                     # run the test suite
+venv\Scripts\python -m comp1            # simulator (default)
+venv\Scripts\python -m comp1 --drone sim        # explicit simulator
+venv\Scripts\python -m comp1 --drone tello      # real Tello (join its WiFi first)
+venv\Scripts\python -m comp1 --script examples\02_search_and_mark.py --drone sim   # Python pathway
+venv\Scripts\pyinstaller comp1.spec --noconfirm # -> dist\comp1\comp1.exe
+node --test tests\js\blocks.test.js             # frontend serializer tests
 ```
 
-The app starts a local server on port 8765 and opens the block-coding UI in your browser (`--no-browser` to skip, `--port` to change). Drag blocks under **🚁 when mission starts** and press **Run**; the currently executing block is highlighted, and the right-hand panel shows the drone camera with the red-circle detection overlay, plus a live readout of how far away the victim is and in which direction. The **Code inspector** below the blocks shows display-only Python, the validated JSON that actually runs, and the exact simulator or Tello adapter calls made during execution.
+`--drone sim` flags: `--seed N` (repeatable arena), `--noise 0.05` (movement drift),
+`--scenery {arena,corridor}` (also switchable in the browser). Server flags: `--port`,
+`--no-browser`. Default port `8765`.
 
-### Switching between the simulator and Tello
+### Manual setup (Linux / macOS)
 
-The header shows the active drone. From the simulator, click **Use real Tello** after joining the
-`TELLO-xxxx` Wi-Fi network. The simulator remains active if the Tello connection fails. After a
-successful connection, the button changes to **Use Simulator**; clicking it restores the same
-simulator instance, including its seed, selected scenery, and edited victim layout.
+The project is developed and tested on Windows, but every dependency in `pyproject.toml` is a
+pure cross-platform pip package (OpenCV, NumPy, FastAPI, etc. all ship Linux/macOS wheels):
 
-Switching is available only while no mission is running. Before switching away from a real Tello,
-land it safely: changing to the simulator changes where future programs are sent, but deliberately
-does not issue an automatic landing or emergency command to the physical aircraft.
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -e .[dev]
+pytest
+python -m comp1
+```
 
-## Two ways to fly
+Don't use `requirements.txt` on Linux/macOS — it's a `pip freeze` snapshot taken on Windows and
+includes Windows-only packages (`pywin32-ctypes`, `colorama`) that PyInstaller pulls in on that
+platform. `pip install -e .[dev]` reads `pyproject.toml` instead, which has no platform-specific
+pins.
 
-Blocks and Python are peers — the same engine, the same sensing, the same emergency stop. Students who already know Python are not held back by the block interface:
+OpenCV's GUI/video dependencies occasionally need system libraries on minimal Linux images (e.g.
+`libgl1` on Debian/Ubuntu); if `import cv2` fails, install that first. Flying real hardware needs
+a Wi-Fi adapter that can join the `TELLO-xxxx` network — not guaranteed on headless servers or
+containers.
+
+### Requirements recap
+
+- **Python 3.11+** — the only hard runtime requirement.
+- **Windows** with PowerShell is the primary target; Linux/macOS work with the POSIX commands
+  above.
+- **No Node.js/npm needed to run the app** — Blockly and three.js are vendored under
+  `comp1/frontend/vendor/` and served as static files. Node is only needed to run the frontend
+  serializer tests (`node --test tests\js\blocks.test.js`), via Node's built-in `node:test`
+  runner — no npm packages required.
+- A **DJI Tello EDU** is only required for `--drone tello`; `--drone sim` (or the default
+  `MockDrone`) needs no hardware.
+
+### Two ways to fly
+
+Blocks and Python are peers — the same engine, the same sensing, the same emergency stop. Students
+who already know Python aren't held back by the block interface:
 
 ```python
 from comp1.api import Drone
@@ -125,13 +241,16 @@ drone.land()
 venv\Scripts\python -m comp1 --script examples\02_search_and_mark.py
 ```
 
-The script runs alongside the server, so the video feed, telemetry panel and **EMERGENCY STOP** button stay live while the student's own code flies the drone. See [`examples/`](examples/) for annotated starting points.
+The script runs alongside the server, so the video feed, telemetry panel, and **EMERGENCY STOP**
+button stay live while the student's own code flies the drone. See [`examples/`](examples/) for
+annotated starting points.
 
-Run the tests with `venv\Scripts\pytest`. Build the standalone Windows bundle with `venv\Scripts\pyinstaller comp1.spec --noconfirm` (output in `dist\comp1\comp1.exe`).
+### Documentation
 
-## Documentation
-
-- [Platform architecture — options, comparison, and decision](docs/architecture/platform-options.md): why the platform is a custom Blockly web frontend + local Python service (FastAPI + djitellopy + OpenCV) packaged with PyInstaller, which alternatives were rejected, and the open items still to confirm (Chromebook support, safe-distance judging threshold).
+- [Platform architecture — options, comparison, and decision](docs/architecture/platform-options.md):
+  why the platform is a custom Blockly web frontend + local Python service (FastAPI + djitellopy +
+  OpenCV) packaged with PyInstaller, which alternatives were rejected, and the open items still to
+  confirm (Chromebook support, safe-distance judging threshold).
 - [Architecture planning notes (2026-07-28)](docs/plans/2026-07-28-platform-architecture.md)
 - [Implementation plan (2026-07-28)](docs/plans/2026-07-28-implementation-plan.md)
 - [Simulator design (2026-07-28)](docs/specs/2026-07-28-simulator-design.md) — the hardware-free
