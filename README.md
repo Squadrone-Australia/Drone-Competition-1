@@ -2,6 +2,80 @@
 
 Platform for an autonomous search-and-rescue drone competition (secondary school division): students use block-based programming to make a DJI Tello patrol a caged arena, detect red circular "victim" markers with an onboard-video OpenCV pipeline, signal each find, and return to start.
 
+## Requirements
+
+- **Python 3.11+** — the only hard runtime requirement. Everything else (FastAPI, OpenCV, NumPy,
+  djitellopy, etc.) is a pip package pulled in by the install step below.
+- **Windows** with PowerShell — the commands in this README target `venv\Scripts\...`. The same
+  packages work cross-platform (`source venv/bin/activate` instead of `venv\Scripts\Activate.ps1`
+  on macOS/Linux), but this project is developed and tested on Windows.
+- **No Node.js/npm install needed to run the app.** The block-coding UI's dependencies —
+  [Blockly](comp1/frontend/vendor/blockly.min.js) and
+  [three.js](comp1/frontend/vendor/three.module.min.js) (plus `three.core.min.js` and
+  `OrbitControls.js`) — are vendored under `comp1/frontend/vendor/` and served as static files by
+  the Python backend. There is no `npm install` step and no build/bundle step for the frontend.
+- **Node.js** (any recent LTS) is only needed if you want to run the frontend serializer tests
+  (`node --test tests\js\blocks.test.js`). They use Node's built-in `node:test` runner, so there
+  are no npm packages to install there either.
+- A **DJI Tello EDU** is only required for `--drone tello`; `--drone sim` (or the default
+  `MockDrone`) needs no hardware.
+
+## Installation
+
+1. **Clone the repo** and `cd` into it.
+
+2. **Create a virtual environment** (Python 3.11+ must already be on `PATH`):
+
+   ```powershell
+   python -m venv venv
+   ```
+
+3. **Install the package.** `-e .[dev]` installs `comp1` in editable mode plus the `dev` extras
+   (pytest, httpx, PyInstaller) needed for testing and building:
+
+   ```powershell
+   venv\Scripts\pip install -e .[dev]
+   ```
+
+   This alone pulls in every backend dependency — FastAPI, Uvicorn, Pydantic, djitellopy,
+   OpenCV, NumPy — there is nothing else to install for the Python side.
+
+   > If `venv\Scripts\Activate.ps1` refuses to run in a fresh PowerShell (execution-policy
+   > error), you don't need to activate it at all — every command in this README calls the
+   > venv's `python`/`pip`/`pytest` binaries directly by path.
+
+4. **The frontend needs no install step.** Blockly and three.js
+   (`comp1/frontend/vendor/blockly.min.js`, `three.module.min.js`, `three.core.min.js`,
+   `OrbitControls.js`) are already committed to the repo and are served as static files — skip
+   straight past this step if you were expecting an `npm install`.
+
+5. **(Optional) Install Node.js** if you want to run the frontend serializer tests. Any recent
+   LTS works; no `npm install` is needed since the tests use Node's built-in `node:test` runner:
+
+   ```powershell
+   node --test tests\js\blocks.test.js
+   ```
+
+6. **Verify the install** by running the Python test suite:
+
+   ```powershell
+   venv\Scripts\pytest
+   ```
+
+   All tests are hardware-free (`djitellopy` is monkeypatched and `SimDrone` stands in for a
+   real Tello), so this works offline with no drone or Wi-Fi connection.
+
+7. **Run the app**:
+
+   ```powershell
+   venv\Scripts\python -m comp1
+   ```
+
+   This starts a local server on port 8765 and opens the block-coding UI in your browser, using
+   the built-in simulator — no hardware required. See [Quick start](#quick-start) below for what
+   to do next, and [`--drone tello`](#switching-between-the-simulator-and-tello) for flying real
+   hardware.
+
 ## Quick start
 
 ```powershell
