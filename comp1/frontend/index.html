@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>COMP1 Drone Coder</title>
-  <link rel="stylesheet" href="style.css?v=20260803-8">
+  <link rel="stylesheet" href="style.css?v=20260807-2">
   <script src="vendor/blockly.min.js"></script>
   <script type="importmap">
     { "imports": { "three": "./vendor/three.module.min.js" } }
@@ -74,6 +74,7 @@
         <figure id="camera-window">
           <figcaption>
             <span class="dot"></span>drone camera
+            <button id="vision-calibrate" title="Tune marker colour for this venue">Tune colour</button>
             <button id="cam-dock" title="Dock below / float over the 3D view">▣</button>
           </figcaption>
           <img id="video" alt="live view from the drone's onboard camera">
@@ -105,8 +106,93 @@
       <pre id="console"></pre>
     </aside>
   </main>
+
+  <dialog id="vision-dialog" aria-labelledby="vision-title">
+    <section class="vision-dialog-content">
+      <header class="vision-dialog-header">
+        <div>
+          <h2 id="vision-title">Marker colour calibration</h2>
+          <p>Keep the drone still, capture a frame, then drag a box inside the red marker.</p>
+        </div>
+        <button id="vision-close" type="button" aria-label="Close calibration">Close</button>
+      </header>
+
+      <div class="vision-images">
+        <figure>
+          <figcaption>1. Select marker pixels</figcaption>
+          <canvas id="vision-frame" width="640" height="480"></canvas>
+          <button id="vision-refresh" type="button">Capture current frame</button>
+        </figure>
+        <figure>
+          <figcaption>2. Check accepted pixels</figcaption>
+          <img id="vision-preview" alt="HSV mask preview">
+          <button id="vision-preview-button" type="button">Refresh mask preview</button>
+        </figure>
+      </div>
+
+      <p id="vision-status" role="status">Drag a box tightly inside the coloured marker.</p>
+
+      <details class="vision-help">
+        <summary>What do these controls mean?</summary>
+        <p>The camera describes every pixel using three properties. A pixel is accepted only when
+          all three settings match. The mask preview highlights accepted pixels.</p>
+        <dl>
+          <dt>Hue bands — which colour?</dt>
+          <dd>These select the red part of the colour wheel. Red sits at both ends of the wheel,
+            so two bands are needed: usually one near 0 and one near 180. Wider bands accept more
+            shades, but can also accept orange, pink, or purple objects.</dd>
+          <dt>Minimum saturation — how colourful?</dt>
+          <dd>Raise it to reject white, grey, and washed-out areas. Lower it if pale parts of the
+            marker are missing.</dd>
+          <dt>Minimum brightness — how light?</dt>
+          <dd>Lower it to include the marker in shadow. Raise it to reject dark red or brown
+            background objects.</dd>
+        </dl>
+        <p><strong>Good result:</strong> the whole marker is highlighted and the surroundings stay
+          dark. Make small changes, refresh the preview, and apply only after checking it.</p>
+      </details>
+
+      <div class="vision-controls">
+        <label>Hue band 1 start <output id="vision-h1-low-out"></output>
+          <input id="vision-h1-low" type="range" min="0" max="180">
+        </label>
+        <label>Hue band 1 end <output id="vision-h1-high-out"></output>
+          <input id="vision-h1-high" type="range" min="0" max="180">
+        </label>
+        <label>Hue band 2 start <output id="vision-h2-low-out"></output>
+          <input id="vision-h2-low" type="range" min="0" max="180">
+        </label>
+        <label>Hue band 2 end <output id="vision-h2-high-out"></output>
+          <input id="vision-h2-high" type="range" min="0" max="180">
+        </label>
+        <label>Minimum saturation <output id="vision-sat-out"></output>
+          <input id="vision-sat" type="range" min="0" max="255">
+        </label>
+        <label>Minimum brightness <output id="vision-value-out"></output>
+          <input id="vision-value" type="range" min="0" max="255">
+        </label>
+      </div>
+
+      <div class="vision-profiles">
+        <label>Saved venue profile
+          <select id="vision-profile"><option value="">Choose a profile</option></select>
+        </label>
+        <input id="vision-profile-name" maxlength="40" placeholder="e.g. gym morning">
+        <button id="vision-profile-save" type="button">Save locally</button>
+        <button id="vision-profile-load" type="button">Load</button>
+        <button id="vision-profile-download" type="button">Download TOML</button>
+      </div>
+
+      <footer class="vision-actions">
+        <button id="vision-reset" type="button">Restore startup settings</button>
+        <span></span>
+        <button id="vision-apply" class="primary" type="button">Apply to detector</button>
+      </footer>
+    </section>
+  </dialog>
   <script src="blocks.js?v=20260803-4"></script>
   <script src="app.js?v=20260803-8"></script>
+  <script src="calibration.js?v=20260807-1"></script>
   <script src="plan.js?v=20260803-2"></script>
   <script type="module" src="view3d.js?v=20260803-2"></script>
 </body>

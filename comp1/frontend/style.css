@@ -58,6 +58,9 @@ aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column; bac
   box-shadow: 0 0 6px #ef4444; }
 #camera-window button { margin-left: auto; background: none; border: 0; color: #64748b;
   cursor: pointer; font-size: 12px; padding: 0 4px; }
+#camera-window #vision-calibrate { margin-left: auto; color: #7dd3fc; text-transform: none;
+  letter-spacing: normal; }
+#camera-window #cam-dock { margin-left: 2px; }
 #camera-window button:hover { color: #e2e8f0; }
 #video { display: block; width: 100%; aspect-ratio: 4/3; object-fit: contain; background: #000; }
 
@@ -136,3 +139,59 @@ aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column; bac
 .blocklyToolboxDiv { background: #f1f5f9; padding-top: 4px; }
 .blocklyTreeRow { padding: 4px 0; }
 .blocklyTreeLabel { font-family: system-ui, sans-serif; font-size: 15px; }
+
+/* --- guided HSV calibration -------------------------------------------- */
+#vision-dialog { width: min(1040px, 96vw); max-height: 94vh; padding: 0;
+  border: 1px solid #475569; border-radius: 10px; background: #0f172a; color: #e2e8f0;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .65); }
+#vision-dialog::backdrop { background: rgba(2, 6, 23, .78); }
+.vision-dialog-content { padding: 16px; overflow: auto; max-height: 94vh; }
+.vision-dialog-header { display: flex; align-items: flex-start; gap: 16px; padding: 0 0 12px;
+  background: transparent; }
+.vision-dialog-header h2 { font-size: 20px; color: #f8fafc; }
+.vision-dialog-header p { margin-top: 4px; color: #94a3b8; font-size: 13px; }
+.vision-dialog-header button { margin-left: auto; background: #334155; color: #e2e8f0; }
+.vision-images { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.vision-images figure { min-width: 0; }
+.vision-images figcaption { margin-bottom: 5px; color: #7dd3fc; font-size: 12px;
+  font-weight: 700; }
+#vision-frame, #vision-preview { display: block; width: 100%; aspect-ratio: 4/3;
+  object-fit: contain; background: #020617; border: 1px solid #334155; }
+#vision-frame { cursor: crosshair; touch-action: none; }
+.vision-images button, .vision-profiles button, .vision-actions button { margin-top: 7px;
+  border: 1px solid #475569; border-radius: 6px; padding: 6px 10px; background: #1e293b;
+  color: #cbd5e1; cursor: pointer; }
+#vision-status { min-height: 32px; margin: 12px 0 8px; padding: 7px 9px;
+  border-radius: 6px; background: #16233c; color: #fbbf24; font-size: 13px; }
+#vision-status.ok { color: #4ade80; }
+#vision-status.bad { color: #f87171; }
+.vision-help { margin: 0 0 10px; border: 1px solid #334155; border-radius: 8px;
+  background: #111c31; color: #cbd5e1; font-size: 12px; line-height: 1.45; }
+.vision-help summary { padding: 8px 10px; color: #7dd3fc; cursor: pointer;
+  font-weight: 700; }
+.vision-help[open] summary { border-bottom: 1px solid #334155; }
+.vision-help p { margin: 9px 10px; }
+.vision-help dl { display: grid; grid-template-columns: minmax(145px, auto) 1fr;
+  gap: 7px 12px; margin: 9px 10px; }
+.vision-help dt { color: #f8fafc; font-weight: 700; }
+.vision-help dd { color: #94a3b8; }
+.vision-controls { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 8px 18px; padding: 10px; border: 1px solid #334155; border-radius: 8px; }
+.vision-controls label { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px;
+  color: #cbd5e1; font-size: 12px; }
+.vision-controls output { color: #7dd3fc; font-variant-numeric: tabular-nums; }
+.vision-controls input { grid-column: 1 / -1; width: 100%; accent-color: #0ea5e9; }
+.vision-profiles { display: flex; flex-wrap: wrap; gap: 7px; align-items: end; margin-top: 12px; }
+.vision-profiles label { display: flex; flex-direction: column; gap: 3px; color: #94a3b8;
+  font-size: 11px; }
+.vision-profiles select, .vision-profiles input { min-height: 31px; border: 1px solid #475569;
+  border-radius: 6px; padding: 5px 8px; background: #020617; color: #e2e8f0; }
+.vision-profiles button { margin-top: 0; }
+.vision-actions { display: flex; gap: 8px; margin-top: 14px; }
+.vision-actions span { flex: 1; }
+.vision-actions .primary { border-color: #0284c7; background: #0284c7; color: #fff; font-weight: 700; }
+#vision-dialog button:disabled, #vision-calibrate:disabled { opacity: .45; cursor: default; }
+@media (max-width: 760px) {
+  .vision-images, .vision-controls { grid-template-columns: 1fr; }
+  .vision-help dl { grid-template-columns: 1fr; }
+}

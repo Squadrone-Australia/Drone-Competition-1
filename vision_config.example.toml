@@ -1,0 +1,41 @@
+# Vision tuning for the red victim marker detector.
+#
+# Copy this file (e.g. to vision_config.toml) and pass it with
+#   comp1 --vision-config vision_config.toml
+# The values below are the code defaults from comp1/vision/config.py — edit
+# whichever ones you need for on-site conditions and delete the rest; keys
+# left out of the file simply keep the code default.
+
+# --- colour: red wraps the hue axis, so two HSV bands are ORed together (requirements §3.1) ---
+lower1 = [0, 100, 80]
+upper1 = [10, 255, 255]
+lower2 = [170, 100, 80]
+upper2 = [180, 255, 255]
+
+# --- shape gates ---
+min_area_ratio = 0.002     # ignore specks; also caps detection range (see max_detect_range_m)
+circularity_min = 0.85     # 4*pi*Area/Perimeter^2 -- square ~ 0.785, circle ~ 0.95
+center_band = 0.2          # |cx - 0.5| < band/2 counts as "centered"
+
+# --- physical geometry: what turns pixels into metres ---
+marker_diameter_m = 0.25   # printed victim marker, A4-ish
+# camera_dfov_deg = 82.6   # uncomment to override the Tello's diagonal FOV (see calibrate.py)
+
+# --- approach control, in real units (requirements §3.2) ---
+approach_stop_distance_m = 1.0
+approach_bearing_deadband_deg = 8.0
+# the Tello ignores rotations below ~10 deg and refuses translations below 20 cm,
+# so these floors are hardware limits, not tuning preferences
+approach_min_turn_deg = 10
+approach_max_turn_deg = 45
+approach_min_step_cm = 20
+approach_max_step_cm = 100
+approach_max_steps = 40
+approach_lost_limit = 3
+
+# --- multi-target locking ---
+# once locked, prefer the candidate nearest the last known bearing rather than
+# whichever happens to be biggest this frame; stops the drone ping-ponging
+# between two similarly sized red circles
+lock_max_bearing_jump_deg = 25.0
+lock_lost_frames = 5

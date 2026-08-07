@@ -5,6 +5,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 from comp1.drone.mock import MockDrone
 from comp1.server import create_app
+from comp1.vision.config import VisionConfig
 
 
 def red_frame():
@@ -53,6 +54,58 @@ def test_video_frames_are_jpeg():
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         frame = collect_until(ws, "frame")
         assert frame[:2] == b"\xff\xd8"          # JPEG magic
+
+
+def test_vision_config_is_sent_on_connect():
+    cfg = VisionConfig(lower1=(2, 90, 70))
+    app = create_app(MockDrone(frame_factory=red_frame), cfg=cfg)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        msg = collect_until(ws, "vision_config")
+    assert msg["config"]["lower1"] == [2, 90, 70]
+
+
+def test_marker_region_produces_a_previewed_hsv_suggestion():
+    app = create_app(MockDrone(frame_factory=red_frame))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "frame")  # latest raw frame is now available
+        ws.send_json({"type": "vision_sample", "roi": [0.42, 0.38, 0.58, 0.62]})
+        msg = collect_until(ws, "vision_suggestion")
+    assert msg["config"]["lower1"][0] == 0
+    assert msg["config"]["lower2"][0] >= 170
+    assert len(msg["preview_jpeg"]) > 100
+
+
+def test_vision_settings_apply_live_and_reset_to_startup_config():
+    startup = VisionConfig(lower1=(1, 90, 70))
+    app = create_app(MockDrone(frame_factory=red_frame), cfg=startup)
+    blue = {
+        "lower1": [100, 80, 70], "upper1": [130, 255, 255],
+        "lower2": [100, 80, 70], "upper2": [130, 255, 255],
+    }
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "vision_config")
+        ws.send_json({"type": "vision_apply", "config": blue})
+        assert collect_until(ws, "vision_config")["config"] == blue
+        ws.send_json({"type": "vision_reset"})
+        restored = collect_until(ws, "vision_config")["config"]
+    assert restored["lower1"] == [1, 90, 70]
+
+
+def test_vision_calibration_is_refused_during_a_mission():
+    from comp1.sim.drone import SimDrone
+    app = create_app(SimDrone(seed=2, delay=0.2))
+    values = {
+        "lower1": [0, 100, 80], "upper1": [10, 255, 255],
+        "lower2": [170, 100, 80], "upper2": [180, 255, 255],
+    }
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
+            {"id": "a", "op": "takeoff"},
+            {"id": "b", "op": "move", "dir": "forward", "cm": 100}]}})
+        collect_until(ws, "reset", limit=200)
+        ws.send_json({"type": "vision_apply", "config": values})
+        error = collect_until(ws, "vision_error", limit=200)
+    assert "stop the mission" in error["message"]
 
 
 def test_invalid_program_rejected():

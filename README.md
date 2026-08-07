@@ -99,6 +99,19 @@ By default the drone is a **simulator** — a virtual drone in a virtual room �
 to break and no real hardware needed. This is the best way to build and test a flight plan before
 trying it on a real Tello.
 
+### Teaching the camera which red to recognise
+
+Room lighting changes how red looks to a camera. Before using a real drone in a new room, click
+**Tune colour** above the drone-camera picture. Capture a frame, drag a box inside the red marker,
+and the program will suggest suitable settings. The preview should highlight the marker while the
+floor, walls, and other objects stay dark. Click **Apply to detector** only after checking the
+preview.
+
+You do not need to understand OpenCV or choose numbers by hand. If you want to adjust the sliders,
+the panel includes a plain-language explanation. The full [colour-calibration guide](docs/vision-calibration.md)
+explains every control, gives a safe venue setup checklist, and shows what to change when detection
+is unreliable.
+
 ### Flying a real Tello drone
 
 1. Turn on the Tello and, on the computer, connect its Wi-Fi network — it will be named something
@@ -247,6 +260,8 @@ annotated starting points.
 
 ### Documentation
 
+- [Colour calibration for beginners](docs/vision-calibration.md): how to tune marker detection in
+  a new room, understand the preview and sliders, save venue profiles, and fix common problems.
 - [Platform architecture — options, comparison, and decision](docs/architecture/platform-options.md):
   why the platform is a custom Blockly web frontend + local Python service (FastAPI + djitellopy +
   OpenCV) packaged with PyInstaller, which alternatives were rejected, and the open items still to

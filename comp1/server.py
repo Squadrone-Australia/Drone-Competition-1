@@ -1,6 +1,8 @@
 import asyncio
+import base64
 import json
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
@@ -15,6 +17,8 @@ from .interpreter import Interpreter
 from .protocol import Program
 from .sim.mission import MissionScorer
 from .vision.config import VisionConfig, DEFAULT_CONFIG
+from .vision.calibration import (CalibrationError, config_with_hsv,
+                                 draw_calibration_preview, hsv_values, suggest_hsv)
 from .vision.detector import Detection, TargetTracker, draw_overlay
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
@@ -42,6 +46,11 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                script: str | Path | None = None, script_delay: float = 1.5,
                tello_factory: Callable[[], DroneAdapter] = _new_tello,
                simulator_factory: Callable[[], DroneAdapter] = _new_simulator) -> FastAPI:
+    # Each app gets an independent runtime config. In particular, a calibration
+    # session must never mutate DEFAULT_CONFIG or leak into a later test/server.
+    cfg = replace(cfg)
+    initial_hsv = hsv_values(cfg)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         drone.connect()
@@ -52,6 +61,7 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         app.state.simulator = drone if drone.mode == "sim" else None
         app.state.drone_switching = False
         app.state.latest_detection = Detection(found=False)
+        app.state.latest_frame = None
         app.state.tracker = TargetTracker(cfg)
         app.state.clients = set()
         # ground truth for the mission panel; None whenever the adapter has no
@@ -85,6 +95,7 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
             if frame is not None:
                 # detection runs on the raw sensor frame; every overlay below is
                 # applied to a copy, so nothing we draw can be detected
+                app.state.latest_frame = frame.copy()
                 det = app.state.tracker.update(frame)
                 app.state.latest_detection = det
                 small = cv2.resize(frame, (640, 480)) if frame.shape[1] != 640 else frame
@@ -158,6 +169,27 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
             "elevation_deg": round(det.elevation_deg) if det.found else None,
         }
 
+    def _vision_message(message_type: str, active_cfg: VisionConfig) -> dict:
+        return {"type": message_type, "config": hsv_values(active_cfg)}
+
+    def _vision_preview(active_cfg: VisionConfig) -> str:
+        frame = app.state.latest_frame
+        if frame is None:
+            raise CalibrationError("no camera frame is available yet")
+        small = cv2.resize(frame, (640, 480)) if frame.shape[1] != 640 else frame
+        preview = draw_calibration_preview(small, active_cfg)
+        ok, jpeg = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, 75])
+        if not ok:
+            raise CalibrationError("could not create the mask preview")
+        return base64.b64encode(jpeg.tobytes()).decode("ascii")
+
+    def _apply_hsv(values: dict) -> None:
+        updated = config_with_hsv(cfg, values)
+        for key in ("lower1", "upper1", "lower2", "upper2"):
+            setattr(cfg, key, getattr(updated, key))
+        app.state.tracker = TargetTracker(cfg)
+        app.state.latest_detection = Detection(found=False)
+
     async def _broadcast_bytes(app, data: bytes):
         for ws in list(app.state.clients):
             try:
@@ -216,6 +248,7 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
 
         app.state.drone = candidate
         app.state.drone_switching = False
+        app.state.latest_frame = None
         app.state.tracker = TargetTracker(cfg)
         app.state.latest_detection = Detection(found=False)
         app.state.scorer = _new_scorer(app)
@@ -250,6 +283,7 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
 
         app.state.drone = candidate
         app.state.drone_switching = False
+        app.state.latest_frame = None
         app.state.tracker = TargetTracker(cfg)
         app.state.latest_detection = Detection(found=False)
         app.state.scorer = _new_scorer(app)
@@ -337,6 +371,7 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
         await ws.send_text(json.dumps({"type": "drone_mode",
                                        "mode": active_drone.mode,
                                        "switching": app.state.drone_switching}))
+        await ws.send_text(json.dumps(_vision_message("vision_config", cfg)))
 
         try:
             while True:
@@ -406,6 +441,40 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                                              randomise=bool(msg.get("randomise")))
                     else:
                         await _rebuild_arena(app, victims=msg.get("victims") or [])
+                elif msg["type"] in ("vision_sample", "vision_preview",
+                                      "vision_apply", "vision_reset"):
+                    if app.state.drone_switching:
+                        await ws.send_text(json.dumps({
+                            "type": "vision_error",
+                            "message": "wait for the drone connection"}))
+                    elif app.state.interp is not None:
+                        await ws.send_text(json.dumps({
+                            "type": "vision_error",
+                            "message": "stop the mission before calibrating vision"}))
+                    else:
+                        try:
+                            if msg["type"] == "vision_sample":
+                                values = suggest_hsv(app.state.latest_frame, msg.get("roi"))
+                                candidate = config_with_hsv(cfg, values)
+                                response = _vision_message("vision_suggestion", candidate)
+                                response["preview_jpeg"] = _vision_preview(candidate)
+                                await ws.send_text(json.dumps(response))
+                            elif msg["type"] == "vision_preview":
+                                candidate = config_with_hsv(cfg, msg.get("config") or {})
+                                response = _vision_message("vision_preview", candidate)
+                                response["preview_jpeg"] = _vision_preview(candidate)
+                                await ws.send_text(json.dumps(response))
+                            elif msg["type"] == "vision_apply":
+                                _apply_hsv(msg.get("config") or {})
+                                await _broadcast_json(
+                                    app, _vision_message("vision_config", cfg))
+                            else:
+                                _apply_hsv(initial_hsv)
+                                await _broadcast_json(
+                                    app, _vision_message("vision_config", cfg))
+                        except CalibrationError as exc:
+                            await ws.send_text(json.dumps({
+                                "type": "vision_error", "message": str(exc)}))
                 elif msg["type"] == "estop":
                     if app.state.interp:
                         app.state.interp.request_stop()
