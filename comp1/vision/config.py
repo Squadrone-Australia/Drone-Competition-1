@@ -1,6 +1,10 @@
+import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .camera import CameraIntrinsics, TELLO_INTRINSICS
+
+_TUPLE_FIELDS = {"lower1", "upper1", "lower2", "upper2"}
 
 
 @dataclass
@@ -45,6 +49,25 @@ class VisionConfig:
     def max_detect_range_m(self) -> float:
         """Range at which a marker stops clearing ``min_area_ratio``."""
         return self.intrinsics.max_range_m(self.marker_radius_m, self.min_area_ratio)
+
+    @classmethod
+    def load_file(cls, path: str | Path) -> "VisionConfig":
+        """Build a config from a TOML file, e.g. for re-tuning HSV on-site (§3.1).
+
+        Only the keys present in the file are overridden; anything omitted keeps
+        the code default above. ``camera_dfov_deg``, if given, replaces
+        ``intrinsics`` via :meth:`CameraIntrinsics.from_dfov` instead of being
+        passed straight through (``intrinsics`` itself isn't a flat TOML value).
+        See ``vision_config.example.toml`` at the repo root for the full set of
+        keys and what each one does.
+        """
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        kwargs = {k: (tuple(v) if k in _TUPLE_FIELDS else v)
+                  for k, v in data.items() if k != "camera_dfov_deg"}
+        if "camera_dfov_deg" in data:
+            kwargs["intrinsics"] = CameraIntrinsics.from_dfov(data["camera_dfov_deg"])
+        return cls(**kwargs)
 
 
 DEFAULT_CONFIG = VisionConfig()

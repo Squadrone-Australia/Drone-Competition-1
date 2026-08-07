@@ -12,6 +12,7 @@ venv\Scripts\python -m comp1                    # run with MockDrone (no hardwar
 venv\Scripts\python -m comp1 --drone sim        # run against the simulator
 venv\Scripts\python -m comp1 --drone tello      # real Tello (join TELLO-xxxx WiFi first)
 venv\Scripts\python -m comp1 --script examples\02_search_and_mark.py --drone sim   # Python pathway
+venv\Scripts\python -m comp1 --vision-config vision_config.toml    # on-site re-tune, see below
 venv\Scripts\pyinstaller comp1.spec --noconfirm # -> dist\comp1\comp1.exe
 node --test tests\js\blocks.test.js             # frontend serializer tests
 ```
@@ -110,6 +111,15 @@ live.
 in `try/except Exception` must not be able to swallow the stop and leave the drone flying.
 
 ### Vision pipeline
+
+`VisionConfig` ([comp1/vision/config.py](comp1/vision/config.py)) holds everything tunable — HSV
+bands, `marker_diameter_m`, approach distances, lock thresholds. The code defaults live in the
+dataclass itself; `VisionConfig.load_file(path)` overlays a TOML file on top (only the keys present
+override), so a re-tune on-site (requirements §3.1) means editing a copy of
+[vision_config.example.toml](vision_config.example.toml) and passing `--vision-config`, not touching
+code. `DEFAULT_CONFIG` (still the hardcoded dataclass) stays the default everywhere else — tests,
+the Python pathway, and any call site that doesn't thread a `cfg` through — so importing
+`comp1.vision.config` never has a side effect of reading a file.
 
 [comp1/vision/camera.py](comp1/vision/camera.py) is the **single source of truth for geometry**.
 Everything is normalised by frame width (`f_norm = focal_px / width`) so one constant describes both

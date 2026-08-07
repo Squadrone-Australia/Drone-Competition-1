@@ -63,7 +63,14 @@ class Detection:
                    target=target)
 
 
-def _red_mask(frame_bgr: np.ndarray, cfg: VisionConfig) -> np.ndarray:
+def color_mask(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> np.ndarray:
+    """Return the detector's binary HSV mask.
+
+    This is public so the calibration UI can show exactly which pixels the
+    detector accepts.  Keeping preview and detection on the same function
+    prevents a tuning panel from looking correct while the real detector uses
+    subtly different thresholds.
+    """
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, np.array(cfg.lower1), np.array(cfg.upper1)) | \
            cv2.inRange(hsv, np.array(cfg.lower2), np.array(cfg.upper2))
@@ -80,7 +87,7 @@ def find_targets(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> l
     h, w = frame_bgr.shape[:2]
     aspect_hw = h / w
     cam = cfg.intrinsics
-    contours, _ = cv2.findContours(_red_mask(frame_bgr, cfg),
+    contours, _ = cv2.findContours(color_mask(frame_bgr, cfg),
                                    cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     out = []
     for c in contours:

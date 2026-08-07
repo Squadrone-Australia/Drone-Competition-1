@@ -8,6 +8,7 @@ from pathlib import Path
 import uvicorn
 
 from .server import create_app
+from .vision.config import VisionConfig, DEFAULT_CONFIG
 
 
 def main():
@@ -27,9 +28,15 @@ def main():
     ap.add_argument("--scenery", choices=["arena", "corridor"], default="arena",
                     help="sim only: which arena to start in (also switchable in "
                          "the browser)")
+    ap.add_argument("--vision-config", type=Path, default=None,
+                    help="TOML file overriding marker size, HSV thresholds, etc. "
+                         "(see vision_config.example.toml at the repo root)")
     args = ap.parse_args()
     if args.script and not args.script.is_file():
         sys.exit(f"comp1: no such script: {args.script}")
+    if args.vision_config and not args.vision_config.is_file():
+        sys.exit(f"comp1: no such vision config: {args.vision_config}")
+    cfg = VisionConfig.load_file(args.vision_config) if args.vision_config else DEFAULT_CONFIG
     if args.drone == "tello":
         from .drone.tello import TelloDrone
         drone = TelloDrone()
@@ -44,7 +51,7 @@ def main():
         # frontend instead of merely coming to the foreground with stale HTML.
         launch_url = f"http://localhost:{args.port}/?launch={time.time_ns()}"
         threading.Timer(1.0, lambda: webbrowser.open(launch_url)).start()
-    uvicorn.run(create_app(drone, script=args.script), host="127.0.0.1", port=args.port)
+    uvicorn.run(create_app(drone, cfg=cfg, script=args.script), host="127.0.0.1", port=args.port)
 
 
 if __name__ == "__main__":
