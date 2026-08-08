@@ -7,10 +7,28 @@ from collections.abc import Mapping
 import cv2
 import numpy as np
 
-from .config import VisionConfig
-from .detector import color_mask, detect_red_circle, draw_overlay
+from .config import DEFAULT_CONFIG, VisionConfig
+from .detector import color_mask, detect_red_circle, draw_overlay, find_targets
 
 HSV_KEYS = ("lower1", "upper1", "lower2", "upper2")
+
+# A deliberately loose red band, used *only* to locate a marker for calibration.
+# The victim marker is guaranteed red, so no colour-agnostic circle finder is
+# needed. The saturation and value floors can be this generous because the hue
+# gate is what excludes scenery: sceneries are blue-dominant in BGR by
+# construction, so a lower saturation floor does not bring a wall into range.
+# This never becomes the detector's config.
+RED_PRIOR = replace(
+    DEFAULT_CONFIG,
+    lower1=(0, 60, 40), upper1=(15, 255, 255),
+    lower2=(160, 60, 40), upper2=(180, 255, 255),
+)
+
+# Half-side of the sample box as a fraction of the marker radius. The binding
+# constraint is the box's corners, not its sides: half-side k*R puts corners at
+# k*R*sqrt(2), so the inscribed square's k = 1/sqrt(2) lands them exactly on the
+# rim. 0.5 puts them at 0.71*R, clear of the anti-aliased edge.
+ROI_FILL = 0.5
 
 
 class CalibrationError(ValueError):
@@ -119,6 +137,32 @@ def suggest_hsv(frame_bgr: np.ndarray, roi: list[float] | tuple[float, ...]) -> 
         "lower2": [bands[1][0], sat_min, value_min],
         "upper2": [bands[1][1], 255, 255],
     }
+
+
+def find_marker_roi(frame_bgr: np.ndarray) -> list[float]:
+    """Locate the largest red marker and return a sample box inside it.
+
+    This is what removes the manual drag: ``find_targets`` already gates on area
+    and circularity, so running it against :data:`RED_PRIOR` turns the detector
+    itself into the region locator.
+    """
+    if frame_bgr is None or frame_bgr.size == 0:
+        raise CalibrationError("no camera frame is available")
+    targets = find_targets(frame_bgr, RED_PRIOR)
+    if not targets:
+        raise CalibrationError(
+            "no red marker in view — point the camera at one and try again")
+    # nearest-first, and distance comes from apparent radius, so targets[0] is
+    # also the largest blob: the most pixels to compute statistics from
+    target = targets[0]
+    height, width = frame_bgr.shape[:2]
+    # radius_norm is normalised by width, but the ROI's y bounds are scaled by
+    # height, so the y half-extent needs the aspect correction to stay square
+    half_x = ROI_FILL * target.radius_norm
+    half_y = half_x * width / height
+    clamp = lambda v: min(max(float(v), 0.0), 1.0)
+    return [clamp(target.cx - half_x), clamp(target.cy - half_y),
+            clamp(target.cx + half_x), clamp(target.cy + half_y)]
 
 
 def draw_calibration_preview(frame_bgr: np.ndarray, cfg: VisionConfig) -> np.ndarray:
