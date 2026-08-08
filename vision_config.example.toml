@@ -31,7 +31,11 @@ approach_max_turn_deg = 45
 approach_min_step_cm = 20
 approach_max_step_cm = 100
 approach_max_steps = 40
-approach_lost_limit = 3
+# How long the marker may stay out of view before the approach gives up, in
+# seconds. Raise it in a cluttered or badly lit arena, where the detector drops
+# frames in bursts; lower it if the drone hovers too long over a marker that has
+# genuinely gone.
+approach_lost_timeout_s = 2.5
 
 # --- multi-target locking ---
 # once locked, prefer the candidate nearest the last known bearing rather than

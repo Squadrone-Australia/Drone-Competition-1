@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from comp1.protocol import Program
 from comp1.drone.mock import MockDrone
 from comp1.interpreter import Interpreter
@@ -11,7 +13,11 @@ def prog():
         {"version": 1, "blocks": [{"id": "a", "op": "approach_marker"}]})
 
 
-async def run_seq(seq):
+async def run_flight(seq, cfg=DEFAULT_CONFIG):
+    """Run one approach against a scripted detection sequence.
+
+    Returns the drone (for its command log) and the emitted events.
+    """
     it_seq = iter(seq)
     last = seq[-1]
 
@@ -24,8 +30,13 @@ async def run_seq(seq):
         return last
 
     drone, events = MockDrone(), []
-    interp = Interpreter(drone, det, events.append)
+    interp = Interpreter(drone, det, events.append, cfg=cfg)
     await interp.run(prog())
+    return drone, events
+
+
+async def run_seq(seq, cfg=DEFAULT_CONFIG):
+    drone, _ = await run_flight(seq, cfg)
     return drone
 
 
@@ -72,8 +83,33 @@ async def test_stops_without_overshooting_below_the_minimum_step():
 
 
 async def test_gives_up_when_marker_lost():
-    drone = await run_seq([seen(distance_m=3.0), lost(), lost(), lost()])
-    assert len(drone.log) <= 2  # one step at most, then abort — no runaway
+    # a dropout that outlasts the budget still aborts — no runaway
+    cfg = replace(DEFAULT_CONFIG, approach_lost_timeout_s=0.5)
+    drone = await run_seq([seen(distance_m=3.0), lost(), lost(), lost()], cfg)
+    assert len(drone.log) <= 2  # one step at most, then abort
+
+
+async def test_rides_out_a_dropout_and_resumes_the_approach():
+    # A cluttered arena drops frames mid-approach. Three misses in a row is
+    # under a second — the controller must keep waiting, not abandon a victim
+    # that is still there.
+    drone = await run_seq([
+        seen(distance_m=3.0, bearing_deg=0.0),
+        lost(), lost(), lost(),
+        seen(distance_m=1.5, bearing_deg=0.0),     # back in view, 0.5 m to close
+        seen(distance_m=1.0, bearing_deg=0.0),
+    ])
+    assert ("move", "forward", 50) in drone.log    # resumed after the dropout
+
+
+async def test_warns_when_it_gives_up_on_a_lost_marker():
+    # Silently returning makes the block look like it succeeded; the student
+    # sees the drone stop mid-approach with no explanation.
+    cfg = replace(DEFAULT_CONFIG, approach_lost_timeout_s=0.5)
+    _, events = await run_flight([seen(distance_m=3.0), lost(), lost(), lost()], cfg)
+    warnings = [e for e in events if e["type"] == "warning"]
+    assert warnings, "giving up on the marker must be reported"
+    assert warnings[0]["blockId"] == "a"
 
 
 async def test_reacquires_the_nearest_target_when_approach_starts():

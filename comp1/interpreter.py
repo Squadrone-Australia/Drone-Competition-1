@@ -269,18 +269,25 @@ class Interpreter:
         # no longer the closest. Re-acquire once, then keep that lock while
         # moving so similarly sized markers cannot make the controller ping-pong.
         self._select_nearest_target()
-        lost = 0
+        blind_until = None
         for _ in range(cfg.approach_max_steps):
             if self._stop.is_set():
                 raise _Stopped()
             det = self._detect()
             if not det.found:
-                lost += 1
-                if lost >= cfg.approach_lost_limit:
+                # A cluttered arena drops frames in bursts — glare, motion blur
+                # after a rotate, something passing in front. Hover and keep
+                # looking for the whole budget rather than treating the first
+                # few empty frames as a vanished victim.
+                now = asyncio.get_running_loop().time()
+                if blind_until is None:
+                    blind_until = now + cfg.approach_lost_timeout_s
+                elif now >= blind_until:
+                    self._warn("lost sight of the marker — approach stopped")
                     return
                 await asyncio.sleep(0.3)
                 continue
-            lost = 0
+            blind_until = None
             bearing, distance = det.bearing_deg, det.distance_m
             if abs(bearing) > cfg.approach_bearing_deadband_deg:
                 deg = _clamp(round(abs(bearing)),

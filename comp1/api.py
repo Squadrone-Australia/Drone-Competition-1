@@ -31,6 +31,7 @@ Run it standalone (no window, no e-stop button — testing only)::
 import asyncio
 import runpy
 import threading
+import time
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -301,17 +302,21 @@ class Drone:
         self._s.select_nearest_target()
         stop_m = (cfg.approach_stop_distance_m if stop_distance_cm is None
                   else stop_distance_cm / 100.0)
-        lost = 0
+        blind_until = None
         for _ in range(cfg.approach_max_steps):
             self._check()
             det = self._s.get_detection()
             if not det.found:
-                lost += 1
-                if lost >= cfg.approach_lost_limit:
+                # Hover out the whole budget: a cluttered arena drops frames in
+                # bursts, and a burst is not a victim that has gone away.
+                now = time.monotonic()
+                if blind_until is None:
+                    blind_until = now + cfg.approach_lost_timeout_s
+                elif now >= blind_until:
                     return False
                 self.wait(0.3)
                 continue
-            lost = 0
+            blind_until = None
             bearing, distance = det.bearing_deg, det.distance_m
             if abs(bearing) > cfg.approach_bearing_deadband_deg:
                 deg = _clamp(round(abs(bearing)),

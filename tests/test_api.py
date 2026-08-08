@@ -2,6 +2,7 @@ import asyncio
 import math
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -148,9 +149,31 @@ async def test_approach_converges_in_the_simulator():
 
 
 def test_approach_gives_up_when_the_target_is_never_seen():
-    session, adapter = mock_session(detection=lost())
+    session, adapter = mock_session(
+        detection=lost(), cfg=replace(DEFAULT_CONFIG, approach_lost_timeout_s=0.5))
     d = Drone(); d._s, d._d = session, adapter
     assert d.approach_target() is False
+
+
+def test_approach_rides_out_a_dropout_and_resumes():
+    # Same burst-of-dropped-frames case as the block pathway: a cluttered arena
+    # blinds the detector for well under a second and the victim is still there.
+    seq = iter([seen(distance_m=3.0, bearing_deg=0.0),
+                lost(), lost(), lost(),
+                seen(distance_m=1.5, bearing_deg=0.0),
+                seen(distance_m=1.0, bearing_deg=0.0)])
+    last = [lost()]
+
+    def det():
+        last[0] = next(seq, last[0])
+        return last[0]
+
+    adapter = MockDrone()
+    session = Session(drone=adapter, get_detection=det)
+    d = Drone(); d._s, d._d = session, adapter
+
+    assert d.approach_target() is True
+    assert ("move", "forward", 50) in adapter.log   # resumed after the dropout
 
 
 def test_approach_requests_the_nearest_target_before_moving():
