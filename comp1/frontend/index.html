@@ -112,7 +112,8 @@
       <header class="vision-dialog-header">
         <div>
           <h2 id="vision-title">Marker colour calibration</h2>
-          <p>Keep the drone still, capture a frame, then drag a box inside the red marker.</p>
+          <p>Keep the drone still, capture a frame, then press Find marker for me — or drag a
+            box inside the red marker yourself.</p>
         </div>
         <button id="vision-close" type="button" aria-label="Close calibration">Close</button>
       </header>
@@ -121,7 +122,10 @@
         <figure>
           <figcaption>1. Select marker pixels</figcaption>
           <canvas id="vision-frame" width="640" height="480"></canvas>
-          <button id="vision-refresh" type="button">Capture current frame</button>
+          <div class="vision-figure-actions">
+            <button id="vision-auto" type="button" class="primary">Find marker for me</button>
+            <button id="vision-refresh" type="button">Capture current frame</button>
+          </div>
         </figure>
         <figure>
           <figcaption>2. Check accepted pixels</figcaption>
@@ -130,7 +134,8 @@
         </figure>
       </div>
 
-      <p id="vision-status" role="status">Drag a box tightly inside the coloured marker.</p>
+      <p id="vision-status" role="status">Press Find marker for me, or drag a box tightly inside
+        the coloured marker.</p>
 
       <details class="vision-help">
         <summary>What do these controls mean?</summary>
@@ -192,7 +197,7 @@
   </dialog>
   <script src="blocks.js?v=20260803-4"></script>
   <script src="app.js?v=20260803-8"></script>
-  <script src="calibration.js?v=20260807-1"></script>
+  <script src="calibration.js?v=20260808-1"></script>
   <script src="plan.js?v=20260803-2"></script>
   <script type="module" src="view3d.js?v=20260803-2"></script>
 </body>

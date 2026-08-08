@@ -161,6 +161,7 @@ aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column; bac
 .vision-images button, .vision-profiles button, .vision-actions button { margin-top: 7px;
   border: 1px solid #475569; border-radius: 6px; padding: 6px 10px; background: #1e293b;
   color: #cbd5e1; cursor: pointer; }
+.vision-figure-actions { display: flex; gap: 7px; }
 #vision-status { min-height: 32px; margin: 12px 0 8px; padding: 7px 9px;
   border-radius: 6px; background: #16233c; color: #fbbf24; font-size: 13px; }
 #vision-status.ok { color: #4ade80; }
@@ -189,7 +190,8 @@ aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column; bac
 .vision-profiles button { margin-top: 0; }
 .vision-actions { display: flex; gap: 8px; margin-top: 14px; }
 .vision-actions span { flex: 1; }
-.vision-actions .primary { border-color: #0284c7; background: #0284c7; color: #fff; font-weight: 700; }
+.vision-actions .primary, .vision-figure-actions .primary { border-color: #0284c7;
+  background: #0284c7; color: #fff; font-weight: 700; }
 #vision-dialog button:disabled, #vision-calibrate:disabled { opacity: .45; cursor: default; }
 @media (max-width: 760px) {
   .vision-images, .vision-controls { grid-template-columns: 1fr; }
