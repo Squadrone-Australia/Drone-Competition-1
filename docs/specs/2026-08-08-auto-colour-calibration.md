@@ -1,6 +1,6 @@
 # Automatic Marker Colour Calibration
 
-**Date:** 2026-08-08 · **Status:** Design
+**Date:** 2026-08-08 · **Status:** Implemented
 
 ## Purpose
 

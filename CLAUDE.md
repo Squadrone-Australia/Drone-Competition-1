@@ -121,6 +121,14 @@ code. `DEFAULT_CONFIG` (still the hardcoded dataclass) stays the default everywh
 the Python pathway, and any call site that doesn't thread a `cfg` through — so importing
 `comp1.vision.config` never has a side effect of reading a file.
 
+`comp1/vision/calibration.py` is the on-site re-tuning path (§3.1) and is **operator-triggered
+only** — nothing in `interpreter.py` or `api.py` may call it. `auto_suggest_hsv` locates the marker
+itself by running `find_targets` against a loose `RED_PRIOR`, then fits bands with the same
+`suggest_hsv` a manual drag uses. `RED_PRIOR` exists solely to find a region and never becomes the
+detector's config. `check_coverage` rejects any *proposal* whose mask covers more than
+`MAX_MASK_COVERAGE` of the frame — without it a widened band passes its own preview and then flags
+a wall, silently invalidating `test_scenery_alone_is_never_a_victim`.
+
 [comp1/vision/camera.py](comp1/vision/camera.py) is the **single source of truth for geometry**.
 Everything is normalised by frame width (`f_norm = focal_px / width`) so one constant describes both
 the 960×720 Tello stream and 640×480 sim frames. The simulator imports the same intrinsics as the
