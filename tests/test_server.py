@@ -464,3 +464,64 @@ def test_a_drone_with_no_arena_reports_no_mission_state():
                 break
         assert "mission" not in seen
         assert "found_count" in seen      # the raw counter still works
+
+
+def grey_frame():
+    return np.full((480, 640, 3), (90, 70, 60), np.uint8)
+
+
+def all_red_frame():
+    return np.full((480, 640, 3), (0, 0, 220), np.uint8)
+
+
+def test_auto_calibration_suggests_bands_without_a_selection():
+    app = create_app(MockDrone(frame_factory=red_frame))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "frame")          # latest raw frame is now available
+        ws.send_json({"type": "vision_auto"})
+        msg = collect_until(ws, "vision_suggestion")
+    assert msg["config"]["lower1"][0] == 0
+    assert msg["config"]["lower2"][0] >= 170
+    assert len(msg["preview_jpeg"]) > 100
+    x0, y0, x1, y1 = msg["roi"]
+    assert 0.0 <= x0 < x1 <= 1.0 and 0.0 <= y0 < y1 <= 1.0
+
+
+def test_a_manual_selection_echoes_its_region_back():
+    app = create_app(MockDrone(frame_factory=red_frame))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "frame")
+        ws.send_json({"type": "vision_sample", "roi": [0.42, 0.38, 0.58, 0.62]})
+        msg = collect_until(ws, "vision_suggestion")
+    assert msg["roi"] == [0.42, 0.38, 0.58, 0.62]
+
+
+def test_auto_calibration_reports_when_no_marker_is_in_view():
+    app = create_app(MockDrone(frame_factory=grey_frame))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "frame")
+        ws.send_json({"type": "vision_auto"})
+        error = collect_until(ws, "vision_error")
+    assert "no red marker" in error["message"]
+
+
+def test_a_suggestion_matching_most_of_the_scene_is_refused():
+    app = create_app(MockDrone(frame_factory=all_red_frame))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "frame")
+        ws.send_json({"type": "vision_sample", "roi": [0.4, 0.4, 0.6, 0.6]})
+        error = collect_until(ws, "vision_error")
+    assert "too much of the scene" in error["message"]
+
+
+def test_auto_calibration_is_refused_during_a_mission():
+    from comp1.sim.drone import SimDrone
+    app = create_app(SimDrone(seed=2, delay=0.2))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
+            {"id": "a", "op": "takeoff"},
+            {"id": "b", "op": "move", "dir": "forward", "cm": 100}]}})
+        collect_until(ws, "reset", limit=200)
+        ws.send_json({"type": "vision_auto"})
+        error = collect_until(ws, "vision_error", limit=200)
+    assert "stop the mission" in error["message"]

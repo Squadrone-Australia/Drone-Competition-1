@@ -17,8 +17,9 @@ from .interpreter import Interpreter
 from .protocol import Program
 from .sim.mission import MissionScorer
 from .vision.config import VisionConfig, DEFAULT_CONFIG
-from .vision.calibration import (CalibrationError, config_with_hsv,
-                                 draw_calibration_preview, hsv_values, suggest_hsv)
+from .vision.calibration import (CalibrationError, auto_suggest_hsv, check_coverage,
+                                 config_with_hsv, draw_calibration_preview,
+                                 hsv_values, suggest_hsv)
 from .vision.detector import Detection, TargetTracker, draw_overlay
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
@@ -441,7 +442,7 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                                              randomise=bool(msg.get("randomise")))
                     else:
                         await _rebuild_arena(app, victims=msg.get("victims") or [])
-                elif msg["type"] in ("vision_sample", "vision_preview",
+                elif msg["type"] in ("vision_sample", "vision_auto", "vision_preview",
                                       "vision_apply", "vision_reset"):
                     if app.state.drone_switching:
                         await ws.send_text(json.dumps({
@@ -453,11 +454,21 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                             "message": "stop the mission before calibrating vision"}))
                     else:
                         try:
-                            if msg["type"] == "vision_sample":
-                                values = suggest_hsv(app.state.latest_frame, msg.get("roi"))
+                            if msg["type"] in ("vision_sample", "vision_auto"):
+                                raw = app.state.latest_frame
+                                if msg["type"] == "vision_auto":
+                                    values, roi = auto_suggest_hsv(raw)
+                                else:
+                                    roi = msg.get("roi")
+                                    values = suggest_hsv(raw, roi)
                                 candidate = config_with_hsv(cfg, values)
+                                # gate proposals only: an operator dragging a
+                                # slider wide on purpose should get the preview
+                                # they asked for, not an error
+                                check_coverage(raw, candidate)
                                 response = _vision_message("vision_suggestion", candidate)
                                 response["preview_jpeg"] = _vision_preview(candidate)
+                                response["roi"] = [float(v) for v in roi]
                                 await ws.send_text(json.dumps(response))
                             elif msg["type"] == "vision_preview":
                                 candidate = config_with_hsv(cfg, msg.get("config") or {})
