@@ -17,9 +17,10 @@ HSV_KEYS = ("lower1", "upper1", "lower2", "upper2")
 # needed. The saturation and value floors can be this generous because the hue
 # gate is what excludes scenery: sceneries are blue-dominant in BGR by
 # construction, so a lower saturation floor does not bring a wall into range.
-# This never becomes the detector's config.
-RED_PRIOR = replace(
-    DEFAULT_CONFIG,
+# This never becomes the detector's config. The other gates (area, circularity)
+# still come from the operator's active config -- see find_marker_roi -- so the
+# locator never accepts a blob the detector itself would reject.
+_PRIOR_BANDS = dict(
     lower1=(0, 60, 40), upper1=(15, 255, 255),
     lower2=(160, 60, 40), upper2=(180, 255, 255),
 )
@@ -35,6 +36,10 @@ ROI_FILL = 0.5
 # isolated in the shot being calibrated on -- and then flag a wall on the next
 # frame from a different angle. This is what keeps a calibration from quietly
 # invalidating the scenery false-positive tests.
+# 0.25 corresponds to roughly 0.36 m for a 0.25 m marker (the geometry is
+# frame-width-normalised, so this holds for both the Tello and sim streams) --
+# inside approach_stop_distance_m (0.5 m) and far below max_detect_range_m
+# (~4 m), so the gate sits just outside the drone's normal operating envelope.
 MAX_MASK_COVERAGE = 0.25
 
 
@@ -146,16 +151,19 @@ def suggest_hsv(frame_bgr: np.ndarray, roi: list[float] | tuple[float, ...]) -> 
     }
 
 
-def find_marker_roi(frame_bgr: np.ndarray) -> list[float]:
+def find_marker_roi(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> list[float]:
     """Locate the largest red marker and return a sample box inside it.
 
     This is what removes the manual drag: ``find_targets`` already gates on area
-    and circularity, so running it against :data:`RED_PRIOR` turns the detector
-    itself into the region locator.
+    and circularity, so running it against a loose-colour variant of ``cfg``
+    turns the detector itself into the region locator. Only the colour bands
+    are widened -- the area and circularity gates are the operator's own, so
+    the locator can never lock onto a blob the active detector would reject.
     """
     if frame_bgr is None or frame_bgr.size == 0:
         raise CalibrationError("no camera frame is available")
-    targets = find_targets(frame_bgr, RED_PRIOR)
+    prior = replace(cfg, **_PRIOR_BANDS)
+    targets = find_targets(frame_bgr, prior)
     if not targets:
         raise CalibrationError(
             "no red marker in view — point the camera at one and try again")
@@ -177,17 +185,18 @@ def check_coverage(frame_bgr: np.ndarray, cfg: VisionConfig) -> None:
     mask = color_mask(frame_bgr, cfg)
     if float(np.count_nonzero(mask)) / mask.size > MAX_MASK_COVERAGE:
         raise CalibrationError(
-            "these ranges match too much of the scene — try a tighter shot of the marker")
+            "these ranges match too much of the scene — back away so the marker "
+            "is smaller in frame, or check nothing else in the room is that colour")
 
 
-def auto_suggest_hsv(frame_bgr: np.ndarray) -> tuple[dict, list[float]]:
+def auto_suggest_hsv(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> tuple[dict, list[float]]:
     """Locate a red marker and propose HSV bands fitted to it.
 
     Returns the bands *and* the region they came from: an auto-calibrator that
     will not show what it looked at is hard to trust at the moment it gets
     something wrong.
     """
-    roi = find_marker_roi(frame_bgr)
+    roi = find_marker_roi(frame_bgr, cfg)
     return suggest_hsv(frame_bgr, roi), roi
 
 

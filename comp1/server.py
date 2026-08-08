@@ -457,7 +457,7 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG, *,
                             if msg["type"] in ("vision_sample", "vision_auto"):
                                 raw = app.state.latest_frame
                                 if msg["type"] == "vision_auto":
-                                    values, roi = auto_suggest_hsv(raw)
+                                    values, roi = auto_suggest_hsv(raw, cfg)
                                 else:
                                     roi = msg.get("roi")
                                     values = suggest_hsv(raw, roi)

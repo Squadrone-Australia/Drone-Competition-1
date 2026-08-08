@@ -6,7 +6,7 @@ from comp1.vision.calibration import (CalibrationError, auto_suggest_hsv,
                                       check_coverage, config_with_hsv,
                                       draw_calibration_preview, find_marker_roi,
                                       suggest_hsv)
-from comp1.vision.config import DEFAULT_CONFIG
+from comp1.vision.config import DEFAULT_CONFIG, VisionConfig
 from comp1.vision.detector import detect_red_circle
 from comp1.sim.render import render
 from comp1.sim.world import Marker, VICTIM, World
@@ -96,6 +96,32 @@ def test_auto_roi_refuses_a_frame_with_no_red_marker():
 def test_auto_roi_refuses_an_empty_frame():
     with pytest.raises(CalibrationError):
         find_marker_roi(None)
+
+
+def test_find_marker_roi_honours_the_operators_active_config():
+    """A tightened min_area_ratio must gate the locator too, or the locator
+    can lock onto a blob the operator's own detector would never accept."""
+    frame = np.full((480, 640, 3), 255, np.uint8)
+    cv2.circle(frame, (320, 240), 60, (0, 0, 220), -1)   # area_ratio ~= 0.037
+
+    too_tight = VisionConfig(min_area_ratio=0.5)
+    with pytest.raises(CalibrationError, match="no red marker"):
+        find_marker_roi(frame, too_tight)
+
+    x0, y0, x1, y1 = find_marker_roi(frame, DEFAULT_CONFIG)
+    assert 0.0 <= x0 < x1 <= 1.0 and 0.0 <= y0 < y1 <= 1.0
+
+
+def test_find_marker_roi_ignores_the_operators_own_colour_bands():
+    """The four colour fields are always overridden by _PRIOR_BANDS, so a
+    useless (here, blue-only) operator config must still locate a red marker."""
+    frame = np.full((480, 640, 3), 255, np.uint8)
+    cv2.circle(frame, (320, 240), 60, (0, 0, 220), -1)
+
+    blue_only = VisionConfig(lower1=(100, 80, 70), upper1=(130, 255, 255),
+                              lower2=(100, 80, 70), upper2=(130, 255, 255))
+    x0, y0, x1, y1 = find_marker_roi(frame, blue_only)
+    assert 0.0 <= x0 < x1 <= 1.0 and 0.0 <= y0 < y1 <= 1.0
 
 
 def test_auto_roi_is_still_usable_for_a_distant_marker():

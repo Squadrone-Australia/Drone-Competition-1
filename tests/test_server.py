@@ -505,6 +505,19 @@ def test_auto_calibration_reports_when_no_marker_is_in_view():
     assert "no red marker" in error["message"]
 
 
+def test_auto_calibration_uses_the_servers_active_config():
+    """A min_area_ratio tightened past what the red_frame marker clears must
+    make vision_auto fail to locate it -- proving the server threads its
+    active cfg into auto_suggest_hsv rather than a code-default prior."""
+    too_tight = VisionConfig(min_area_ratio=0.5)
+    app = create_app(MockDrone(frame_factory=red_frame), cfg=too_tight)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "frame")
+        ws.send_json({"type": "vision_auto"})
+        error = collect_until(ws, "vision_error")
+    assert "no red marker" in error["message"]
+
+
 def test_a_suggestion_matching_most_of_the_scene_is_refused():
     app = create_app(MockDrone(frame_factory=all_red_frame))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
