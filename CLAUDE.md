@@ -14,7 +14,7 @@ venv\Scripts\python -m comp1 --drone tello      # real Tello (join TELLO-xxxx Wi
 venv\Scripts\python -m comp1 --script examples\02_search_and_mark.py --drone sim   # Python pathway
 venv\Scripts\python -m comp1 --vision-config vision_config.toml    # on-site re-tune, see below
 venv\Scripts\pyinstaller comp1.spec --noconfirm # -> dist\comp1\comp1.exe
-node --test tests\js\blocks.test.js             # frontend serializer tests
+node --test tests/js/*.test.js                  # frontend tests
 ```
 
 `--drone sim` flags: `--seed N` (repeatable arena), `--noise 0.05` (movement drift),

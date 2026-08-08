@@ -2,5 +2,8 @@
   "dependencies": {
     "blockly": "^13.2.0",
     "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
   }
 }
