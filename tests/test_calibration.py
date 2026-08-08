@@ -2,11 +2,14 @@ import cv2
 import numpy as np
 import pytest
 
-from comp1.vision.calibration import (CalibrationError, config_with_hsv,
+from comp1.vision.calibration import (CalibrationError, auto_suggest_hsv,
+                                      check_coverage, config_with_hsv,
                                       draw_calibration_preview, find_marker_roi,
                                       suggest_hsv)
 from comp1.vision.config import DEFAULT_CONFIG
 from comp1.vision.detector import detect_red_circle
+from comp1.sim.render import render
+from comp1.sim.world import Marker, VICTIM, World
 
 
 def test_red_sample_suggests_two_wrapped_hue_bands():
@@ -105,3 +108,66 @@ def test_auto_roi_is_still_usable_for_a_distant_marker():
 
     assert x1 - x0 > 0.01 and y1 - y0 > 0.01
     assert suggest_hsv(frame, [x0, y0, x1, y1])["lower1"][0] == 0
+
+
+def test_coverage_gate_rejects_bands_that_match_most_of_the_scene():
+    frame = np.full((100, 100, 3), (0, 0, 220), np.uint8)   # all red
+    with pytest.raises(CalibrationError, match="too much of the scene"):
+        check_coverage(frame, DEFAULT_CONFIG)
+
+
+def test_coverage_gate_accepts_an_isolated_marker():
+    frame = np.full((480, 640, 3), 255, np.uint8)
+    cv2.circle(frame, (320, 240), 60, (0, 0, 220), -1)
+    assert check_coverage(frame, DEFAULT_CONFIG) is None
+
+
+def test_auto_calibration_recovers_a_marker_the_defaults_miss():
+    """The point of the feature: a marker under a light level the shipped
+    bands reject is recovered without anyone touching a slider."""
+    frame = np.full((480, 640, 3), (90, 70, 60), np.uint8)
+    # dim red: HSV value ~70, under the default floor of 80
+    cv2.circle(frame, (320, 240), 60, (10, 10, 70), -1)
+
+    assert not detect_red_circle(frame, DEFAULT_CONFIG).found
+
+    values, roi = auto_suggest_hsv(frame)
+
+    assert detect_red_circle(frame, config_with_hsv(DEFAULT_CONFIG, values)).found
+    assert len(roi) == 4
+
+
+def test_auto_calibration_on_a_simulated_victim_round_trips():
+    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, VICTIM)])
+    frame = render(world, 2.0, 2.0, 1.0, 0.0)
+
+    values, _roi = auto_suggest_hsv(frame)
+
+    assert detect_red_circle(frame, config_with_hsv(DEFAULT_CONFIG, values)).found
+
+
+def test_auto_calibration_never_calibrates_on_scenery():
+    """The wide prior must not open a door the detector's own bands keep shut.
+    Sweep rather than spot-check: corners and floor-facing views shade
+    differently, and any one of them becoming 'a red marker' is the failure."""
+    world = World(size_m=4.0, markers=[])
+    for x in (0.3, 2.0, 3.7):
+        for y in (0.3, 2.0, 3.7):
+            for heading in range(0, 360, 60):
+                frame = render(world, x, y, 1.0, heading)
+                with pytest.raises(CalibrationError, match="no red marker"):
+                    auto_suggest_hsv(frame)
+
+
+def test_auto_calibrated_bands_do_not_flag_scenery_elsewhere_in_the_arena():
+    """Bands fitted at one pose must still reject the room at every other."""
+    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, VICTIM)])
+    values, _roi = auto_suggest_hsv(render(world, 2.0, 2.0, 1.0, 0.0))
+    candidate = config_with_hsv(DEFAULT_CONFIG, values)
+
+    empty = World(size_m=4.0, markers=[])
+    for x in (0.3, 2.0, 3.7):
+        for y in (0.3, 2.0, 3.7):
+            for heading in range(0, 360, 60):
+                det = detect_red_circle(render(empty, x, y, 1.0, heading), candidate)
+                assert not det.found, f"scenery detected at {x},{y} hdg {heading}"

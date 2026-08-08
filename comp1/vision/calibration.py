@@ -30,6 +30,13 @@ RED_PRIOR = replace(
 # rim. 0.5 puts them at 0.71*R, clear of the anti-aliased edge.
 ROI_FILL = 0.5
 
+# Largest share of the frame a proposed mask may cover. Over-wide saturation or
+# value bounds look correct in their own preview -- the marker really is
+# isolated in the shot being calibrated on -- and then flag a wall on the next
+# frame from a different angle. This is what keeps a calibration from quietly
+# invalidating the scenery false-positive tests.
+MAX_MASK_COVERAGE = 0.25
+
 
 class CalibrationError(ValueError):
     """An operator-facing calibration validation error."""
@@ -163,6 +170,25 @@ def find_marker_roi(frame_bgr: np.ndarray) -> list[float]:
     clamp = lambda v: min(max(float(v), 0.0), 1.0)
     return [clamp(target.cx - half_x), clamp(target.cy - half_y),
             clamp(target.cx + half_x), clamp(target.cy + half_y)]
+
+
+def check_coverage(frame_bgr: np.ndarray, cfg: VisionConfig) -> None:
+    """Raise if ``cfg`` accepts an implausible share of the frame."""
+    mask = color_mask(frame_bgr, cfg)
+    if float(np.count_nonzero(mask)) / mask.size > MAX_MASK_COVERAGE:
+        raise CalibrationError(
+            "these ranges match too much of the scene — try a tighter shot of the marker")
+
+
+def auto_suggest_hsv(frame_bgr: np.ndarray) -> tuple[dict, list[float]]:
+    """Locate a red marker and propose HSV bands fitted to it.
+
+    Returns the bands *and* the region they came from: an auto-calibrator that
+    will not show what it looked at is hard to trust at the moment it gets
+    something wrong.
+    """
+    roi = find_marker_roi(frame_bgr)
+    return suggest_hsv(frame_bgr, roi), roi
 
 
 def draw_calibration_preview(frame_bgr: np.ndarray, cfg: VisionConfig) -> np.ndarray:
