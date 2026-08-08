@@ -66,26 +66,35 @@ scenery. Sceneries are blue-dominant in BGR by construction (`B >= G >= R`, low 
 lower saturation floor does not bring walls or floor into red hue range. The area and circularity
 gates are inherited from `DEFAULT_CONFIG` unchanged.
 
-### `find_marker_roi(frame_bgr) -> tuple[float, float, float, float]`
+### `find_marker_roi(frame_bgr) -> list[float]`
 
 Runs `find_targets(frame_bgr, RED_PRIOR)` and takes `targets[0]`. Converts that target into a
 normalised ROI box centred on `(cx, cy)`, so the sample sits well inside the disc and clear of its
-anti-aliased rim. Coordinates are clamped to `[0, 1]`.
+anti-aliased rim. Coordinates are clamped to `[0, 1]` and returned as a list, so the value is
+JSON-serialisable for the browser without conversion.
 
 The two axes do not get the same half-extent. `radius_norm` is normalised by frame **width**
 (§ camera.py is the single source of truth for geometry), while `suggest_hsv` scales `y0`/`y1` by
 frame height. So:
 
 ```
-half_x = 0.7 * radius_norm
-half_y = 0.7 * radius_norm * width / height
+half_x = ROI_FILL * radius_norm
+half_y = ROI_FILL * radius_norm * width / height
 ```
 
 Using `half_x` on both axes would produce a box 33% too short vertically on a 4:3 frame — still
-inside the marker, but sampling fewer pixels than intended.
+inside the marker, but sampling fewer pixels than intended. As written, both half-extents are the
+same number of *pixels*, so the sample region is square on screen.
 
-The 0.7 factor is below the inscribed square's `1/sqrt(2)` ≈ 0.707, so the box stays strictly
-interior even for a slightly off-centre centroid.
+`ROI_FILL = 0.5`. The constraint is on the box's **corners**, not its sides: a box of half-side
+`k·R` has corners at `k·R·sqrt(2)`, so the inscribed square's `k = 1/sqrt(2)` puts its corners
+exactly on the rim. `k = 0.5` puts them at `0.71·R`, comfortably interior and clear of the
+anti-aliased edge.
+
+The area gate keeps this workable at range. `min_area_ratio = 0.002` on a 640×480 frame implies a
+radius of at least ~14 px, giving a sample box of ~14×14 px — above `suggest_hsv`'s 25-pixel floor
+and above its `0.01` minimum normalised extent on both axes. No separate minimum-size check is
+needed.
 
 Raises `CalibrationError("no red marker in view — point the camera at one and try again")` when no
 candidate clears the gates.
