@@ -51,10 +51,10 @@ with the most pixels available for computing statistics.
 
 All four additions live in `comp1/vision/calibration.py`.
 
-### `RED_PRIOR`
+### `_PRIOR_BANDS`
 
-A module-level `VisionConfig` built with `dataclasses.replace(DEFAULT_CONFIG, ...)`, widening only
-the colour bands:
+A module-level dict of the four colour fields only, overlaid on a config with
+`dataclasses.replace(cfg, **_PRIOR_BANDS)` at each call:
 
 | Field | Default | Prior |
 |---|---|---|
@@ -63,12 +63,19 @@ the colour bands:
 
 The saturation and value floors can be this generous because the *hue* gate is what excludes
 scenery. Sceneries are blue-dominant in BGR by construction (`B >= G >= R`, low saturation), so a
-lower saturation floor does not bring walls or floor into red hue range. The area and circularity
-gates are inherited from `DEFAULT_CONFIG` unchanged.
+lower saturation floor does not bring walls or floor into red hue range.
+
+**Only the colour bands widen.** `min_area_ratio` and `circularity_min` come from the caller's
+config, which is the operator's active one — `vision_config.example.toml` ships
+`circularity_min = 0.85` against the code default of `0.82`, so a prior frozen at import time would
+locate markers under gates *looser* than the detector being calibrated, and could fit bands to a
+blob the detector then rejects. Because `replace` applies the colour fields unconditionally,
+nothing an operator has already applied to the bands can narrow the prior either.
 
 ### `find_marker_roi(frame_bgr) -> list[float]`
 
-Runs `find_targets(frame_bgr, RED_PRIOR)` and takes `targets[0]`. Converts that target into a
+Signature is `find_marker_roi(frame_bgr, cfg=DEFAULT_CONFIG)`. Runs `find_targets` against
+`replace(cfg, **_PRIOR_BANDS)` and takes `targets[0]`. Converts that target into a
 normalised ROI box centred on `(cx, cy)`, so the sample sits well inside the disc and clear of its
 anti-aliased rim. Coordinates are clamped to `[0, 1]` and returned as a list, so the value is
 JSON-serialisable for the browser without conversion.
@@ -99,7 +106,7 @@ needed.
 Raises `CalibrationError("no red marker in view — point the camera at one and try again")` when no
 candidate clears the gates.
 
-### `auto_suggest_hsv(frame_bgr) -> tuple[dict, list[float]]`
+### `auto_suggest_hsv(frame_bgr, cfg=DEFAULT_CONFIG) -> tuple[dict, list[float]]`
 
 `find_marker_roi` followed by `suggest_hsv`, returning both the proposed bands and the ROI they came
 from. The ROI is returned so the browser can draw it: an auto-calibrator that will not show what it
@@ -108,8 +115,15 @@ looked at is hard to trust at the moment it gets something wrong.
 ### `check_coverage(frame_bgr, cfg) -> None`
 
 Builds `color_mask(frame_bgr, cfg)` and raises
-`CalibrationError("these ranges match too much of the scene — try a tighter shot of the marker")`
-when the mask covers more than `MAX_MASK_COVERAGE = 0.25` of the frame.
+`CalibrationError("these ranges match too much of the scene — back away so the marker is smaller in
+frame, or check nothing else in the room is that colour")` when the mask covers more than
+`MAX_MASK_COVERAGE = 0.25` of the frame.
+
+The advice says *back away* deliberately. A tighter shot puts more marker in frame and raises
+coverage, so the obvious wording would have made the problem worse. `0.25` is about `0.36 m` for a
+0.25 m marker — inside `approach_stop_distance_m` (0.5 m) and far below `max_detect_range_m` (~4 m),
+so the gate sits just outside the drone's normal operating envelope, and the most likely operator
+who trips it is one holding the aircraft close to get a big clean sample.
 
 This is the guard that keeps calibration from quietly invalidating
 `test_scenery_alone_is_never_a_victim`. Over-wide saturation or value bounds produce a candidate
@@ -180,11 +194,17 @@ regressions against its failure modes.
 
 ## Risks
 
-**A wide prior is a wider door.** `RED_PRIOR` exists only inside calibration and never reaches the
-detector, but if its floors were dropped far enough that warm scenery entered red hue range, the
-located "marker" could be background. The circularity gate and `check_coverage` are the two
-defences; the scenery colour invariant (`B >= G >= R`) is the third and is already enforced by
-existing tests.
+**A wide prior is a wider door.** `_PRIOR_BANDS` exists only inside calibration and never reaches
+the detector, but if its floors were dropped far enough that warm scenery entered red hue range, the
+located "marker" could be background. The area and circularity gates — which come from the
+operator's own config, not from the prior — and `check_coverage` are the two defences; the scenery
+colour invariant (`B >= G >= R`) is the third and is already enforced by existing tests.
+
+Measured margin, swept over the 324-pose arena grid and the 540-pose corridor grid: the prior's
+mask has **zero non-zero pixels at every pose**. Maximum saturation anywhere in scenery is 38
+against the prior's floor of 60, and the `B >= G >= R` rule puts every scenery hue in roughly
+`[90, 150]` — about 45° clear of both red bands. Two independent barriers, neither close to
+binding.
 
 **The destination sign calibrates identically.** In the corridor scenery the `DESTINATION` marker is
 byte-identical to a victim in the camera, so auto-calibration may sample it. This is harmless —

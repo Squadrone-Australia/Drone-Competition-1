@@ -123,9 +123,12 @@ the Python pathway, and any call site that doesn't thread a `cfg` through — so
 
 `comp1/vision/calibration.py` is the on-site re-tuning path (§3.1) and is **operator-triggered
 only** — nothing in `interpreter.py` or `api.py` may call it. `auto_suggest_hsv` locates the marker
-itself by running `find_targets` against a loose `RED_PRIOR`, then fits bands with the same
-`suggest_hsv` a manual drag uses. `RED_PRIOR` exists solely to find a region and never becomes the
-detector's config. `check_coverage` rejects any *proposal* whose mask covers more than
+itself by running `find_targets` against a loose prior, then fits bands with the same `suggest_hsv`
+a manual drag uses. **The prior widens the colour bands only.** `_PRIOR_BANDS` is overlaid on the
+*operator's active config* per call, so `min_area_ratio` and `circularity_min` still come from
+whatever `--vision-config` is in force — a locator looser than the detector it calibrates would fit
+bands to a blob the detector then rejects. It never becomes the detector's config.
+`check_coverage` rejects any *proposal* whose mask covers more than
 `MAX_MASK_COVERAGE` of the frame — without it a widened band passes its own preview and then flags
 a wall, silently invalidating `test_scenery_alone_is_never_a_victim`.
 
