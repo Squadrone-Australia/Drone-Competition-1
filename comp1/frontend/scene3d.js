@@ -165,11 +165,12 @@ export function createStage(container, { hfovDeg = 70, aspect = 4 / 3 } = {}) {
     shown.x += (target.x - shown.x) * k;
     shown.y += (target.y - shown.y) * k;
     shown.z += (target.z - shown.z) * k;
-    shown.pitch += (target.pitch - shown.pitch) * k;
-    // Heading and roll wrap at 360, so they chase the short way round. Without
+    // Every angle wraps at 360, so they all chase the short way round. Without
     // this a 350->10 yaw spins almost all the way back the other way, and a
-    // back-flip (roll 0 -> 359 -> 0) tumbles forwards instead of backwards.
+    // back-flip (pitch 0 -> 359 -> 0) tumbles forwards instead of backwards or
+    // stalls on its back at 180.
     shown.heading = chaseAngle(shown.heading, target.heading, k);
+    shown.pitch = chaseAngle(shown.pitch, target.pitch, k);
     shown.roll = chaseAngle(shown.roll, target.roll, k);
 
     const pos = toThree(shown.x, shown.y, shown.z);

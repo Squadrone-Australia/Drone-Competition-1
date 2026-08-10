@@ -1,0 +1,20 @@
+# Flight tuning for the real Tello. Hardware quirks, not vision — HSV and marker
+# geometry live in vision_config.example.toml and its own --vision-config flag.
+#
+# Copy this file (e.g. to flight_config.toml) and pass it with
+#   comp1 --drone tello --flight-config flight_config.toml
+# The values below are the code defaults from comp1/drone/config.py — edit
+# whichever ones you need for on-site conditions and delete the rest; keys
+# left out of the file simply keep the code default.
+
+# --- flip recovery ---
+# A Tello does not flip on the spot: it throws itself along the flip direction
+# and stays there, so a "signal victim found" back-flip leaves the drone short
+# of where it made the find and every following move starts from the wrong
+# place. Measure the displacement on the arena floor and put it here; the
+# adapter flies the same distance the opposite way once the flip completes.
+#
+# 30 is a reasonable starting point. Battery level and floor surface both move
+# it, so re-measure on the day. The Tello refuses translations below 20 cm, so
+# anything under that (including 0) skips the recovery move entirely.
+flip_recover_cm = 30

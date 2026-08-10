@@ -7,6 +7,7 @@ from pathlib import Path
 
 import uvicorn
 
+from .drone.config import FlightConfig, DEFAULT_FLIGHT_CONFIG
 from .server import create_app
 from .vision.config import VisionConfig, DEFAULT_CONFIG
 
@@ -31,15 +32,31 @@ def main():
     ap.add_argument("--vision-config", type=Path, default=None,
                     help="TOML file overriding marker size, HSV thresholds, etc. "
                          "(see vision_config.example.toml at the repo root)")
+    ap.add_argument("--flight-config", type=Path, default=None,
+                    help="TOML file overriding real-Tello flight quirks, e.g. how far "
+                         "a flip throws the aircraft "
+                         "(see flight_config.example.toml at the repo root)")
     args = ap.parse_args()
     if args.script and not args.script.is_file():
         sys.exit(f"comp1: no such script: {args.script}")
     if args.vision_config and not args.vision_config.is_file():
         sys.exit(f"comp1: no such vision config: {args.vision_config}")
+    if args.flight_config and not args.flight_config.is_file():
+        sys.exit(f"comp1: no such flight config: {args.flight_config}")
     cfg = VisionConfig.load_file(args.vision_config) if args.vision_config else DEFAULT_CONFIG
-    if args.drone == "tello":
+    flight = (FlightConfig.load_file(args.flight_config) if args.flight_config
+              else DEFAULT_FLIGHT_CONFIG)
+
+    def new_tello():
+        # Kept lazy for the same reason server._new_tello is: importing
+        # djitellopy on a simulator launch touches the hardware pathway for
+        # nothing. This closure exists so a mid-session switch to Tello in the
+        # browser gets the same --flight-config the CLI was given.
         from .drone.tello import TelloDrone
-        drone = TelloDrone()
+        return TelloDrone(flight)
+
+    if args.drone == "tello":
+        drone = new_tello()
     elif args.drone == "sim":
         from .sim.drone import SimDrone
         drone = SimDrone(seed=args.seed, noise=args.noise, scenery_name=args.scenery)
@@ -51,7 +68,8 @@ def main():
         # frontend instead of merely coming to the foreground with stale HTML.
         launch_url = f"http://localhost:{args.port}/?launch={time.time_ns()}"
         threading.Timer(1.0, lambda: webbrowser.open(launch_url)).start()
-    uvicorn.run(create_app(drone, cfg=cfg, script=args.script), host="127.0.0.1", port=args.port)
+    uvicorn.run(create_app(drone, cfg=cfg, script=args.script, tello_factory=new_tello),
+                host="127.0.0.1", port=args.port)
 
 
 if __name__ == "__main__":
