@@ -109,9 +109,37 @@ def test_flip_spins_the_airframe_without_moving_it():
     d = animated(); d.takeoff()
     before = (d.x, d.y, d.z, d.heading)
     seen = sample_while(d, lambda: d.flip("b"))
-    assert max(s[4] for s in seen) > 180              # went right round
+    assert max(s[5] for s in seen) > 180              # went right round, nose over tail
     assert (d.x, d.y, d.z, d.heading) == before
-    assert d.roll == 0.0
+    assert d.roll == 0.0 and d.pitch == 0.0
+
+
+def test_a_back_flip_tumbles_nose_over_tail_and_a_side_flip_rolls():
+    """The signal is a *back*-flip (requirements §2.1), and the 3D view draws
+    whichever angle the sim moves — pitch as rotation about the lateral axis,
+    roll about the nose. Driving roll for all four directions drew every flip as
+    a barrel roll and made three of them indistinguishable."""
+    d = animated(); d.takeoff()
+    back = sample_while(d, lambda: d.flip("back"))
+    assert max(s[5] for s in back) > 180              # pitched right round
+    assert max(s[4] for s in back) == 0.0             # and never rolled
+
+    side = sample_while(d, lambda: d.flip("left"))
+    assert max(s[4] for s in side) > 180              # rolled right round
+    assert max(s[5] for s in side) == 0.0             # and never pitched
+
+
+def test_a_flip_sags_along_its_own_direction_and_recovers():
+    """A real Tello throws itself through a flip and TelloDrone flies it back
+    (FlightConfig.flip_recover_cm). The sim shows the same lurch so the two views
+    agree, but nets to zero — the flip is the signal, not a way to travel."""
+    d = animated(); d.takeoff()
+    d.rotate("cw", 90)                                # facing +x, so back is -x
+    y0 = d.y
+    seen = sample_while(d, lambda: d.flip("back"))
+    assert min(s[0] for s in seen) < 1.95, "hovered perfectly still through the flip"
+    assert {round(s[1], 6) for s in seen} == {round(y0, 6)}, "sagged sideways"
+    assert (round(d.x, 6), round(d.y, 6)) == (2.0, 2.0)
 
 
 def test_emergency_cuts_an_animation_short():
