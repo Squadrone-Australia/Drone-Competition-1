@@ -12,8 +12,8 @@ Two readings drive everything:
 
 from comp1.api import Drone
 
-STOP_CM = 120        # how close we are willing to get
-DEADBAND_DEG = 8     # closer than this to straight-ahead counts as "lined up"
+STOP_CM = 120  # how close we are willing to get
+DEADBAND_DEG = 8  # closer than this to straight-ahead counts as "lined up"
 
 drone = Drone()
 drone.takeoff()

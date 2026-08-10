@@ -1,4 +1,5 @@
 import pytest
+
 from comp1.drone.config import DEFAULT_FLIGHT_CONFIG, FlightConfig
 
 
@@ -34,5 +35,6 @@ def test_an_unknown_key_is_loud(tmp_path):
 
 def test_the_example_file_parses_and_matches_the_code_defaults():
     from pathlib import Path
+
     example = Path(__file__).resolve().parents[1] / "flight_config.example.toml"
     assert FlightConfig.load_file(example) == FlightConfig()

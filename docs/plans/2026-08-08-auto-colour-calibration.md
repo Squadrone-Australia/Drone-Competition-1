@@ -84,7 +84,9 @@ def test_auto_roi_is_square_in_pixels_not_in_normalised_units():
 
 
 def test_auto_roi_refuses_a_frame_with_no_red_marker():
-    frame = np.full((480, 640, 3), (90, 70, 60), np.uint8)   # blue-dominant, like scenery
+    frame = np.full(
+        (480, 640, 3), (90, 70, 60), np.uint8
+    )  # blue-dominant, like scenery
     with pytest.raises(CalibrationError, match="no red marker"):
         find_marker_roi(frame)
 
@@ -109,9 +111,13 @@ def test_auto_roi_is_still_usable_for_a_distant_marker():
 Extend the import at the top of the file to:
 
 ```python
-from comp1.vision.calibration import (CalibrationError, config_with_hsv,
-                                      draw_calibration_preview, find_marker_roi,
-                                      suggest_hsv)
+from comp1.vision.calibration import (
+    CalibrationError,
+    config_with_hsv,
+    draw_calibration_preview,
+    find_marker_roi,
+    suggest_hsv,
+)
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -144,8 +150,10 @@ Add below `HSV_KEYS`:
 # This never becomes the detector's config.
 RED_PRIOR = replace(
     DEFAULT_CONFIG,
-    lower1=(0, 60, 40), upper1=(15, 255, 255),
-    lower2=(160, 60, 40), upper2=(180, 255, 255),
+    lower1=(0, 60, 40),
+    upper1=(15, 255, 255),
+    lower2=(160, 60, 40),
+    upper2=(180, 255, 255),
 )
 
 # Half-side of the sample box as a fraction of the marker radius. The binding
@@ -170,7 +178,8 @@ def find_marker_roi(frame_bgr: np.ndarray) -> list[float]:
     targets = find_targets(frame_bgr, RED_PRIOR)
     if not targets:
         raise CalibrationError(
-            "no red marker in view — point the camera at one and try again")
+            "no red marker in view — point the camera at one and try again"
+        )
     # nearest-first, and distance comes from apparent radius, so targets[0] is
     # also the largest blob: the most pixels to compute statistics from
     target = targets[0]
@@ -180,8 +189,12 @@ def find_marker_roi(frame_bgr: np.ndarray) -> list[float]:
     half_x = ROI_FILL * target.radius_norm
     half_y = half_x * width / height
     clamp = lambda v: min(max(float(v), 0.0), 1.0)
-    return [clamp(target.cx - half_x), clamp(target.cy - half_y),
-            clamp(target.cx + half_x), clamp(target.cy + half_y)]
+    return [
+        clamp(target.cx - half_x),
+        clamp(target.cy - half_y),
+        clamp(target.cx + half_x),
+        clamp(target.cy + half_y),
+    ]
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -220,7 +233,7 @@ Append to `tests/test_calibration.py`:
 
 ```python
 def test_coverage_gate_rejects_bands_that_match_most_of_the_scene():
-    frame = np.full((100, 100, 3), (0, 0, 220), np.uint8)   # all red
+    frame = np.full((100, 100, 3), (0, 0, 220), np.uint8)  # all red
     with pytest.raises(CalibrationError, match="too much of the scene"):
         check_coverage(frame, DEFAULT_CONFIG)
 
@@ -285,10 +298,15 @@ def test_auto_calibrated_bands_do_not_flag_scenery_elsewhere_in_the_arena():
 Extend the imports at the top of `tests/test_calibration.py`:
 
 ```python
-from comp1.vision.calibration import (CalibrationError, auto_suggest_hsv,
-                                      check_coverage, config_with_hsv,
-                                      draw_calibration_preview, find_marker_roi,
-                                      suggest_hsv)
+from comp1.vision.calibration import (
+    CalibrationError,
+    auto_suggest_hsv,
+    check_coverage,
+    config_with_hsv,
+    draw_calibration_preview,
+    find_marker_roi,
+    suggest_hsv,
+)
 from comp1.sim.render import render
 from comp1.sim.world import Marker, VICTIM, World
 ```
@@ -319,7 +337,8 @@ def check_coverage(frame_bgr: np.ndarray, cfg: VisionConfig) -> None:
     mask = color_mask(frame_bgr, cfg)
     if float(np.count_nonzero(mask)) / mask.size > MAX_MASK_COVERAGE:
         raise CalibrationError(
-            "these ranges match too much of the scene — try a tighter shot of the marker")
+            "these ranges match too much of the scene — try a tighter shot of the marker"
+        )
 
 
 def auto_suggest_hsv(frame_bgr: np.ndarray) -> tuple[dict, list[float]]:
@@ -383,7 +402,7 @@ def all_red_frame():
 def test_auto_calibration_suggests_bands_without_a_selection():
     app = create_app(MockDrone(frame_factory=red_frame))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        collect_until(ws, "frame")          # latest raw frame is now available
+        collect_until(ws, "frame")  # latest raw frame is now available
         ws.send_json({"type": "vision_auto"})
         msg = collect_until(ws, "vision_suggestion")
     assert msg["config"]["lower1"][0] == 0
@@ -422,11 +441,21 @@ def test_a_suggestion_matching_most_of_the_scene_is_refused():
 
 def test_auto_calibration_is_refused_during_a_mission():
     from comp1.sim.drone import SimDrone
+
     app = create_app(SimDrone(seed=2, delay=0.2))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "takeoff"},
-            {"id": "b", "op": "move", "dir": "forward", "cm": 100}]}})
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [
+                        {"id": "a", "op": "takeoff"},
+                        {"id": "b", "op": "move", "dir": "forward", "cm": 100},
+                    ],
+                },
+            }
+        )
         collect_until(ws, "reset", limit=200)
         ws.send_json({"type": "vision_auto"})
         error = collect_until(ws, "vision_error", limit=200)
@@ -443,9 +472,15 @@ Expected: FAIL — `AssertionError: no vision_suggestion message` (the server ig
 In `comp1/server.py`, extend the calibration import at lines 20-21:
 
 ```python
-from .vision.calibration import (CalibrationError, auto_suggest_hsv, check_coverage,
-                                 config_with_hsv, draw_calibration_preview,
-                                 hsv_values, suggest_hsv)
+from .vision.calibration import (
+    CalibrationError,
+    auto_suggest_hsv,
+    check_coverage,
+    config_with_hsv,
+    draw_calibration_preview,
+    hsv_values,
+    suggest_hsv,
+)
 ```
 
 Change the guarded tuple at line 444 to include the new type:
@@ -517,7 +552,7 @@ def test_auto_calibration_is_reachable_from_the_dialog():
     js = (FRONTEND / "calibration.js").read_text(encoding="utf-8")
     assert 'id="vision-auto"' in html
     assert '"vision_auto"' in js
-    assert "message.roi" in js          # the sampled region is drawn back
+    assert "message.roi" in js  # the sampled region is drawn back
     assert 'src="calibration.js?v=' in html
 ```
 

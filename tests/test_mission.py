@@ -13,8 +13,15 @@ from comp1.sim.world import DESTINATION, VICTIM, Marker, World
 
 
 def _pose(x, y, flying=True):
-    return {"x": x, "y": y, "z": 1.0, "heading": 0.0,
-            "roll": 0.0, "pitch": 0.0, "flying": flying}
+    return {
+        "x": x,
+        "y": y,
+        "z": 1.0,
+        "heading": 0.0,
+        "roll": 0.0,
+        "pitch": 0.0,
+        "flying": flying,
+    }
 
 
 def _scene(markers, **kw):
@@ -22,8 +29,11 @@ def _scene(markers, **kw):
 
 
 CORRIDOR = dict(size_m=2.5, length_m=10.0, start=(1.25, 0.6), name="corridor")
-MARKERS = [Marker(1.25, 9.4, DESTINATION), Marker(1.0, 3.0, VICTIM),
-           Marker(1.5, 6.0, VICTIM)]
+MARKERS = [
+    Marker(1.25, 9.4, DESTINATION),
+    Marker(1.0, 3.0, VICTIM),
+    Marker(1.5, 6.0, VICTIM),
+]
 
 
 @pytest.fixture
@@ -65,7 +75,7 @@ def test_the_credit_radius_is_the_boundary(scorer):
 
 def test_a_signal_between_two_victims_credits_the_nearer_one(scorer):
     scorer.signal(_pose(1.4, 5.6))
-    assert scorer.credited == {1}          # the (1.5, 6.0) marker
+    assert scorer.credited == {1}  # the (1.5, 6.0) marker
 
 
 def test_arrival_needs_the_destination_not_just_the_far_end(scorer):
@@ -74,6 +84,7 @@ def test_arrival_needs_the_destination_not_just_the_far_end(scorer):
 
 
 # --- success --------------------------------------------------------------
+
 
 def test_success_needs_every_victim(scorer):
     scorer.signal(_pose(1.0, 3.0))
@@ -96,8 +107,13 @@ def test_all_three_together_is_a_mission_success(scorer):
     scorer.signal(_pose(1.0, 3.0))
     scorer.signal(_pose(1.5, 6.0))
     state = scorer.state(_pose(1.25, 9.4, flying=False))
-    assert state == {"found": 2, "total": 2, "at_destination": True,
-                     "needs_destination": True, "state": "success"}
+    assert state == {
+        "found": 2,
+        "total": 2,
+        "at_destination": True,
+        "needs_destination": True,
+        "state": "success",
+    }
 
 
 def test_an_arena_with_no_destination_succeeds_on_the_victims_alone():

@@ -31,9 +31,9 @@ CORRIDOR_DISTRACTORS = 2
 # Placement rules for free-standing markers. A victim on a wall is a different
 # exercise (you can sweep the perimeter); these stand in the open, so they need
 # real clearance to stay individually detectable.
-WALL_CLEARANCE_M = 0.5      # never flush against a wall
-MIN_VICTIM_SEP_M = 1.2      # two closer than this read as one blob to the detector
-PAD_CLEARANCE_M = 1.2       # keep the start pad and its approach clear
+WALL_CLEARANCE_M = 0.5  # never flush against a wall
+MIN_VICTIM_SEP_M = 1.2  # two closer than this read as one blob to the detector
+PAD_CLEARANCE_M = 1.2  # keep the start pad and its approach clear
 
 _PLACE_ATTEMPTS = 2000
 
@@ -41,11 +41,17 @@ _PLACE_ATTEMPTS = 2000
 def catalog() -> list[dict]:
     """What the frontend's scenery picker offers."""
     return [
-        {"id": "arena", "name": "Square arena",
-         "description": "4 m room, markers around the walls."},
-        {"id": "corridor", "name": "Corridor",
-         "description": f"{CORRIDOR_W_M:g} x {CORRIDOR_L_M:g} m hall — fly from the "
-                        "start pad to the destination sign, finding victims on the way."},
+        {
+            "id": "arena",
+            "name": "Square arena",
+            "description": "4 m room, markers around the walls.",
+        },
+        {
+            "id": "corridor",
+            "name": "Corridor",
+            "description": f"{CORRIDOR_W_M:g} x {CORRIDOR_L_M:g} m hall — fly from the "
+            "start pad to the destination sign, finding victims on the way.",
+        },
     ]
 
 
@@ -69,14 +75,17 @@ def _corridor(seed=None) -> World:
     # Fixed, and deliberately so: the destination is the one thing in the room a
     # student can count on being in the same place every run.
     markers = [Marker(w / 2, length - 0.6, DESTINATION)]
-    kinds = [VICTIM] * CORRIDOR_VICTIMS + \
-            [rng.choice(DISTRACTOR_KINDS) for _ in range(CORRIDOR_DISTRACTORS)]
+    kinds = [VICTIM] * CORRIDOR_VICTIMS + [
+        rng.choice(DISTRACTOR_KINDS) for _ in range(CORRIDOR_DISTRACTORS)
+    ]
     rng.shuffle(kinds)
     for kind in kinds:
         spot = _find_spot(rng, w, length, markers, start)
         if spot is not None:
             markers.append(Marker(spot[0], spot[1], kind))
-    return World(size_m=w, markers=markers, length_m=length, start=start, name="corridor")
+    return World(
+        size_m=w, markers=markers, length_m=length, start=start, name="corridor"
+    )
 
 
 def _find_spot(rng, w, d, markers, start_xy):
@@ -95,9 +104,9 @@ def is_free(x, y, w, d, markers, start_xy) -> bool:
         return False
     if not (WALL_CLEARANCE_M <= y <= d - WALL_CLEARANCE_M):
         return False
-    if (x - start_xy[0]) ** 2 + (y - start_xy[1]) ** 2 < PAD_CLEARANCE_M ** 2:
+    if (x - start_xy[0]) ** 2 + (y - start_xy[1]) ** 2 < PAD_CLEARANCE_M**2:
         return False
-    return all((m.x - x) ** 2 + (m.y - y) ** 2 >= MIN_VICTIM_SEP_M ** 2 for m in markers)
+    return all((m.x - x) ** 2 + (m.y - y) ** 2 >= MIN_VICTIM_SEP_M**2 for m in markers)
 
 
 def with_victims(world: World, points) -> World:
@@ -114,5 +123,10 @@ def with_victims(world: World, points) -> World:
         x, y = (p["x"], p["y"]) if isinstance(p, dict) else (p[0], p[1])
         if is_free(float(x), float(y), w, d, kept, start):
             kept.append(Marker(float(x), float(y), VICTIM))
-    return World(size_m=world.size_m, markers=kept, length_m=world.length_m,
-                 start=world.start, name=world.name)
+    return World(
+        size_m=world.size_m,
+        markers=kept,
+        length_m=world.length_m,
+        start=world.start,
+        name=world.name,
+    )

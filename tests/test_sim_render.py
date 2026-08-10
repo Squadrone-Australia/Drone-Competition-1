@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from comp1.sim.world import World, Marker, VICTIM
 from comp1.sim.render import render
+from comp1.sim.world import VICTIM, Marker, World
 from comp1.vision.detector import detect_red_circle
 
 
@@ -48,6 +48,7 @@ def test_apparent_size_grows_as_drone_nears():
 
 # --- 3D scenery -----------------------------------------------------------
 
+
 def empty_room(size_m=4.0):
     return World(size_m=size_m, markers=[])
 
@@ -63,13 +64,21 @@ def test_scenery_alone_is_never_a_victim():
             for heading in range(0, 360, 30):
                 for z in (0.3, 1.0, 2.4):
                     det = detect_red_circle(render(world, x, y, z, heading))
-                    assert not det.found, f"scenery detected at {x},{y},{z} hdg {heading}"
+                    assert not det.found, (
+                        f"scenery detected at {x},{y},{z} hdg {heading}"
+                    )
 
 
 def empty_corridor():
     from comp1.sim import scenery
-    return World(size_m=scenery.CORRIDOR_W_M, markers=[],
-                 length_m=scenery.CORRIDOR_L_M, start=(1.25, 0.6), name="corridor")
+
+    return World(
+        size_m=scenery.CORRIDOR_W_M,
+        markers=[],
+        length_m=scenery.CORRIDOR_L_M,
+        start=(1.25, 0.6),
+        name="corridor",
+    )
 
 
 def test_corridor_scenery_alone_is_never_a_victim():
@@ -86,7 +95,9 @@ def test_corridor_scenery_alone_is_never_a_victim():
             for heading in range(0, 360, 30):
                 for z in (0.3, 1.0, 2.4):
                     det = detect_red_circle(render(world, x, y, z, heading))
-                    assert not det.found, f"scenery detected at {x},{y},{z} hdg {heading}"
+                    assert not det.found, (
+                        f"scenery detected at {x},{y},{z} hdg {heading}"
+                    )
 
 
 def test_a_victim_down_the_corridor_measures_true():
@@ -101,6 +112,7 @@ def test_a_victim_down_the_corridor_measures_true():
 def test_the_destination_sign_reads_exactly_like_a_victim():
     """§3.1 and the corridor's whole premise: the detector cannot tell them apart."""
     from comp1.sim.world import DESTINATION
+
     victim = detect_red_circle(render(world_with(VICTIM), 2.0, 2.0, 1.0, 0.0))
     dest = detect_red_circle(render(world_with(DESTINATION), 2.0, 2.0, 1.0, 0.0))
     assert victim.found and dest.found

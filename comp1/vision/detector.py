@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from .config import VisionConfig, DEFAULT_CONFIG
+from .config import DEFAULT_CONFIG, VisionConfig
 
 
 @dataclass(frozen=True)

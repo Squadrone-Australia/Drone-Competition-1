@@ -4,7 +4,7 @@ from djitellopy import Tello
 from .base import DroneAdapter
 from .config import DEFAULT_FLIGHT_CONFIG, FlightConfig
 
-TELLO_MIN_MOVE_CM = 20      # the aircraft refuses anything shorter
+TELLO_MIN_MOVE_CM = 20  # the aircraft refuses anything shorter
 _FLIP_CODE = {"forward": "f", "back": "b", "left": "l", "right": "r"}
 _OPPOSITE = {"forward": "back", "back": "forward", "left": "right", "right": "left"}
 
@@ -34,8 +34,11 @@ class TelloDrone(DroneAdapter):
         getattr(self._t, f"move_{direction}")(cm)
 
     def rotate(self, direction, deg):
-        (self._t.rotate_clockwise if direction == "cw"
-         else self._t.rotate_counter_clockwise)(deg)
+        (
+            self._t.rotate_clockwise
+            if direction == "cw"
+            else self._t.rotate_counter_clockwise
+        )(deg)
 
     def flip(self, direction):
         self._t.flip(_FLIP_CODE[direction])

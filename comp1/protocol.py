@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field, model_validator
 
@@ -12,9 +12,16 @@ FLIP_DIRS = {"forward", "back", "left", "right"}
 LIMITS = {"cm": (20, 500), "deg": (1, 360), "n": (0, 50), "seconds": (0, 10)}
 
 SENSORS = Literal[
-    "target_visible", "target_distance_cm", "target_bearing_deg", "target_elevation_deg",
-    "target_count", "target_position_left", "target_position_center", "target_position_right",
-    "found_count", "battery",
+    "target_visible",
+    "target_distance_cm",
+    "target_bearing_deg",
+    "target_elevation_deg",
+    "target_count",
+    "target_position_left",
+    "target_position_center",
+    "target_position_right",
+    "found_count",
+    "battery",
 ]
 BIN_OPS = Literal["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "!=", "and", "or"]
 UN_OPS = Literal["not", "neg", "abs"]
@@ -57,38 +64,66 @@ def _lift(v):
 
 # the inner Annotated must be tagged before the lift wraps it, hence the nesting
 Value = Annotated[
-    Annotated[Union[NumberLit, SensorRead, VarRead, BinOp, UnOp], Field(discriminator="kind")],
+    Annotated[
+        NumberLit | SensorRead | VarRead | BinOp | UnOp, Field(discriminator="kind")
+    ],
     BeforeValidator(_lift),
 ]
 
 
 class Condition(BaseModel):
     """A v1 condition object. Kept only to parse and upgrade saved v1 programs."""
-    sensor: Literal["marker_visible", "found_count_gte",
-                    "marker_position_left", "marker_position_center",
-                    "marker_position_right"]
+
+    sensor: Literal[
+        "marker_visible",
+        "found_count_gte",
+        "marker_position_left",
+        "marker_position_center",
+        "marker_position_right",
+    ]
     value: int = 0
 
     def to_value(self) -> dict:
         if self.sensor == "found_count_gte":
-            return {"kind": "binop", "op": ">=",
-                    "left": {"kind": "sensor", "sensor": "found_count"},
-                    "right": {"kind": "number", "value": self.value}}
-        return {"kind": "sensor", "sensor": self.sensor.replace("marker_", "target_", 1)}
+            return {
+                "kind": "binop",
+                "op": ">=",
+                "left": {"kind": "sensor", "sensor": "found_count"},
+                "right": {"kind": "number", "value": self.value},
+            }
+        return {
+            "kind": "sensor",
+            "sensor": self.sensor.replace("marker_", "target_", 1),
+        }
 
 
 class Block(BaseModel):
     id: str
-    op: Literal["takeoff", "land", "move", "rotate", "flip", "approach_marker",
-                "mark_found", "end_mission", "repeat_n", "repeat_until", "while",
-                "if", "set_var", "wait", "break", "continue"]
+    op: Literal[
+        "takeoff",
+        "land",
+        "move",
+        "rotate",
+        "flip",
+        "approach_marker",
+        "mark_found",
+        "end_mission",
+        "repeat_n",
+        "repeat_until",
+        "while",
+        "if",
+        "set_var",
+        "wait",
+        "break",
+        "continue",
+    ]
     dir: str | None = None
     cm: Value | None = None
     deg: Value | None = None
     n: Value | None = None
     seconds: Value | None = None
-    name: str | None = None          # set_var
-    value: Value | None = None       # set_var
+    name: str | None = None  # set_var
+    value: Value | None = None  # set_var
     cond: Value | None = None
     body: list[Block] = []
     else_body: list[Block] = []
@@ -113,7 +148,9 @@ class Block(BaseModel):
         for field, (lo, hi) in LIMITS.items():
             v = getattr(self, field)
             if isinstance(v, NumberLit) and not lo <= v.value <= hi:
-                raise ValueError(f"{field} {v.value:g} outside {lo}..{hi} for op {self.op}")
+                raise ValueError(
+                    f"{field} {v.value:g} outside {lo}..{hi} for op {self.op}"
+                )
         return self
 
 
@@ -122,7 +159,7 @@ def _upgrade_block(b):
         return b
     out = dict(b)
     c = out.get("cond")
-    if isinstance(c, dict) and "kind" not in c:                   # v1 Condition object
+    if isinstance(c, dict) and "kind" not in c:  # v1 Condition object
         out["cond"] = Condition.model_validate(c).to_value()
     for key in ("body", "else_body"):
         if isinstance(out.get(key), list):
@@ -149,8 +186,12 @@ class Program(BaseModel):
         def visit(blocks: list[Block], loop_depth: int):
             for block in blocks:
                 if block.op in {"break", "continue"} and loop_depth == 0:
-                    raise ValueError(f"{block.op} block '{block.id}' must be inside a loop")
-                child_depth = loop_depth + (block.op in {"repeat_n", "repeat_until", "while"})
+                    raise ValueError(
+                        f"{block.op} block '{block.id}' must be inside a loop"
+                    )
+                child_depth = loop_depth + (
+                    block.op in {"repeat_n", "repeat_until", "while"}
+                )
                 visit(block.body, child_depth)
                 visit(block.else_body, loop_depth)
 

@@ -26,7 +26,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-NEAR = 0.05          # near plane, metres — geometry closer than this is clipped away
+NEAR = 0.05  # near plane, metres — geometry closer than this is clipped away
 _SCREEN_MARGIN = 2.0  # clip polygons to this many frame-widths beyond the viewport
 
 
@@ -142,12 +142,20 @@ def draw_line(img, cam: Camera, p0, p1, color, thickness=1) -> None:
     if seg is None:
         return
     screen = cam.project(seg)
-    clipped = _clip_segment_2d(screen[0], screen[1], -cam.w, -cam.h, 2 * cam.w, 2 * cam.h)
+    clipped = _clip_segment_2d(
+        screen[0], screen[1], -cam.w, -cam.h, 2 * cam.w, 2 * cam.h
+    )
     if clipped is None:
         return
     a, b = clipped
-    cv2.line(img, (round(a[0]), round(a[1])), (round(b[0]), round(b[1])),
-             color, thickness, cv2.LINE_AA)
+    cv2.line(
+        img,
+        (round(a[0]), round(a[1])),
+        (round(b[0]), round(b[1])),
+        color,
+        thickness,
+        cv2.LINE_AA,
+    )
 
 
 def _clip_near_segment(cam_pts: np.ndarray):
@@ -178,8 +186,10 @@ def _clip_segment_2d(a, b, x0, y0, x1, y1):
             t1 = min(t1, t)
         if t0 > t1:
             return None
-    return (np.array([a[0] + t0 * dx, a[1] + t0 * dy]),
-            np.array([a[0] + t1 * dx, a[1] + t1 * dy]))
+    return (
+        np.array([a[0] + t0 * dx, a[1] + t0 * dy]),
+        np.array([a[0] + t1 * dx, a[1] + t1 * dy]),
+    )
 
 
 def shade(color, factor: float):

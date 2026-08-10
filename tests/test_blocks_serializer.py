@@ -36,25 +36,46 @@ def test_display_python_is_valid_python_syntax():
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not on PATH")
-    program = {"version": 2, "blocks": [
-        {"id": "start", "op": "takeoff"},
-        {"id": "repeat", "op": "repeat_n", "n": 2, "body": [
-            {"id": "if", "op": "if",
-             "cond": {"kind": "sensor", "sensor": "target_visible"},
-             "body": [{"id": "found", "op": "mark_found"}],
-             "else_body": [{"id": "turn", "op": "rotate", "dir": "cw", "deg": 30}]},
-        ]},
-        {"id": "set", "op": "set_var", "name": "distance read",
-         "value": {"kind": "binop", "op": "/",
-                   "left": {"kind": "sensor", "sensor": "target_distance_cm"},
-                   "right": {"kind": "number", "value": 2}}},
-        {"id": "finish", "op": "end_mission"},
-    ]}
+    program = {
+        "version": 2,
+        "blocks": [
+            {"id": "start", "op": "takeoff"},
+            {
+                "id": "repeat",
+                "op": "repeat_n",
+                "n": 2,
+                "body": [
+                    {
+                        "id": "if",
+                        "op": "if",
+                        "cond": {"kind": "sensor", "sensor": "target_visible"},
+                        "body": [{"id": "found", "op": "mark_found"}],
+                        "else_body": [
+                            {"id": "turn", "op": "rotate", "dir": "cw", "deg": 30}
+                        ],
+                    },
+                ],
+            },
+            {
+                "id": "set",
+                "op": "set_var",
+                "name": "distance read",
+                "value": {
+                    "kind": "binop",
+                    "op": "/",
+                    "left": {"kind": "sensor", "sensor": "target_distance_cm"},
+                    "right": {"kind": "number", "value": 2},
+                },
+            },
+            {"id": "finish", "op": "end_mission"},
+        ],
+    }
     script = (
         'const c = require("./comp1/frontend/blocks.js");'
         f"process.stdout.write(c.programToPython({json.dumps(program)}));"
     )
-    proc = subprocess.run([node, "-e", script], capture_output=True, text=True,
-                          cwd=str(ROOT))
+    proc = subprocess.run(
+        [node, "-e", script], capture_output=True, text=True, cwd=str(ROOT)
+    )
     assert proc.returncode == 0, proc.stderr
     ast.parse(proc.stdout)

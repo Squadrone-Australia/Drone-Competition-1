@@ -72,5 +72,5 @@ def test_auto_calibration_is_reachable_from_the_dialog():
     js = (FRONTEND / "calibration.js").read_text(encoding="utf-8")
     assert 'id="vision-auto"' in html
     assert '"vision_auto"' in js
-    assert "message.roi" in js          # the sampled region is drawn back
+    assert "message.roi" in js  # the sampled region is drawn back
     assert 'src="calibration.js?v=' in html

@@ -5,7 +5,14 @@ import math
 import numpy as np
 import pytest
 
-from comp1.sim.scene import NEAR, Camera, _clip_near, _clip_segment_2d, draw_line, fill_quad
+from comp1.sim.scene import (
+    NEAR,
+    Camera,
+    _clip_near,
+    _clip_segment_2d,
+    draw_line,
+    fill_quad,
+)
 from comp1.vision.camera import SIM_INTRINSICS
 
 
@@ -39,8 +46,8 @@ def test_projection_agrees_with_the_detectors_camera_model():
 def test_heading_puts_the_target_on_the_expected_side():
     ahead = cam(heading=0.0)
     px = ahead.project(ahead.to_camera([(3.0, 4.0, 1.0)]))[0]
-    assert px[0] > ahead.w / 2                     # target to the right of the nose
-    turned = cam(heading=45.0)                     # now looking straight at it
+    assert px[0] > ahead.w / 2  # target to the right of the nose
+    turned = cam(heading=45.0)  # now looking straight at it
     px = turned.project(turned.to_camera([(3.0, 3.0, 1.0)]))[0]
     assert px[0] == pytest.approx(turned.w / 2, abs=1.0)
 
@@ -53,12 +60,14 @@ def test_points_above_the_camera_project_above_the_centre_row():
 def test_depth_of_is_along_the_optical_axis_not_euclidean():
     c = cam(heading=0.0)
     assert c.depth_of((2.0, 4.0, 1.0)) == pytest.approx(2.0)
-    assert c.depth_of((5.0, 2.0, 1.0)) == pytest.approx(0.0, abs=1e-9)   # abeam
-    assert c.depth_of((2.0, 0.0, 1.0)) < 0                                # behind
+    assert c.depth_of((5.0, 2.0, 1.0)) == pytest.approx(0.0, abs=1e-9)  # abeam
+    assert c.depth_of((2.0, 0.0, 1.0)) < 0  # behind
 
 
 def test_near_clip_trims_a_polygon_that_straddles_the_camera():
-    poly = np.array([[-1.0, 0.0, -1.0], [1.0, 0.0, -1.0], [1.0, 0.0, 2.0], [-1.0, 0.0, 2.0]])
+    poly = np.array(
+        [[-1.0, 0.0, -1.0], [1.0, 0.0, -1.0], [1.0, 0.0, 2.0], [-1.0, 0.0, 2.0]]
+    )
     clipped = _clip_near(poly)
     assert len(clipped) == 4
     assert clipped[:, 2].min() == pytest.approx(NEAR)
@@ -77,15 +86,24 @@ def test_a_wall_spanning_the_camera_plane_does_not_blow_up_coordinates():
     what keeps that from reaching OpenCV's int32 conversion."""
     c = cam(x=2.0, y=2.0, z=1.0, heading=90.0)
     img = blank()
-    fill_quad(img, c, [(0, 1.999, 0), (4, 1.999, 0), (4, 1.999, 2.8), (0, 1.999, 2.8)],
-              (255, 255, 255))
-    assert img.max() == 255                        # drawn, and without overflowing
+    fill_quad(
+        img,
+        c,
+        [(0, 1.999, 0), (4, 1.999, 0), (4, 1.999, 2.8), (0, 1.999, 2.8)],
+        (255, 255, 255),
+    )
+    assert img.max() == 255  # drawn, and without overflowing
 
 
 def test_segment_clip_keeps_the_visible_part():
-    a, b = _clip_segment_2d(np.array([-100.0, 50.0]), np.array([100.0, 50.0]), 0, 0, 80, 60)
+    a, b = _clip_segment_2d(
+        np.array([-100.0, 50.0]), np.array([100.0, 50.0]), 0, 0, 80, 60
+    )
     assert a[0] == pytest.approx(0.0) and b[0] == pytest.approx(80.0)
-    assert _clip_segment_2d(np.array([-5.0, -5.0]), np.array([-1.0, -1.0]), 0, 0, 80, 60) is None
+    assert (
+        _clip_segment_2d(np.array([-5.0, -5.0]), np.array([-1.0, -1.0]), 0, 0, 80, 60)
+        is None
+    )
 
 
 def test_horizon_sits_at_the_centre_row_for_a_level_camera():

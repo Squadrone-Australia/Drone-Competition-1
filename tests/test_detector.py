@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+
 from comp1.vision.detector import detect_red_circle
 
 

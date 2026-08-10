@@ -16,8 +16,8 @@ victim, by looking at it.
 
 import math
 
-CREDIT_RADIUS_M = 1.5       # how close a "found" signal has to be to count
-ARRIVAL_RADIUS_M = 1.5      # how close to the destination counts as arrived
+CREDIT_RADIUS_M = 1.5  # how close a "found" signal has to be to count
+ARRIVAL_RADIUS_M = 1.5  # how close to the destination counts as arrived
 
 
 class MissionScorer:
@@ -61,8 +61,10 @@ class MissionScorer:
     def at_destination(self, pose) -> bool:
         if pose is None or self.destination is None:
             return False
-        return math.hypot(self.destination[0] - pose["x"],
-                          self.destination[1] - pose["y"]) <= ARRIVAL_RADIUS_M
+        return (
+            math.hypot(self.destination[0] - pose["x"], self.destination[1] - pose["y"])
+            <= ARRIVAL_RADIUS_M
+        )
 
     def state(self, pose) -> dict:
         """The mission panel's whole view of the world.

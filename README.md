@@ -244,7 +244,7 @@ drone = Drone()
 drone.takeoff()
 while not drone.sees_target():
     drone.turn_right(20)
-print(drone.target())          # victim 204 cm away, -20 deg (left)
+print(drone.target())  # victim 204 cm away, -20 deg (left)
 drone.approach_target()
 drone.mark_found()
 drone.land()

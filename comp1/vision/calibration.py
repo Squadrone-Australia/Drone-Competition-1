@@ -1,8 +1,8 @@
 """Guided HSV calibration for the browser tuning panel."""
 
+from collections.abc import Mapping
 from dataclasses import replace
 from math import atan2, pi
-from collections.abc import Mapping
 
 import cv2
 import numpy as np
@@ -21,8 +21,10 @@ HSV_KEYS = ("lower1", "upper1", "lower2", "upper2")
 # still come from the operator's active config -- see find_marker_roi -- so the
 # locator never accepts a blob the detector itself would reject.
 _PRIOR_BANDS = dict(
-    lower1=(0, 60, 40), upper1=(15, 255, 255),
-    lower2=(160, 60, 40), upper2=(180, 255, 255),
+    lower1=(0, 60, 40),
+    upper1=(15, 255, 255),
+    lower2=(160, 60, 40),
+    upper2=(180, 255, 255),
 )
 
 # Half-side of the sample box as a fraction of the marker radius. The binding
@@ -61,8 +63,10 @@ def config_with_hsv(cfg: VisionConfig, values: Mapping) -> VisionConfig:
         raw = values.get(key)
         if not isinstance(raw, (list, tuple)) or len(raw) != 3:
             raise CalibrationError(f"{key} must contain three numbers")
-        if any(isinstance(value, bool) or not isinstance(value, (int, float))
-               for value in raw):
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in raw
+        ):
             raise CalibrationError(f"{key} must contain three numbers")
         triplet = tuple(int(round(value)) for value in raw)
         if not 0 <= triplet[0] <= 180:
@@ -86,7 +90,9 @@ def _circular_hue_mean(hues: np.ndarray, saturation: np.ndarray) -> float:
     return (atan2(y, x) * 180 / (2 * pi)) % 180
 
 
-def suggest_hsv(frame_bgr: np.ndarray, roi: list[float] | tuple[float, ...]) -> dict[str, list[int]]:
+def suggest_hsv(
+    frame_bgr: np.ndarray, roi: list[float] | tuple[float, ...]
+) -> dict[str, list[int]]:
     """Suggest robust HSV bands from a normalised marker selection.
 
     Hue percentiles are calculated after unwrapping around the circular mean,
@@ -118,7 +124,8 @@ def suggest_hsv(frame_bgr: np.ndarray, roi: list[float] | tuple[float, ...]) -> 
     usable = hsv[(hsv[:, 1] >= 40) & (hsv[:, 2] >= 30)]
     if usable.shape[0] < max(25, hsv.shape[0] // 20):
         raise CalibrationError(
-            "the selection has too little colour; avoid white glare and dark shadow")
+            "the selection has too little colour; avoid white glare and dark shadow"
+        )
 
     hues, saturation, value = usable[:, 0], usable[:, 1], usable[:, 2]
     mean = _circular_hue_mean(hues, saturation)
@@ -151,7 +158,9 @@ def suggest_hsv(frame_bgr: np.ndarray, roi: list[float] | tuple[float, ...]) -> 
     }
 
 
-def find_marker_roi(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> list[float]:
+def find_marker_roi(
+    frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG
+) -> list[float]:
     """Locate the largest red marker and return a sample box inside it.
 
     This is what removes the manual drag: ``find_targets`` already gates on area
@@ -166,7 +175,8 @@ def find_marker_roi(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -
     targets = find_targets(frame_bgr, prior)
     if not targets:
         raise CalibrationError(
-            "no red marker in view — point the camera at one and try again")
+            "no red marker in view — point the camera at one and try again"
+        )
     # nearest-first, and distance comes from apparent radius, so targets[0] is
     # also the largest blob: the most pixels to compute statistics from
     target = targets[0]
@@ -176,8 +186,12 @@ def find_marker_roi(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -
     half_x = ROI_FILL * target.radius_norm
     half_y = half_x * width / height
     clamp = lambda v: min(max(float(v), 0.0), 1.0)
-    return [clamp(target.cx - half_x), clamp(target.cy - half_y),
-            clamp(target.cx + half_x), clamp(target.cy + half_y)]
+    return [
+        clamp(target.cx - half_x),
+        clamp(target.cy - half_y),
+        clamp(target.cx + half_x),
+        clamp(target.cy + half_y),
+    ]
 
 
 def check_coverage(frame_bgr: np.ndarray, cfg: VisionConfig) -> None:
@@ -186,10 +200,13 @@ def check_coverage(frame_bgr: np.ndarray, cfg: VisionConfig) -> None:
     if float(np.count_nonzero(mask)) / mask.size > MAX_MASK_COVERAGE:
         raise CalibrationError(
             "these ranges match too much of the scene — back away so the marker "
-            "is smaller in frame, or check nothing else in the room is that colour")
+            "is smaller in frame, or check nothing else in the room is that colour"
+        )
 
 
-def auto_suggest_hsv(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> tuple[dict, list[float]]:
+def auto_suggest_hsv(
+    frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG
+) -> tuple[dict, list[float]]:
     """Locate a red marker and propose HSV bands fitted to it.
 
     Returns the bands *and* the region they came from: an auto-calibrator that

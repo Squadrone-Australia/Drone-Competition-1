@@ -9,8 +9,8 @@ of spinning on the spot.
 
 from comp1.api import Drone
 
-SEARCH_STEP_DEG = 20      # how far to turn between looks
-MAX_LOOKS = 30            # give up rather than spin forever
+SEARCH_STEP_DEG = 20  # how far to turn between looks
+MAX_LOOKS = 30  # give up rather than spin forever
 
 drone = Drone()
 drone.takeoff()
@@ -24,14 +24,14 @@ while not drone.sees_target() and looks < MAX_LOOKS:
 if not drone.sees_target():
     print("no victims found — landing")
     drone.land()
-    raise SystemExit           # ends the mission cleanly
+    raise SystemExit  # ends the mission cleanly
 
 # --- approach and mark --------------------------------------------------
 print("found one:", drone.target())
 
-if drone.approach_target():    # True once it is holding at a safe distance
+if drone.approach_target():  # True once it is holding at a safe distance
     print(f"in position, {drone.distance_cm():.0f} cm away")
-    drone.mark_found()         # the victory signal the judges look for
+    drone.mark_found()  # the victory signal the judges look for
     print("victims marked:", drone.found_count)
 else:
     print("lost sight of the victim on the way in")

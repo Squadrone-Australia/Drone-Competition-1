@@ -112,20 +112,22 @@ the multi-red oscillation problem. Restructure:
 ```python
 @dataclass
 class Target:
-    cx: float; cy: float
-    radius_norm: float        # from cv2.minEnclosingCircle — a direct linear measure
+    cx: float
+    cy: float
+    radius_norm: float  # from cv2.minEnclosingCircle — a direct linear measure
     area_ratio: float
     circularity: float
-    bearing_deg: float        # signed, + = right
-    elevation_deg: float      # signed, + = above
+    bearing_deg: float  # signed, + = right
+    elevation_deg: float  # signed, + = above
     distance_m: float
-    position: str             # kept for back-compat
+    position: str  # kept for back-compat
+
 
 @dataclass
 class Detection:
     found: bool
-    targets: list[Target]     # all candidates, nearest first
-    target: Target | None     # the locked primary
+    targets: list[Target]  # all candidates, nearest first
+    target: Target | None  # the locked primary
 ```
 
 Keep `cx`, `area_ratio`, `position` as `@property` delegates to `.target` so **every existing test
@@ -192,14 +194,37 @@ marker positions change between rounds, so memorising them is worthless.
 The headline change. Introduce a discriminated-union value node:
 
 ```python
-class NumberLit(BaseModel):  kind: Literal["number"];  value: float
-class SensorRead(BaseModel): kind: Literal["sensor"];  sensor: Literal[...]
-class VarRead(BaseModel):    kind: Literal["var"];     name: str
-class BinOp(BaseModel):      kind: Literal["binop"];   op: ...; left: Value; right: Value
-class UnOp(BaseModel):       kind: Literal["unop"];    op: ...; operand: Value
+class NumberLit(BaseModel):
+    kind: Literal["number"]
+    value: float
 
-Value = Annotated[NumberLit | SensorRead | VarRead | BinOp | UnOp,
-                  Field(discriminator="kind")]
+
+class SensorRead(BaseModel):
+    kind: Literal["sensor"]
+    sensor: Literal[...]
+
+
+class VarRead(BaseModel):
+    kind: Literal["var"]
+    name: str
+
+
+class BinOp(BaseModel):
+    kind: Literal["binop"]
+    op: ...
+    left: Value
+    right: Value
+
+
+class UnOp(BaseModel):
+    kind: Literal["unop"]
+    op: ...
+    operand: Value
+
+
+Value = Annotated[
+    NumberLit | SensorRead | VarRead | BinOp | UnOp, Field(discriminator="kind")
+]
 ```
 
 Sensor vocabulary: `target_visible`, `target_distance_cm`, `target_bearing_deg`,
@@ -230,7 +255,7 @@ drone = Drone()
 drone.takeoff()
 while not drone.sees_target():
     drone.turn_right(20)
-t = drone.target()          # .distance_m  .bearing_deg  .elevation_deg
+t = drone.target()  # .distance_m  .bearing_deg  .elevation_deg
 drone.mark_found()
 ```
 
