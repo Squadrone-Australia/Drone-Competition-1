@@ -200,7 +200,7 @@
     const bits = [`victims ${m.found}/${m.total}`];
     if (m.needs_destination) bits.push(m.at_destination ? "at destination" : "→ destination");
     missionEl.textContent = m.state === "success"
-      ? `🏆 mission success — ${bits.join(" · ")}`
+      ? `🏆 mission success: ${bits.join(", ")}`
       : bits.join(" · ");
     missionEl.className = m.state === "success" ? "success" : "";
   }
