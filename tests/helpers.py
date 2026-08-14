@@ -20,7 +20,7 @@ def fake_target(distance_m=2.0, bearing_deg=0.0, elevation_deg=0.0, cfg=DEFAULT_
         cx=cx,
         cy=0.5 - cam.f_norm * math.tan(math.radians(elevation_deg)) / aspect_hw,
         radius_norm=radius_norm,
-        area_ratio=math.pi * radius_norm ** 2 / aspect_hw,
+        area_ratio=math.pi * radius_norm**2 / aspect_hw,
         circularity=0.95,
         bearing_deg=bearing_deg,
         elevation_deg=elevation_deg,

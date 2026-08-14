@@ -3,6 +3,7 @@ import json
 import cv2
 import numpy as np
 from fastapi.testclient import TestClient
+
 from comp1.drone.mock import MockDrone
 from comp1.server import create_app
 from comp1.vision.config import VisionConfig
@@ -17,7 +18,7 @@ def red_frame():
 def collect_until(ws, want_type, limit=50):
     for _ in range(limit):
         msg = ws.receive()
-        if "bytes" in msg and msg["bytes"]:
+        if msg.get("bytes"):
             if want_type == "frame":
                 return msg["bytes"]
             continue
@@ -31,8 +32,15 @@ def test_run_program_executes_and_reports():
     drone = MockDrone()
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "takeoff"}, {"id": "b", "op": "land"}]}})
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [{"id": "a", "op": "takeoff"}, {"id": "b", "op": "land"}],
+                },
+            }
+        )
         fin = collect_until(ws, "finished")
         assert fin["reason"] == "done"
     assert ("takeoff",) in drone.log and ("land",) in drone.log
@@ -41,8 +49,15 @@ def test_run_program_executes_and_reports():
 def test_run_reports_the_validated_program_for_the_debug_panel():
     app = create_app(MockDrone())
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "move", "dir": "forward", "cm": 50}]}})
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [{"id": "a", "op": "move", "dir": "forward", "cm": 50}],
+                },
+            }
+        )
         debug = collect_until(ws, "debug_program")
     assert debug["program"]["version"] == 2
     assert debug["program"]["blocks"][0]["op"] == "move"
@@ -53,7 +68,7 @@ def test_video_frames_are_jpeg():
     app = create_app(MockDrone(frame_factory=red_frame))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         frame = collect_until(ws, "frame")
-        assert frame[:2] == b"\xff\xd8"          # JPEG magic
+        assert frame[:2] == b"\xff\xd8"  # JPEG magic
 
 
 def test_vision_config_is_sent_on_connect():
@@ -79,8 +94,10 @@ def test_vision_settings_apply_live_and_reset_to_startup_config():
     startup = VisionConfig(lower1=(1, 90, 70))
     app = create_app(MockDrone(frame_factory=red_frame), cfg=startup)
     blue = {
-        "lower1": [100, 80, 70], "upper1": [130, 255, 255],
-        "lower2": [100, 80, 70], "upper2": [130, 255, 255],
+        "lower1": [100, 80, 70],
+        "upper1": [130, 255, 255],
+        "lower2": [100, 80, 70],
+        "upper2": [130, 255, 255],
     }
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         collect_until(ws, "vision_config")
@@ -93,15 +110,27 @@ def test_vision_settings_apply_live_and_reset_to_startup_config():
 
 def test_vision_calibration_is_refused_during_a_mission():
     from comp1.sim.drone import SimDrone
+
     app = create_app(SimDrone(seed=2, delay=0.2))
     values = {
-        "lower1": [0, 100, 80], "upper1": [10, 255, 255],
-        "lower2": [170, 100, 80], "upper2": [180, 255, 255],
+        "lower1": [0, 100, 80],
+        "upper1": [10, 255, 255],
+        "lower2": [170, 100, 80],
+        "upper2": [180, 255, 255],
     }
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "takeoff"},
-            {"id": "b", "op": "move", "dir": "forward", "cm": 100}]}})
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [
+                        {"id": "a", "op": "takeoff"},
+                        {"id": "b", "op": "move", "dir": "forward", "cm": 100},
+                    ],
+                },
+            }
+        )
         collect_until(ws, "reset", limit=200)
         ws.send_json({"type": "vision_apply", "config": values})
         error = collect_until(ws, "vision_error", limit=200)
@@ -111,8 +140,12 @@ def test_vision_calibration_is_refused_during_a_mission():
 def test_invalid_program_rejected():
     app = create_app(MockDrone())
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "goto_xy"}]}})
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {"version": 1, "blocks": [{"id": "a", "op": "goto_xy"}]},
+            }
+        )
         err = collect_until(ws, "error")
         assert "invalid" in err["message"].lower()
 
@@ -121,6 +154,7 @@ def test_scene_is_sent_once_on_connect():
     """The 3D view is built from this one message; if it never arrives the stage
     stays empty for the whole session, with no retry."""
     from comp1.sim.drone import SimDrone
+
     app = create_app(SimDrone(seed=1, delay=0))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         msg = json.loads(ws.receive()["text"])
@@ -136,12 +170,22 @@ def test_scene_is_null_for_a_drone_with_no_arena():
 
 def test_pose_is_broadcast_while_flying():
     from comp1.sim.drone import SimDrone
+
     drone = SimDrone(seed=1, delay=0.1)
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "takeoff"},
-            {"id": "b", "op": "move", "dir": "forward", "cm": 100}]}})
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [
+                        {"id": "a", "op": "takeoff"},
+                        {"id": "b", "op": "move", "dir": "forward", "cm": 100},
+                    ],
+                },
+            }
+        )
         heights = set()
         for _ in range(300):
             msg = ws.receive()
@@ -161,10 +205,15 @@ def test_run_starts_from_the_start_pad_every_time():
     reset the second run starts wherever the first ended, so a student changing
     nothing sees a different result."""
     from comp1.sim.drone import SimDrone
+
     drone = SimDrone(seed=2, delay=0)
-    program = {"version": 1, "blocks": [
-        {"id": "a", "op": "takeoff"},
-        {"id": "b", "op": "move", "dir": "forward", "cm": 100}]}
+    program = {
+        "version": 1,
+        "blocks": [
+            {"id": "a", "op": "takeoff"},
+            {"id": "b", "op": "move", "dir": "forward", "cm": 100},
+        ],
+    }
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         ws.send_json({"type": "run", "program": program})
@@ -177,12 +226,22 @@ def test_run_starts_from_the_start_pad_every_time():
 
 def test_reset_message_returns_the_drone_and_tells_the_clients():
     from comp1.sim.drone import SimDrone
+
     drone = SimDrone(seed=2, delay=0)
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "takeoff"},
-            {"id": "b", "op": "move", "dir": "forward", "cm": 100}]}})
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [
+                        {"id": "a", "op": "takeoff"},
+                        {"id": "b", "op": "move", "dir": "forward", "cm": 100},
+                    ],
+                },
+            }
+        )
         collect_until(ws, "finished", limit=200)
         assert drone.y != 2.0
         ws.send_json({"type": "reset"})
@@ -194,7 +253,7 @@ def test_reset_on_hardware_clears_state_but_admits_it_did_not_move_the_drone():
     """A real Tello cannot teleport. Reporting `repositioned: true` there would
     tell a student the aircraft is on its pad while it hovers where they left it.
     """
-    drone = MockDrone()                      # like TelloDrone: no reset support
+    drone = MockDrone()  # like TelloDrone: no reset support
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         ws.send_json({"type": "reset"})
@@ -205,6 +264,7 @@ def test_reset_on_hardware_clears_state_but_admits_it_did_not_move_the_drone():
 
 def test_reset_on_the_simulator_reports_a_real_reposition():
     from comp1.sim.drone import SimDrone
+
     app = create_app(SimDrone(seed=2, delay=0))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         ws.send_json({"type": "reset"})
@@ -213,12 +273,22 @@ def test_reset_on_the_simulator_reports_a_real_reposition():
 
 def test_reset_is_refused_while_a_mission_is_running():
     from comp1.sim.drone import SimDrone
+
     app = create_app(SimDrone(seed=2, delay=0.2))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "takeoff"},
-            {"id": "b", "op": "move", "dir": "forward", "cm": 100}]}})
-        collect_until(ws, "reset", limit=200)        # the pre-run reset
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [
+                        {"id": "a", "op": "takeoff"},
+                        {"id": "b", "op": "move", "dir": "forward", "cm": 100},
+                    ],
+                },
+            }
+        )
+        collect_until(ws, "reset", limit=200)  # the pre-run reset
         ws.send_json({"type": "reset"})
         err = collect_until(ws, "error", limit=200)
         assert "stop the mission" in err["message"]
@@ -235,6 +305,7 @@ def test_estop_calls_emergency():
 
 def test_browser_can_switch_from_simulator_to_a_connected_tello():
     from comp1.sim.drone import SimDrone
+
     simulator = SimDrone(seed=2, delay=0)
     tello = MockDrone()
     tello.mode = "tello"
@@ -249,8 +320,15 @@ def test_browser_can_switch_from_simulator_to_a_connected_tello():
         connected = collect_until(ws, "drone_mode")
         assert connected == {"type": "drone_mode", "mode": "tello", "switching": False}
 
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "takeoff"}, {"id": "b", "op": "land"}]}})
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [{"id": "a", "op": "takeoff"}, {"id": "b", "op": "land"}],
+                },
+            }
+        )
         assert collect_until(ws, "finished")["reason"] == "done"
 
     assert ("connect",) in tello.log
@@ -259,6 +337,7 @@ def test_browser_can_switch_from_simulator_to_a_connected_tello():
 
 def test_browser_can_switch_from_tello_back_to_the_same_simulator():
     from comp1.sim.drone import SimDrone
+
     simulator = SimDrone(seed=2, delay=0)
     tello = MockDrone()
     tello.mode = "tello"
@@ -272,7 +351,10 @@ def test_browser_can_switch_from_tello_back_to_the_same_simulator():
 
         ws.send_json({"type": "switch_drone", "mode": "sim"})
         assert collect_until(ws, "drone_mode") == {
-            "type": "drone_mode", "mode": "tello", "switching": True}
+            "type": "drone_mode",
+            "mode": "tello",
+            "switching": True,
+        }
         restored = collect_until(ws, "drone_mode")
         assert restored == {"type": "drone_mode", "mode": "sim", "switching": False}
         assert app.state.drone is simulator
@@ -302,6 +384,7 @@ def test_failed_tello_connection_keeps_the_simulator_active():
 
 # --- choosing and editing the arena ---------------------------------------
 
+
 def collect_where(ws, want_type, pred, limit=400):
     """Like ``collect_until``, but skips messages of the right type that are not
     yet the state we are waiting for — mission state arrives repeatedly."""
@@ -317,6 +400,7 @@ def collect_where(ws, want_type, pred, limit=400):
 
 def test_the_scenery_list_is_offered_on_connect():
     from comp1.sim.drone import SimDrone
+
     app = create_app(SimDrone(seed=1, delay=0))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         msg = collect_until(ws, "sceneries")
@@ -336,6 +420,7 @@ def test_switching_scenery_rebuilds_the_arena_and_re_sends_it():
     that changes the room without telling the browser leaves both views drawing
     the old one."""
     from comp1.sim.drone import SimDrone
+
     drone = SimDrone(seed=1, delay=0)
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
@@ -348,16 +433,19 @@ def test_switching_scenery_rebuilds_the_arena_and_re_sends_it():
 
 
 def test_editing_the_layout_re_sends_the_arena():
-    from comp1.sim.drone import SimDrone
     from comp1.sim import scenery
+    from comp1.sim.drone import SimDrone
+
     drone = SimDrone(scenery_name="corridor", seed=1, delay=0)
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         collect_until(ws, "sceneries")
         ws.send_json({"type": "layout", "victims": [{"x": 1.25, "y": 5.0}]})
         scene = collect_where(
-            ws, "scene",
-            lambda m: [k["kind"] for k in m["scene"]["markers"]].count("victim") <= 1)
+            ws,
+            "scene",
+            lambda m: [k["kind"] for k in m["scene"]["markers"]].count("victim") <= 1,
+        )
         victims = [k for k in scene["scene"]["markers"] if k["kind"] == "victim"]
         assert len(victims) <= 1
         # whatever survived validation, the destination is untouched
@@ -367,13 +455,17 @@ def test_editing_the_layout_re_sends_the_arena():
 
 def test_clearing_the_layout_leaves_the_destination_alone():
     from comp1.sim.drone import SimDrone
+
     drone = SimDrone(scenery_name="corridor", seed=1, delay=0)
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         collect_until(ws, "sceneries")
         ws.send_json({"type": "layout", "victims": []})
-        collect_where(ws, "scene", lambda m: not [
-            k for k in m["scene"]["markers"] if k["kind"] == "victim"])
+        collect_where(
+            ws,
+            "scene",
+            lambda m: not [k for k in m["scene"]["markers"] if k["kind"] == "victim"],
+        )
     assert drone.world.victims == []
     assert drone.world.destination is not None
 
@@ -382,12 +474,22 @@ def test_arena_edits_are_refused_while_a_mission_is_running():
     """Moving the markers out from under a flying mission is the same mistake as
     resetting mid-flight, and gets the same answer."""
     from comp1.sim.drone import SimDrone
+
     app = create_app(SimDrone(seed=2, delay=0.2))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "takeoff"},
-            {"id": "b", "op": "move", "dir": "forward", "cm": 100}]}})
-        collect_until(ws, "reset", limit=200)        # the pre-run reset
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [
+                        {"id": "a", "op": "takeoff"},
+                        {"id": "b", "op": "move", "dir": "forward", "cm": 100},
+                    ],
+                },
+            }
+        )
+        collect_until(ws, "reset", limit=200)  # the pre-run reset
         ws.send_json({"type": "scenery", "name": "corridor"})
         err = collect_until(ws, "error", limit=200)
         assert "stop the mission" in err["message"]
@@ -402,23 +504,33 @@ def test_a_drone_with_no_arena_says_so_rather_than_failing_quietly():
 
 # --- mission success ------------------------------------------------------
 
+
 def _corridor_drone():
     from comp1.sim.drone import SimDrone
     from comp1.sim.world import DESTINATION, VICTIM, Marker, World
-    world = World(size_m=2.5, length_m=10.0, start=(1.25, 0.6), name="corridor",
-                  markers=[Marker(1.25, 9.4, DESTINATION), Marker(1.25, 3.0, VICTIM)])
+
+    world = World(
+        size_m=2.5,
+        length_m=10.0,
+        start=(1.25, 0.6),
+        name="corridor",
+        markers=[Marker(1.25, 9.4, DESTINATION), Marker(1.25, 3.0, VICTIM)],
+    )
     return SimDrone(world=world, delay=0)
 
 
 # start pad -> victim -> destination, then land
-FLY_THE_CORRIDOR = {"version": 2, "blocks": [
-    {"id": "a", "op": "takeoff"},
-    {"id": "b", "op": "move", "dir": "forward", "cm": 240},
-    {"id": "c", "op": "mark_found"},
-    {"id": "d", "op": "move", "dir": "forward", "cm": 500},
-    {"id": "e", "op": "move", "dir": "forward", "cm": 140},
-    {"id": "f", "op": "land"},
-]}
+FLY_THE_CORRIDOR = {
+    "version": 2,
+    "blocks": [
+        {"id": "a", "op": "takeoff"},
+        {"id": "b", "op": "move", "dir": "forward", "cm": 240},
+        {"id": "c", "op": "mark_found"},
+        {"id": "d", "op": "move", "dir": "forward", "cm": 500},
+        {"id": "e", "op": "move", "dir": "forward", "cm": 140},
+        {"id": "f", "op": "land"},
+    ],
+}
 
 
 def test_flying_the_corridor_and_landing_at_the_sign_is_a_mission_success():
@@ -434,11 +546,14 @@ def test_signalling_on_the_start_pad_credits_nothing():
     """`mark found` is a bare counter in the interpreter — a program that just
     flips three times must not be able to win."""
     app = create_app(_corridor_drone())
-    program = {"version": 2, "blocks": [
-        {"id": "a", "op": "takeoff"},
-        {"id": "b", "op": "mark_found"},
-        {"id": "c", "op": "land"},
-    ]}
+    program = {
+        "version": 2,
+        "blocks": [
+            {"id": "a", "op": "takeoff"},
+            {"id": "b", "op": "mark_found"},
+            {"id": "c", "op": "land"},
+        ],
+    }
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         ws.send_json({"type": "run", "program": program})
         msg = collect_where(ws, "mission", lambda m: m["signal"] is not None)
@@ -449,10 +564,19 @@ def test_signalling_on_the_start_pad_credits_nothing():
 def test_a_drone_with_no_arena_reports_no_mission_state():
     app = create_app(MockDrone())
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "takeoff"},
-            {"id": "b", "op": "mark_found"},
-            {"id": "c", "op": "land"}]}})
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [
+                        {"id": "a", "op": "takeoff"},
+                        {"id": "b", "op": "mark_found"},
+                        {"id": "c", "op": "land"},
+                    ],
+                },
+            }
+        )
         seen = []
         for _ in range(200):
             msg = ws.receive()
@@ -463,4 +587,88 @@ def test_a_drone_with_no_arena_reports_no_mission_state():
             if data["type"] == "finished":
                 break
         assert "mission" not in seen
-        assert "found_count" in seen      # the raw counter still works
+        assert "found_count" in seen  # the raw counter still works
+
+
+def grey_frame():
+    return np.full((480, 640, 3), (90, 70, 60), np.uint8)
+
+
+def all_red_frame():
+    return np.full((480, 640, 3), (0, 0, 220), np.uint8)
+
+
+def test_auto_calibration_suggests_bands_without_a_selection():
+    app = create_app(MockDrone(frame_factory=red_frame))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "frame")  # latest raw frame is now available
+        ws.send_json({"type": "vision_auto"})
+        msg = collect_until(ws, "vision_suggestion")
+    assert msg["config"]["lower1"][0] == 0
+    assert msg["config"]["lower2"][0] >= 170
+    assert len(msg["preview_jpeg"]) > 100
+    x0, y0, x1, y1 = msg["roi"]
+    assert 0.0 <= x0 < x1 <= 1.0 and 0.0 <= y0 < y1 <= 1.0
+
+
+def test_a_manual_selection_echoes_its_region_back():
+    app = create_app(MockDrone(frame_factory=red_frame))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "frame")
+        ws.send_json({"type": "vision_sample", "roi": [0.42, 0.38, 0.58, 0.62]})
+        msg = collect_until(ws, "vision_suggestion")
+    assert msg["roi"] == [0.42, 0.38, 0.58, 0.62]
+
+
+def test_auto_calibration_reports_when_no_marker_is_in_view():
+    app = create_app(MockDrone(frame_factory=grey_frame))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "frame")
+        ws.send_json({"type": "vision_auto"})
+        error = collect_until(ws, "vision_error")
+    assert "no red marker" in error["message"]
+
+
+def test_auto_calibration_uses_the_servers_active_config():
+    """A min_area_ratio tightened past what the red_frame marker clears must
+    make vision_auto fail to locate it -- proving the server threads its
+    active cfg into auto_suggest_hsv rather than a code-default prior."""
+    too_tight = VisionConfig(min_area_ratio=0.5)
+    app = create_app(MockDrone(frame_factory=red_frame), cfg=too_tight)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "frame")
+        ws.send_json({"type": "vision_auto"})
+        error = collect_until(ws, "vision_error")
+    assert "no red marker" in error["message"]
+
+
+def test_a_suggestion_matching_most_of_the_scene_is_refused():
+    app = create_app(MockDrone(frame_factory=all_red_frame))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "frame")
+        ws.send_json({"type": "vision_sample", "roi": [0.4, 0.4, 0.6, 0.6]})
+        error = collect_until(ws, "vision_error")
+    assert "too much of the scene" in error["message"]
+
+
+def test_auto_calibration_is_refused_during_a_mission():
+    from comp1.sim.drone import SimDrone
+
+    app = create_app(SimDrone(seed=2, delay=0.2))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [
+                        {"id": "a", "op": "takeoff"},
+                        {"id": "b", "op": "move", "dir": "forward", "cm": 100},
+                    ],
+                },
+            }
+        )
+        collect_until(ws, "reset", limit=200)
+        ws.send_json({"type": "vision_auto"})
+        error = collect_until(ws, "vision_error", limit=200)
+    assert "stop the mission" in error["message"]

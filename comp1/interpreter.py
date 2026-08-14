@@ -1,9 +1,9 @@
 import asyncio
-from typing import Callable
+from collections.abc import Callable
 
 from .drone.base import DroneAdapter
 from .protocol import LIMITS, Block, Program
-from .vision.config import VisionConfig, DEFAULT_CONFIG
+from .vision.config import DEFAULT_CONFIG, VisionConfig
 from .vision.detector import Detection
 
 MAX_EXPR_DEPTH = 32
@@ -38,11 +38,14 @@ def _truthy(v) -> bool:
 
 
 class Interpreter:
-    def __init__(self, drone: DroneAdapter,
-                 get_detection: Callable[[], Detection],
-                 on_event: Callable[[dict], None],
-                 cfg: VisionConfig = DEFAULT_CONFIG,
-                 select_nearest_target: Callable[[], None] = lambda: None):
+    def __init__(
+        self,
+        drone: DroneAdapter,
+        get_detection: Callable[[], Detection],
+        on_event: Callable[[dict], None],
+        cfg: VisionConfig = DEFAULT_CONFIG,
+        select_nearest_target: Callable[[], None] = lambda: None,
+    ):
         self._drone = drone
         self._detect = get_detection
         self._emit = on_event
@@ -52,7 +55,7 @@ class Interpreter:
         self._stop = asyncio.Event()
         self.found_count = 0
         self.vars: dict[str, float | bool] = {}
-        self._block_id = ""            # whose fault a warning is, for events
+        self._block_id = ""  # whose fault a warning is, for events
         self._block_op = ""
 
     def request_stop(self):
@@ -82,15 +85,21 @@ class Interpreter:
                 raise _Stopped()
             self._block_id, self._block_op = b.id, b.op
             self._emit({"type": "highlight", "blockId": b.id})
-            self._emit({"type": "execution", "kind": "block",
-                        "blockId": b.id, "op": b.op})
+            self._emit(
+                {"type": "execution", "kind": "block", "blockId": b.id, "op": b.op}
+            )
             await self._exec(b)
 
     # --- expressions ---
 
     def _warn(self, message: str, block_id: str | None = None):
-        self._emit({"type": "warning", "blockId": block_id or self._block_id,
-                    "message": message})
+        self._emit(
+            {
+                "type": "warning",
+                "blockId": block_id or self._block_id,
+                "message": message,
+            }
+        )
 
     def _sensor(self, s: str):
         det = self._detect()
@@ -105,16 +114,28 @@ class Interpreter:
                 return det.elevation_deg if det.found else 0.0
             case "target_count":
                 return float(det.count) if det.found else 0.0
-            case "target_position_left" | "target_position_center" | "target_position_right":
+            case (
+                "target_position_left"
+                | "target_position_center"
+                | "target_position_right"
+            ):
                 return det.found and det.position == s.removeprefix("target_position_")
             case "found_count":
                 return float(self.found_count)
             case "battery":
                 result = float(self._drone.battery())
-                self._emit({"type": "execution", "kind": "call",
-                            "blockId": self._block_id, "op": self._block_op,
-                            "adapter": type(self._drone).__name__,
-                            "method": "battery", "args": [], "result": result})
+                self._emit(
+                    {
+                        "type": "execution",
+                        "kind": "call",
+                        "blockId": self._block_id,
+                        "op": self._block_op,
+                        "adapter": type(self._drone).__name__,
+                        "method": "battery",
+                        "args": [],
+                        "result": result,
+                    }
+                )
                 return result
 
     def _eval(self, node, depth=0):
@@ -140,26 +161,35 @@ class Interpreter:
 
     def _binop(self, node, depth):
         left = self._eval(node.left, depth + 1)
-        if node.op == "and":                          # short-circuit, like the block reads
+        if node.op == "and":  # short-circuit, like the block reads
             return _truthy(left) and _truthy(self._eval(node.right, depth + 1))
         if node.op == "or":
             return _truthy(left) or _truthy(self._eval(node.right, depth + 1))
         a, b = float(left), float(self._eval(node.right, depth + 1))
         match node.op:
-            case "+": return a + b
-            case "-": return a - b
-            case "*": return a * b
+            case "+":
+                return a + b
+            case "-":
+                return a - b
+            case "*":
+                return a * b
             case "/":
                 if b == 0:
                     self._warn("division by zero — using 0")
                     return 0.0
                 return a / b
-            case "<": return a < b
-            case ">": return a > b
-            case "<=": return a <= b
-            case ">=": return a >= b
-            case "==": return a == b
-            case "!=": return a != b
+            case "<":
+                return a < b
+            case ">":
+                return a > b
+            case "<=":
+                return a <= b
+            case ">=":
+                return a >= b
+            case "==":
+                return a == b
+            case "!=":
+                return a != b
 
     def _cond(self, c) -> bool:
         return _truthy(self._eval(c))
@@ -179,22 +209,27 @@ class Interpreter:
         return clamped
 
     async def _sleep(self, seconds: float):
-        try:                                          # e-stop must cut a long wait short
+        try:  # e-stop must cut a long wait short
             await asyncio.wait_for(self._stop.wait(), timeout=seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return
         raise _Stopped()
 
     # --- execution ---
 
-    async def _call_drone(self, method: str, *args,
-                          block_op: str | None = None):
+    async def _call_drone(self, method: str, *args, block_op: str | None = None):
         """Trace and invoke the exact adapter method behind a block action."""
-        self._emit({"type": "execution", "kind": "call",
-                    "blockId": self._block_id,
-                    "op": block_op or self._block_op,
-                    "adapter": type(self._drone).__name__,
-                    "method": method, "args": list(args)})
+        self._emit(
+            {
+                "type": "execution",
+                "kind": "call",
+                "blockId": self._block_id,
+                "op": block_op or self._block_op,
+                "adapter": type(self._drone).__name__,
+                "method": method,
+                "args": list(args),
+            }
+        )
         return await asyncio.to_thread(getattr(self._drone, method), *args)
 
     async def _exec(self, b: Block):
@@ -205,15 +240,17 @@ class Interpreter:
             case "land":
                 await self._call_drone("land")
             case "move":
-                await self._call_drone("move", b.dir,
-                                       self._clamp_value(b.cm, b, "cm"))
+                await self._call_drone("move", b.dir, self._clamp_value(b.cm, b, "cm"))
             case "rotate":
-                await self._call_drone("rotate", b.dir,
-                                       self._clamp_value(b.deg, b, "deg"))
+                await self._call_drone(
+                    "rotate", b.dir, self._clamp_value(b.deg, b, "deg")
+                )
             case "flip":
                 await self._call_drone("flip", b.dir)
             case "mark_found":
-                await self._call_drone("flip", "back")   # victory signal (requirements §2.1)
+                await self._call_drone(
+                    "flip", "back"
+                )  # victory signal (requirements §2.1)
                 self.found_count += 1
                 self._emit({"type": "found_count", "count": self.found_count})
             case "end_mission":
@@ -222,7 +259,9 @@ class Interpreter:
             case "set_var":
                 self.vars[b.name] = self._eval(b.value)
             case "wait":
-                await self._sleep(self._clamp_value(b.seconds, b, "seconds", cast=float))
+                await self._sleep(
+                    self._clamp_value(b.seconds, b, "seconds", cast=float)
+                )
             case "break":
                 raise _LoopBreak()
             case "continue":
@@ -238,7 +277,7 @@ class Interpreter:
             case "repeat_until" | "while":
                 # repeat_until stops when the condition goes true, while when it goes false
                 stop_when = b.op == "repeat_until"
-                for _ in range(MAX_LOOP_ITERS):           # hard safety bound
+                for _ in range(MAX_LOOP_ITERS):  # hard safety bound
                     if self._stop.is_set():
                         raise _Stopped()
                     self._block_id, self._block_op = b.id, b.op
@@ -290,17 +329,22 @@ class Interpreter:
             blind_until = None
             bearing, distance = det.bearing_deg, det.distance_m
             if abs(bearing) > cfg.approach_bearing_deadband_deg:
-                deg = _clamp(round(abs(bearing)),
-                             cfg.approach_min_turn_deg, cfg.approach_max_turn_deg)
-                await self._call_drone("rotate",
-                                       "cw" if bearing > 0 else "ccw", deg)
+                deg = _clamp(
+                    round(abs(bearing)),
+                    cfg.approach_min_turn_deg,
+                    cfg.approach_max_turn_deg,
+                )
+                await self._call_drone("rotate", "cw" if bearing > 0 else "ccw", deg)
             elif distance > cfg.approach_stop_distance_m:
                 remaining_cm = (distance - cfg.approach_stop_distance_m) * 100
                 if remaining_cm < cfg.approach_min_step_cm:
-                    return                                # closer than one step — done
-                cm = _clamp(round(remaining_cm),
-                            cfg.approach_min_step_cm, cfg.approach_max_step_cm)
+                    return  # closer than one step — done
+                cm = _clamp(
+                    round(remaining_cm),
+                    cfg.approach_min_step_cm,
+                    cfg.approach_max_step_cm,
+                )
                 await self._call_drone("move", "forward", cm)
             else:
-                return                                    # close enough (requirements §3.2)
-            await asyncio.sleep(0.2)                      # let video catch up
+                return  # close enough (requirements §3.2)
+            await asyncio.sleep(0.2)  # let video catch up

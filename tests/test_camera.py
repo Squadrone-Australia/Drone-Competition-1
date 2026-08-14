@@ -1,8 +1,7 @@
-import math
 
 import pytest
 
-from comp1.vision.camera import CameraIntrinsics, TELLO_INTRINSICS
+from comp1.vision.camera import TELLO_INTRINSICS, CameraIntrinsics
 from comp1.vision.config import DEFAULT_CONFIG
 
 
@@ -32,7 +31,7 @@ def test_bearing_is_zero_at_centre_and_half_the_fov_at_the_edge():
 
 def test_elevation_is_positive_above_centre():
     cam = TELLO_INTRINSICS
-    assert cam.elevation_deg(0.2) > 0      # upper part of the image
+    assert cam.elevation_deg(0.2) > 0  # upper part of the image
     assert cam.elevation_deg(0.8) < 0
     assert cam.elevation_deg(0.5) == pytest.approx(0.0)
 
@@ -58,6 +57,6 @@ def test_max_range_exposes_the_area_gate_as_a_range_limit():
 
 
 def test_area_gate_can_be_derived_from_a_wanted_range():
-    cam, R = TELLO_INTRINSICS, 0.175      # a larger, A3-ish marker
+    cam, R = TELLO_INTRINSICS, 0.175  # a larger, A3-ish marker
     gate = cam.min_area_ratio_for_range(R, 6.0)
     assert cam.max_range_m(R, gate) == pytest.approx(6.0)

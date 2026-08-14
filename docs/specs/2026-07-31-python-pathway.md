@@ -66,8 +66,8 @@ facade, and `SimDrone.x/y` stay inside `comp1/sim/`.
 ```python
 from comp1.api import Drone
 
-drone = Drone()              # picks up the server's drone under --script
-drone = Drone(sim=True)      # standalone: own simulator, no UI, no e-stop button
+drone = Drone()  # picks up the server's drone under --script
+drone = Drone(sim=True)  # standalone: own simulator, no UI, no e-stop button
 ```
 
 | Group | Members |
@@ -122,7 +122,7 @@ code would be *unstoppable*:
 while True:
     try:
         drone.turn_right(20)
-    except Exception:      # swallows the stop, loops forever
+    except Exception:  # swallows the stop, loops forever
         pass
 ```
 

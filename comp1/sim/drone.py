@@ -6,10 +6,30 @@ from ..drone.base import DroneAdapter
 from . import scenery
 from .render import MARKER_HEIGHT, WALL_HEIGHT_M, draw_minimap, render
 
-ANIM_FPS = 60           # pose updates per second while a command is in flight
+ANIM_FPS = 60  # pose updates per second while a command is in flight
 MAX_ALT_M = 2.5
 MIN_ALT_M = 0.3
-LEAN_DEG = 12.0         # how far the airframe tips into a translation
+LEAN_DEG = 12.0  # how far the airframe tips into a translation
+FLIP_DRIFT_M = 0.3  # how far a flip throws the airframe before it recovers
+
+# Which attitude angle a flip drives, and which way round.
+#
+# The signs are fixed by how scene3d.js orients the model: it has its nose at
+# local -Z and its right arm at +X, and applies pitch as rotation.x and roll as
+# rotation.z. So +pitch lifts the nose (a *back* flip) and +roll lifts the right
+# wingtip (a *left* flip). Change either of those and change these with them.
+_FLIP_SPIN = {
+    "back": ("pitch", 1),
+    "forward": ("pitch", -1),
+    "left": ("roll", 1),
+    "right": ("roll", -1),
+}
+# djitellopy's single-letter codes reach the simulator from tests and scripts
+_FLIP_ALIAS = {"b": "back", "f": "forward", "l": "left", "r": "right"}
+
+
+def _flip_key(direction: str) -> str:
+    return _FLIP_ALIAS.get(direction, direction)
 
 
 def _smoothstep(t: float) -> float:
@@ -31,11 +51,15 @@ class SimDrone(DroneAdapter):
     """
 
     mode = "sim"
-    can_reset = True        # unlike hardware, this one really can go home
+    can_reset = True  # unlike hardware, this one really can go home
 
-    def __init__(self, world=None, noise=0.0, delay=0.3, seed=None, scenery_name="arena"):
+    def __init__(
+        self, world=None, noise=0.0, delay=0.3, seed=None, scenery_name="arena"
+    ):
         self.scenery_name = world.name if world is not None else scenery_name
-        self.world = world if world is not None else scenery.build(scenery_name, seed=seed)
+        self.world = (
+            world if world is not None else scenery.build(scenery_name, seed=seed)
+        )
         self.noise = noise
         self.delay = delay
         self._seed = seed
@@ -92,9 +116,11 @@ class SimDrone(DroneAdapter):
     def takeoff(self):
         self._abort = False
         z0 = self.z
-        self.flying = True                      # props spin for the whole climb
-        self._animate(lambda t: setattr(self, "z", z0 + (MARKER_HEIGHT - z0) * t),
-                      self.delay * 1.5)
+        self.flying = True  # props spin for the whole climb
+        self._animate(
+            lambda t: setattr(self, "z", z0 + (MARKER_HEIGHT - z0) * t),
+            self.delay * 1.5,
+        )
 
     def land(self):
         z0 = self.z
@@ -104,30 +130,44 @@ class SimDrone(DroneAdapter):
         self.roll = self.pitch = 0.0
 
     def emergency(self):
-        self._abort = True                      # cut any command mid-animation
+        self._abort = True  # cut any command mid-animation
         self.flying = False
         self.z = 0.0
         self.roll = self.pitch = 0.0
+
+    def _body_vector(self, direction, dist):
+        """World-frame ``(dx, dy)`` metres for a body-relative direction.
+
+        ``up``/``down`` — and anything unrecognised — are (0, 0): they do not
+        move the drone across the floor.
+        """
+        h = math.radians(self.heading)
+        fx, fy = math.sin(h), math.cos(h)  # forward
+        rx, ry = math.cos(h), -math.sin(h)  # right
+        return {
+            "forward": (fx * dist, fy * dist),
+            "back": (-fx * dist, -fy * dist),
+            "right": (rx * dist, ry * dist),
+            "left": (-rx * dist, -ry * dist),
+        }.get(direction, (0.0, 0.0))
 
     def move(self, direction, cm):
         self._require_flying()
         dist = cm / 100.0
         if self.noise:
             dist += self._rng.gauss(0, self.noise * dist)
-        h = math.radians(self.heading)
-        fx, fy = math.sin(h), math.cos(h)      # forward
-        rx, ry = math.cos(h), -math.sin(h)     # right
         x0, y0, z0 = self.x, self.y, self.z
-        dx = dy = dz = 0.0
+        dx, dy = self._body_vector(direction, dist)
+        dz = 0.0
         lean_pitch = lean_roll = 0.0
         if direction == "forward":
-            dx, dy, lean_pitch = fx * dist, fy * dist, LEAN_DEG
+            lean_pitch = LEAN_DEG
         elif direction == "back":
-            dx, dy, lean_pitch = -fx * dist, -fy * dist, -LEAN_DEG
+            lean_pitch = -LEAN_DEG
         elif direction == "right":
-            dx, dy, lean_roll = rx * dist, ry * dist, LEAN_DEG
+            lean_roll = LEAN_DEG
         elif direction == "left":
-            dx, dy, lean_roll = -rx * dist, -ry * dist, -LEAN_DEG
+            lean_roll = -LEAN_DEG
         elif direction == "up":
             dz = min(MAX_ALT_M, z0 + dist) - z0
         elif direction == "down":
@@ -154,18 +194,45 @@ class SimDrone(DroneAdapter):
             deg += self._rng.gauss(0, 2)
         h0 = self.heading
         turn = deg if direction == "cw" else -deg
-        self._animate(lambda t: setattr(self, "heading", (h0 + turn * t) % 360),
-                      self._turn_duration(abs(deg)))
+        self._animate(
+            lambda t: setattr(self, "heading", (h0 + turn * t) % 360),
+            self._turn_duration(abs(deg)),
+        )
         self.heading = (h0 + turn) % 360
 
     def flip(self, direction):
         self._require_flying()
-        # pose is unchanged — the flip is the *signal* (requirements §2.1), so all
-        # that moves is the visual roll the third-person view draws
-        sign = -1 if direction in ("b", "back") else 1
-        self._animate(lambda t: setattr(self, "roll", (sign * 360 * t) % 360),
-                      max(self.delay, 0.6) if self.delay else 0.0)
-        self.roll = 0.0
+        # Two things move and neither changes where the drone ends up.
+        #
+        # The airframe tumbles a full turn about the axis the real manoeuvre
+        # uses: nose-over-tail (pitch) for back/forward, wingtip-over-wingtip
+        # (roll) for left/right. Every direction used to drive roll, which drew
+        # a back-flip as a barrel roll and made three of the four identical.
+        #
+        # It also sags in the flip's own direction and comes back. A real Tello
+        # translates through a flip; TelloDrone undoes that with a compensating
+        # move afterwards (see FlightConfig.flip_recover_cm), and showing the sag
+        # here is what makes the two views agree about a lurch the aircraft
+        # genuinely performs. sin(pi*t) peaks mid-flip and returns to zero, so
+        # the end pose is exactly the start pose — the flip is the *signal*
+        # (requirements §2.1), never a way to travel.
+        key = _flip_key(direction)
+        axis, spin = _FLIP_SPIN[key]
+        dx, dy = self._body_vector(key, FLIP_DRIFT_M)
+        x0, y0 = self.x, self.y
+        margin = 0.2
+        x_lo, x_hi = margin, self.world.width_m - margin
+        y_lo, y_hi = margin, self.world.depth_m - margin
+
+        def step(t):
+            setattr(self, axis, (spin * 360 * t) % 360)
+            sag = math.sin(math.pi * t)
+            self.x = min(max(x0 + dx * sag, x_lo), x_hi)
+            self.y = min(max(y0 + dy * sag, y_lo), y_hi)
+
+        self._animate(step, max(self.delay, 0.6) if self.delay else 0.0)
+        self.x, self.y = x0, y0
+        self.roll = self.pitch = 0.0
 
     def _move_duration(self, dist_m):
         if not self.delay:
@@ -196,9 +263,12 @@ class SimDrone(DroneAdapter):
 
     def pose(self):
         return {
-            "x": round(self.x, 3), "y": round(self.y, 3), "z": round(self.z, 3),
+            "x": round(self.x, 3),
+            "y": round(self.y, 3),
+            "z": round(self.z, 3),
             "heading": round(self.heading, 2),
-            "roll": round(self.roll, 2), "pitch": round(self.pitch, 2),
+            "roll": round(self.roll, 2),
+            "pitch": round(self.pitch, 2),
             "flying": self.flying,
         }
 
@@ -212,9 +282,16 @@ class SimDrone(DroneAdapter):
             "depth_m": self.world.depth_m,
             "start": list(self.world.start_xy),
             "wall_height_m": WALL_HEIGHT_M,
-            "markers": [{"x": m.x, "y": m.y, "kind": m.kind,
-                         "size_m": m.size_m, "height_m": m.height_m}
-                        for m in self.world.markers],
+            "markers": [
+                {
+                    "x": m.x,
+                    "y": m.y,
+                    "kind": m.kind,
+                    "size_m": m.size_m,
+                    "height_m": m.height_m,
+                }
+                for m in self.world.markers
+            ],
         }
 
     # --- authoring feed ----------------------------------------------------
@@ -239,7 +316,8 @@ class SimDrone(DroneAdapter):
             self.world = scenery.with_victims(self.world, victims)
         else:
             self.scenery_name = name or self.scenery_name
-            self.world = scenery.build(self.scenery_name,
-                                       seed=None if randomise else self._seed)
+            self.world = scenery.build(
+                self.scenery_name, seed=None if randomise else self._seed
+            )
         self.reset()
         return self.world

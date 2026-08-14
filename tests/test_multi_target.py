@@ -3,7 +3,7 @@ import numpy as np
 
 from comp1.sim.drone import SimDrone
 from comp1.sim.render import draw_minimap, render
-from comp1.sim.world import Marker, World, VICTIM
+from comp1.sim.world import VICTIM, Marker, World
 from comp1.vision.detector import TargetTracker, detect_red_circle, find_targets
 
 RED = (0, 0, 220)
@@ -25,7 +25,7 @@ def test_all_candidates_are_reported_not_just_the_largest():
 def test_candidates_are_ordered_nearest_first():
     targets = find_targets(frame((200, 30), (450, 60)))
     assert targets[0].distance_m < targets[1].distance_m
-    assert targets[0].cx > 0.5          # the big one is the right-hand circle
+    assert targets[0].cx > 0.5  # the big one is the right-hand circle
 
 
 def test_bearing_signs_follow_screen_position():
@@ -43,10 +43,10 @@ def test_lock_survives_the_other_target_becoming_larger():
     # flips to whichever blob happens to be biggest this frame
     tracker = TargetTracker()
     first = tracker.update(frame((200, 50), (450, 40)))
-    assert first.target.cx < 0.5                     # locked on the left circle
+    assert first.target.cx < 0.5  # locked on the left circle
 
     second = tracker.update(frame((200, 38), (450, 52)))
-    assert second.target.cx < 0.5                    # still the left circle
+    assert second.target.cx < 0.5  # still the left circle
     assert second.count == 2
     # and it is genuinely no longer the nearest candidate
     assert second.target is not second.targets[0]
@@ -54,10 +54,10 @@ def test_lock_survives_the_other_target_becoming_larger():
 
 def test_reacquire_nearest_replaces_an_old_farther_lock():
     tracker = TargetTracker()
-    tracker.update(frame((200, 50), (450, 40)))       # initial lock: left
+    tracker.update(frame((200, 50), (450, 40)))  # initial lock: left
     changed = tracker.update(frame((200, 38), (450, 52)))
     assert changed.target.cx < 0.5
-    assert changed.targets[0].cx > 0.5                # right is now closest
+    assert changed.targets[0].cx > 0.5  # right is now closest
 
     reacquired = tracker.reacquire_nearest(changed)
     assert reacquired.target is reacquired.targets[0]
@@ -87,10 +87,14 @@ def test_minimap_is_not_in_the_frame_the_detector_sees():
     world = World(size_m=4.0, markers=[Marker(2.0, 4.0, VICTIM)])
     drone = SimDrone(world=world, delay=0)
     sensor = drone.get_frame()
-    assert np.array_equal(sensor, render(world, drone.x, drone.y, drone.z, drone.heading))
+    assert np.array_equal(
+        sensor, render(world, drone.x, drone.y, drone.z, drone.heading)
+    )
     display = drone.annotate(sensor)
-    assert not np.array_equal(sensor, display)       # the overlay went on a copy
-    assert np.array_equal(sensor, drone.get_frame())  # and did not mutate the sensor path
+    assert not np.array_equal(sensor, display)  # the overlay went on a copy
+    assert np.array_equal(
+        sensor, drone.get_frame()
+    )  # and did not mutate the sensor path
 
 
 def test_minimap_dots_would_otherwise_be_detectable_clutter():

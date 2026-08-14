@@ -18,14 +18,16 @@ TELLO_DFOV_DEG = 82.6
 
 @dataclass(frozen=True)
 class CameraIntrinsics:
-    f_norm: float          # focal length in pixels / frame width
+    f_norm: float  # focal length in pixels / frame width
 
     @classmethod
     def from_hfov(cls, hfov_deg: float) -> "CameraIntrinsics":
         return cls(f_norm=0.5 / math.tan(math.radians(hfov_deg) / 2))
 
     @classmethod
-    def from_dfov(cls, dfov_deg: float, aspect_w: float = 4, aspect_h: float = 3) -> "CameraIntrinsics":
+    def from_dfov(
+        cls, dfov_deg: float, aspect_w: float = 4, aspect_h: float = 3
+    ) -> "CameraIntrinsics":
         # half the sensor diagonal, in units of frame widths
         half_diag = math.hypot(1.0, aspect_h / aspect_w) / 2
         return cls(f_norm=half_diag / math.tan(math.radians(dfov_deg) / 2))
@@ -78,8 +80,9 @@ class CameraIntrinsics:
             return float("inf")
         return self.f_norm * real_radius_m / distance_m
 
-    def max_range_m(self, real_radius_m: float, min_area_ratio: float,
-                    aspect_hw: float = 0.75) -> float:
+    def max_range_m(
+        self, real_radius_m: float, min_area_ratio: float, aspect_hw: float = 0.75
+    ) -> float:
         """Furthest range at which a marker still clears the detector's area gate.
 
         This is the number that silently caps detection: with the default
@@ -91,8 +94,9 @@ class CameraIntrinsics:
         min_radius_norm = math.sqrt(min_area_ratio * aspect_hw / math.pi)
         return self.distance_m(min_radius_norm, real_radius_m)
 
-    def min_area_ratio_for_range(self, real_radius_m: float, max_range_m: float,
-                                 aspect_hw: float = 0.75) -> float:
+    def min_area_ratio_for_range(
+        self, real_radius_m: float, max_range_m: float, aspect_hw: float = 0.75
+    ) -> float:
         """Inverse of :meth:`max_range_m` — pick the area gate from a desired range."""
         r = self.radius_norm_at(max_range_m, real_radius_m)
         return math.pi * r * r / aspect_hw

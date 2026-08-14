@@ -53,6 +53,7 @@ def test_corridor_starts_at_one_end_and_finishes_at_the_other():
 def test_destination_looks_exactly_like_a_victim_to_the_camera():
     """§3.1: it is a red circle. The detector cannot tell them apart, on purpose."""
     from comp1.sim.render import KIND_STYLE
+
     assert KIND_STYLE[DESTINATION] == KIND_STYLE[VICTIM]
 
 
@@ -69,7 +70,7 @@ def test_corridor_markers_are_far_enough_apart_to_be_told_apart():
         w = scenery.build("corridor", seed=seed)
         placed = [(m.x, m.y) for m in w.markers]
         for i, a in enumerate(placed):
-            for b in placed[i + 1:]:
+            for b in placed[i + 1 :]:
                 assert _dist(a, b) >= scenery.MIN_VICTIM_SEP_M - 1e-9
 
 
@@ -81,8 +82,10 @@ def test_corridor_keeps_the_start_pad_clear():
 
 
 def test_same_seed_is_the_same_corridor():
-    assert scenery.build("corridor", seed=9).markers == \
-           scenery.build("corridor", seed=9).markers
+    assert (
+        scenery.build("corridor", seed=9).markers
+        == scenery.build("corridor", seed=9).markers
+    )
 
 
 def test_randomising_moves_the_victims_but_never_the_destination():
@@ -94,6 +97,7 @@ def test_randomising_moves_the_victims_but_never_the_destination():
 
 # --- hand-editing ---------------------------------------------------------
 
+
 def test_with_victims_replaces_only_the_victims():
     w = scenery.build("corridor", seed=5)
     others = [m for m in w.markers if m.kind != VICTIM]
@@ -101,8 +105,11 @@ def test_with_victims_replaces_only_the_victims():
     edited = scenery.with_victims(w, [{"x": x, "y": y}])
     assert edited.victims == [Marker(x, y, VICTIM)]
     assert [m for m in edited.markers if m.kind != VICTIM] == others
-    assert (edited.width_m, edited.depth_m, edited.start_xy) == \
-           (w.width_m, w.depth_m, w.start_xy)
+    assert (edited.width_m, edited.depth_m, edited.start_xy) == (
+        w.width_m,
+        w.depth_m,
+        w.start_xy,
+    )
 
 
 def test_a_victim_may_stand_in_the_middle_of_the_corridor_not_just_on_a_wall():
@@ -114,12 +121,15 @@ def test_a_victim_may_stand_in_the_middle_of_the_corridor_not_just_on_a_wall():
     assert min(x, w.width_m - x) >= scenery.WALL_CLEARANCE_M
 
 
-@pytest.mark.parametrize("point", [
-    (0.1, 5.0),      # flush against the west wall
-    (2.4, 5.0),      # flush against the east wall
-    (1.25, 9.9),     # through the far wall
-    (1.25, 0.6),     # on top of the start pad
-])
+@pytest.mark.parametrize(
+    "point",
+    [
+        (0.1, 5.0),  # flush against the west wall
+        (2.4, 5.0),  # flush against the east wall
+        (1.25, 9.9),  # through the far wall
+        (1.25, 0.6),  # on top of the start pad
+    ],
+)
 def test_illegal_placements_are_dropped_not_clamped(point):
     w = scenery.with_victims(scenery.build("corridor", seed=5), [point])
     assert w.victims == []
@@ -139,6 +149,7 @@ def test_clearing_leaves_a_corridor_with_only_its_destination():
 
 # --- the adapter ----------------------------------------------------------
 
+
 def test_sim_drone_starts_on_the_corridor_pad_not_mid_room():
     d = SimDrone(scenery_name="corridor", seed=4, delay=0)
     assert (d.x, d.y) == d.world.start_xy
@@ -151,7 +162,7 @@ def test_corridor_walls_stop_the_drone_at_the_far_end():
     for _ in range(20):
         d.move("forward", 100)
     assert d.y <= d.world.depth_m
-    assert d.y > d.world.width_m       # it really did fly down the long axis
+    assert d.y > d.world.width_m  # it really did fly down the long axis
 
 
 def test_scene_describes_a_rectangle_and_keeps_size_m_for_square_callers():
@@ -199,5 +210,6 @@ def test_editing_victims_does_not_change_scenery():
 
 def test_mock_and_tello_have_no_arena_to_author():
     from comp1.drone.mock import MockDrone
+
     assert MockDrone().scenery_catalog() is None
     assert MockDrone().load_scenery("corridor") is None

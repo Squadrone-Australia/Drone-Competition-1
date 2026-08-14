@@ -65,3 +65,12 @@ def test_frontend_has_translation_and_execution_debug_views():
     assert "#debug-panes" in css and "scrollbar-gutter: stable" in css
     assert 'msg.type === "debug_program"' in app_js
     assert 'msg.type === "execution"' in app_js
+
+
+def test_auto_calibration_is_reachable_from_the_dialog():
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    js = (FRONTEND / "calibration.js").read_text(encoding="utf-8")
+    assert 'id="vision-auto"' in html
+    assert '"vision_auto"' in js
+    assert "message.roi" in js  # the sampled region is drawn back
+    assert 'src="calibration.js?v=' in html

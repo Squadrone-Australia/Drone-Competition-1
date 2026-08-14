@@ -3,28 +3,29 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from .config import VisionConfig, DEFAULT_CONFIG
+from .config import DEFAULT_CONFIG, VisionConfig
 
 
 @dataclass(frozen=True)
 class Target:
     """One candidate marker, with its geometry resolved into real units."""
-    cx: float                  # centroid, normalised by frame width  (0..1)
-    cy: float                  # centroid, normalised by frame height (0..1)
-    radius_norm: float         # apparent radius / frame width
-    area_ratio: float          # contour area / frame area
+
+    cx: float  # centroid, normalised by frame width  (0..1)
+    cy: float  # centroid, normalised by frame height (0..1)
+    radius_norm: float  # apparent radius / frame width
+    area_ratio: float  # contour area / frame area
     circularity: float
-    bearing_deg: float         # + = to the right of the drone's nose
-    elevation_deg: float       # + = above the camera axis
+    bearing_deg: float  # + = to the right of the drone's nose
+    elevation_deg: float  # + = above the camera axis
     distance_m: float
-    position: str              # "left" | "center" | "right"
+    position: str  # "left" | "center" | "right"
 
 
 @dataclass
 class Detection:
     found: bool = False
-    targets: list = field(default_factory=list)   # all candidates, nearest first
-    target: Target | None = None                  # the locked/primary one
+    targets: list = field(default_factory=list)  # all candidates, nearest first
+    target: Target | None = None  # the locked/primary one
 
     # --- back-compatible scalar view of the primary target ---
     @property
@@ -59,8 +60,11 @@ class Detection:
     def of(cls, target: Target | None, targets: list | None = None) -> "Detection":
         if target is None:
             return cls(found=False, targets=targets or [])
-        return cls(found=True, targets=targets if targets is not None else [target],
-                   target=target)
+        return cls(
+            found=True,
+            targets=targets if targets is not None else [target],
+            target=target,
+        )
 
 
 def color_mask(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> np.ndarray:
@@ -72,8 +76,9 @@ def color_mask(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> np.
     subtly different thresholds.
     """
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, np.array(cfg.lower1), np.array(cfg.upper1)) | \
-           cv2.inRange(hsv, np.array(cfg.lower2), np.array(cfg.upper2))
+    mask = cv2.inRange(hsv, np.array(cfg.lower1), np.array(cfg.upper1)) | cv2.inRange(
+        hsv, np.array(cfg.lower2), np.array(cfg.upper2)
+    )
     return cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
 
 
@@ -87,8 +92,9 @@ def find_targets(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> l
     h, w = frame_bgr.shape[:2]
     aspect_hw = h / w
     cam = cfg.intrinsics
-    contours, _ = cv2.findContours(color_mask(frame_bgr, cfg),
-                                   cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        color_mask(frame_bgr, cfg), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
     out = []
     for c in contours:
         area = cv2.contourArea(c)
@@ -113,21 +119,26 @@ def find_targets(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> l
             pos = "center"
         else:
             pos = "left" if cx < 0.5 else "right"
-        out.append(Target(
-            cx=cx, cy=cy,
-            radius_norm=radius_norm,
-            area_ratio=area / (w * h),
-            circularity=float(circularity),
-            bearing_deg=cam.bearing_deg(cx),
-            elevation_deg=cam.elevation_deg(cy, aspect_hw),
-            distance_m=cam.distance_m(radius_norm, cfg.marker_radius_m),
-            position=pos,
-        ))
+        out.append(
+            Target(
+                cx=cx,
+                cy=cy,
+                radius_norm=radius_norm,
+                area_ratio=area / (w * h),
+                circularity=float(circularity),
+                bearing_deg=cam.bearing_deg(cx),
+                elevation_deg=cam.elevation_deg(cy, aspect_hw),
+                distance_m=cam.distance_m(radius_norm, cfg.marker_radius_m),
+                position=pos,
+            )
+        )
     out.sort(key=lambda t: t.distance_m)
     return out
 
 
-def detect_red_circle(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> Detection:
+def detect_red_circle(
+    frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG
+) -> Detection:
     """Single-frame detection. Primary target is the nearest candidate.
 
     Stateless — for a run, prefer :class:`TargetTracker`, which holds a lock.
@@ -180,12 +191,12 @@ class TargetTracker:
 
     def _pick(self, targets: list) -> Target:
         if self._locked is None:
-            return targets[0]                       # nearest
+            return targets[0]  # nearest
         jump = self._cfg.lock_max_bearing_jump_deg
         near = min(targets, key=lambda t: abs(t.bearing_deg - self._locked.bearing_deg))
         if abs(near.bearing_deg - self._locked.bearing_deg) <= jump:
             return near
-        return targets[0]                           # lock broke — re-acquire nearest
+        return targets[0]  # lock broke — re-acquire nearest
 
     def _miss(self, targets: list) -> Detection:
         self._lost += 1
@@ -204,14 +215,22 @@ def draw_overlay(frame_bgr: np.ndarray, det: Detection) -> np.ndarray:
         label, color = "searching...", (0, 165, 255)
     cv2.putText(out, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     if det.count > 1:
-        cv2.putText(out, f"{det.count} candidates", (10, 58),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
+        cv2.putText(
+            out,
+            f"{det.count} candidates",
+            (10, 58),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 200, 255),
+            2,
+        )
     h, w = out.shape[:2]
     for t in det.targets:
         primary = det.target is not None and t is det.target
         c = (0, 255, 0) if primary else (120, 120, 120)
-        cv2.circle(out, (int(t.cx * w), int(t.cy * h)),
-                   max(int(t.radius_norm * w), 2), c, 2)
+        cv2.circle(
+            out, (int(t.cx * w), int(t.cy * h)), max(int(t.radius_norm * w), 2), c, 2
+        )
         if primary:
             cv2.line(out, (int(t.cx * w), 0), (int(t.cx * w), h), c, 1)
     return out

@@ -72,7 +72,7 @@
     frame.height = frozen.height;
     selection = null;
     redraw();
-    tell("Drag a box tightly inside the coloured marker.");
+    tell("Press “Find marker for me”, or drag a box tightly inside the coloured marker.");
     return true;
   }
 
@@ -160,6 +160,13 @@
   };
   document.getElementById("vision-close").onclick = () => dialog.close();
   document.getElementById("vision-refresh").onclick = captureFrame;
+  document.getElementById("vision-auto").onclick = () => {
+    // recapture first so the canvas shows roughly the frame the server will
+    // sample, and so the returned region lands on the right picture
+    if (!captureFrame()) return;
+    tell("Looking for a red marker…");
+    window.COMP1_SEND({ type: "vision_auto" });
+  };
   document.getElementById("vision-preview-button").onclick = requestPreview;
   document.getElementById("vision-apply").onclick = () => {
     window.COMP1_SEND({ type: "vision_apply", config: controlsToConfig() });
@@ -206,6 +213,11 @@
       if (dialog.open) requestPreview();
     } else if (message.type === "vision_suggestion") {
       configToControls(message.config);
+      if (message.roi && frozen.width) {
+        selection = [message.roi[0] * frame.width, message.roi[1] * frame.height,
+          message.roi[2] * frame.width, message.roi[3] * frame.height];
+        redraw();
+      }
       preview.src = `data:image/jpeg;base64,${message.preview_jpeg}`;
       tell("Suggested ranges are ready. Check the highlighted pixels, then Apply.", "ok");
     } else if (message.type === "vision_preview") {

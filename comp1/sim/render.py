@@ -18,7 +18,7 @@ import numpy as np
 
 from ..vision.camera import SIM_INTRINSICS
 from .scene import Camera, draw_line, fill_quad, shade
-from .world import DESTINATION, VICTIM, DEFAULT_MARKER_HEIGHT_M
+from .world import DEFAULT_MARKER_HEIGHT_M, DESTINATION, VICTIM
 
 # The camera model is shared with the real hardware (comp1/vision/camera.py) so
 # that anything tuned in the simulator transfers to the arena. It used to be a
@@ -50,15 +50,15 @@ SHADOW_BGR = (132, 123, 114)
 _WALL_SHADE = {(1, 0): 1.00, (0, -1): 0.93, (-1, 0): 0.86, (0, 1): 0.79}
 
 KIND_STYLE = {
-    VICTIM:           ("circle",   (0, 0, 220)),
+    VICTIM: ("circle", (0, 0, 220)),
     # Byte-identical to a victim, on purpose: the destination sign is a red
     # circle and the detector cannot tell them apart. Telling them apart is the
     # student's problem, not the renderer's.
-    DESTINATION:      ("circle",   (0, 0, 220)),
-    "red_square":     ("square",   (0, 0, 220)),
-    "blue_circle":    ("circle",   (220, 60, 0)),
+    DESTINATION: ("circle", (0, 0, 220)),
+    "red_square": ("square", (0, 0, 220)),
+    "blue_circle": ("circle", (220, 60, 0)),
     "green_triangle": ("triangle", (60, 180, 0)),
-    "yellow_square":  ("square",   (0, 210, 230)),
+    "yellow_square": ("square", (0, 210, 230)),
 }
 
 
@@ -71,7 +71,7 @@ def render(world, x, y, z, heading, w=640, h=480):
     """
     cam = Camera.at(INTRINSICS, x, y, z, heading, w, h)
     img = np.empty((h, w, 3), np.uint8)
-    img[:] = CEILING_BGR                       # backdrop for any gap at the seams
+    img[:] = CEILING_BGR  # backdrop for any gap at the seams
     _draw_room(img, cam, world.width_m, world.depth_m)
     _draw_markers(img, cam, world, x, y, z, heading, w, h)
     return img
@@ -79,24 +79,31 @@ def render(world, x, y, z, heading, w=640, h=480):
 
 # --- room -----------------------------------------------------------------
 
+
 def _draw_room(img, cam, width, depth):
     """The box: floor, ceiling and four walls of a ``width`` x ``depth`` room."""
     a, b, top = width, depth, WALL_HEIGHT_M
     fill_quad(img, cam, [(0, 0, 0), (a, 0, 0), (a, b, 0), (0, b, 0)], FLOOR_BGR)
     _draw_floor_grid(img, cam, a, b)
-    fill_quad(img, cam, [(0, 0, top), (a, 0, top), (a, b, top), (0, b, top)], CEILING_BGR)
+    fill_quad(
+        img, cam, [(0, 0, top), (a, 0, top), (a, b, top), (0, b, top)], CEILING_BGR
+    )
     _draw_ceiling_panels(img, cam, a, b)
 
     # Walls furthest-first: they never overlap each other from inside the room,
     # but the trim lines are drawn per wall and would otherwise cross a nearer face.
     walls = [
-        ((-1, 0), [(a, 0, 0), (a, b, 0), (a, b, top), (a, 0, top)]),   # east
-        ((1, 0),  [(0, b, 0), (0, 0, 0), (0, 0, top), (0, b, top)]),   # west
-        ((0, -1), [(0, b, 0), (a, b, 0), (a, b, top), (0, b, top)]),   # north
-        ((0, 1),  [(a, 0, 0), (0, 0, 0), (0, 0, top), (a, 0, top)]),   # south
+        ((-1, 0), [(a, 0, 0), (a, b, 0), (a, b, top), (a, 0, top)]),  # east
+        ((1, 0), [(0, b, 0), (0, 0, 0), (0, 0, top), (0, b, top)]),  # west
+        ((0, -1), [(0, b, 0), (a, b, 0), (a, b, top), (0, b, top)]),  # north
+        ((0, 1), [(a, 0, 0), (0, 0, 0), (0, 0, top), (a, 0, top)]),  # south
     ]
-    centre = {(-1, 0): (a, b / 2, top / 2), (1, 0): (0, b / 2, top / 2),
-              (0, -1): (a / 2, b, top / 2), (0, 1): (a / 2, 0, top / 2)}
+    centre = {
+        (-1, 0): (a, b / 2, top / 2),
+        (1, 0): (0, b / 2, top / 2),
+        (0, -1): (a / 2, b, top / 2),
+        (0, 1): (a / 2, 0, top / 2),
+    }
     for normal, corners in sorted(walls, key=lambda wl: -cam.depth_of(centre[wl[0]])):
         _draw_wall(img, cam, corners, _WALL_SHADE[normal])
 
@@ -104,14 +111,22 @@ def _draw_room(img, cam, width, depth):
 def _draw_wall(img, cam, corners, lighting):
     fill_quad(img, cam, corners, shade(WALL_BGR, lighting))
     a, b = np.array(corners[0], float), np.array(corners[1], float)
-    for height, color, thickness in ((0.10, SKIRTING_BGR, 3), (WALL_HEIGHT_M - 0.25,
-                                                               WALL_TRIM_BGR, 2)):
+    for height, color, thickness in (
+        (0.10, SKIRTING_BGR, 3),
+        (WALL_HEIGHT_M - 0.25, WALL_TRIM_BGR, 2),
+    ):
         rise = np.array([0.0, 0.0, height])
         draw_line(img, cam, a + rise, b + rise, shade(color, lighting), thickness)
-    for corner in (corners[0], corners[1]):                  # vertical corner seam
+    for corner in (corners[0], corners[1]):  # vertical corner seam
         base = np.array(corner, float)
-        draw_line(img, cam, base, base + [0, 0, WALL_HEIGHT_M],
-                  shade(WALL_TRIM_BGR, lighting), 1)
+        draw_line(
+            img,
+            cam,
+            base,
+            base + [0, 0, WALL_HEIGHT_M],
+            shade(WALL_TRIM_BGR, lighting),
+            1,
+        )
 
 
 def _draw_floor_grid(img, cam, width, depth):
@@ -125,7 +140,7 @@ def _draw_floor_grid(img, cam, width, depth):
         draw_line(img, cam, (0, t, 0), (width, t, 0), FLOOR_GRID_BGR, 1)
 
 
-PANEL_PITCH_M = 3.0       # how often a strip light repeats down a long room
+PANEL_PITCH_M = 3.0  # how often a strip light repeats down a long room
 
 
 def _draw_ceiling_panels(img, cam, width, depth):
@@ -142,12 +157,21 @@ def _draw_ceiling_panels(img, cam, width, depth):
         for j in range(rows):
             y0 = depth * (j + 0.2) / rows
             y1 = depth * (j + 0.8) / rows
-            fill_quad(img, cam, [(cx - 0.12, y0, top), (cx + 0.12, y0, top),
-                                 (cx + 0.12, y1, top), (cx - 0.12, y1, top)],
-                      CEILING_PANEL_BGR)
+            fill_quad(
+                img,
+                cam,
+                [
+                    (cx - 0.12, y0, top),
+                    (cx + 0.12, y0, top),
+                    (cx + 0.12, y1, top),
+                    (cx - 0.12, y1, top),
+                ],
+                CEILING_PANEL_BGR,
+            )
 
 
 # --- markers --------------------------------------------------------------
+
 
 def _draw_markers(img, cam, world, x, y, z, heading, w, h):
     focal = INTRINSICS.focal_px(w)
@@ -157,12 +181,12 @@ def _draw_markers(img, cam, world, x, y, z, heading, w, h):
     for m in world.markers:
         dx, dy = m.x - x, m.y - y
         d = max(math.hypot(dx, dy), MIN_DIST)
-        ang = math.atan2(dx, dy)                       # cw from +y, matches heading
+        ang = math.atan2(dx, dy)  # cw from +y, matches heading
         rel = (ang - hr + math.pi) % (2 * math.pi) - math.pi
         if abs(rel) > hfov / 2 + 0.35:
             continue
         vis.append((d, rel, m))
-    vis.sort(key=lambda t: -t[0])                      # painter's algorithm
+    vis.sort(key=lambda t: -t[0])  # painter's algorithm
     for d, rel, m in vis:
         _draw_stand(img, cam, m)
         # The marker itself keeps the flat billboard projection it has always
@@ -190,23 +214,38 @@ def _draw_stand(img, cam, m):
     Both are drawn in true 3D, so a marker's contact point with the floor tracks
     the grid — that pairing is what makes the range readable by eye.
     """
-    ring = [(m.x + SHADOW_RADIUS_M * math.cos(a), m.y + SHADOW_RADIUS_M * math.sin(a), 0.0)
-            for a in np.linspace(0, 2 * math.pi, 12, endpoint=False)]
+    ring = [
+        (m.x + SHADOW_RADIUS_M * math.cos(a), m.y + SHADOW_RADIUS_M * math.sin(a), 0.0)
+        for a in np.linspace(0, 2 * math.pi, 12, endpoint=False)
+    ]
     fill_quad(img, cam, ring, SHADOW_BGR)
     # billboard the post so it keeps its width whatever angle it is seen from
     to_cam = np.array([cam.x - m.x, cam.y - m.y])
     norm = np.hypot(*to_cam)
-    side = (np.array([-to_cam[1], to_cam[0]]) / norm if norm > 1e-6
-            else np.array([1.0, 0.0])) * POST_WIDTH_M / 2
-    fill_quad(img, cam, [
-        (m.x - side[0], m.y - side[1], 0.0),
-        (m.x + side[0], m.y + side[1], 0.0),
-        (m.x + side[0], m.y + side[1], m.height_m),
-        (m.x - side[0], m.y - side[1], m.height_m),
-    ], POST_BGR)
+    side = (
+        (
+            np.array([-to_cam[1], to_cam[0]]) / norm
+            if norm > 1e-6
+            else np.array([1.0, 0.0])
+        )
+        * POST_WIDTH_M
+        / 2
+    )
+    fill_quad(
+        img,
+        cam,
+        [
+            (m.x - side[0], m.y - side[1], 0.0),
+            (m.x + side[0], m.y + side[1], 0.0),
+            (m.x + side[0], m.y + side[1], m.height_m),
+            (m.x - side[0], m.y - side[1], m.height_m),
+        ],
+        POST_BGR,
+    )
 
 
 # --- display-only overlay -------------------------------------------------
+
 
 def draw_minimap(img, world, x, y, heading, size=140, pad=10):
     """Debug inset — display only. Never draw this on a frame the detector sees.

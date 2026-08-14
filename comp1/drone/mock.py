@@ -6,7 +6,9 @@ from .base import DroneAdapter
 class MockDrone(DroneAdapter):
     def __init__(self, frame_factory=None):
         self.log = []
-        self._frame_factory = frame_factory or (lambda: np.zeros((480, 640, 3), np.uint8))
+        self._frame_factory = frame_factory or (
+            lambda: np.zeros((480, 640, 3), np.uint8)
+        )
 
     def connect(self):
         self.log.append(("connect",))

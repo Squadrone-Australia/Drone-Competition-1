@@ -122,23 +122,36 @@ import pytest
 from pydantic import ValidationError
 from comp1.protocol import Program
 
+
 def make(blocks):
     return {"version": 1, "blocks": blocks}
 
+
 def test_valid_program_parses():
-    p = Program.model_validate(make([
-        {"id": "a", "op": "takeoff"},
-        {"id": "b", "op": "move", "dir": "forward", "cm": 50},
-        {"id": "c", "op": "repeat_until",
-         "cond": {"sensor": "marker_visible"},
-         "body": [{"id": "d", "op": "rotate", "dir": "cw", "deg": 30}]},
-        {"id": "e", "op": "land"},
-    ]))
+    p = Program.model_validate(
+        make(
+            [
+                {"id": "a", "op": "takeoff"},
+                {"id": "b", "op": "move", "dir": "forward", "cm": 50},
+                {
+                    "id": "c",
+                    "op": "repeat_until",
+                    "cond": {"sensor": "marker_visible"},
+                    "body": [{"id": "d", "op": "rotate", "dir": "cw", "deg": 30}],
+                },
+                {"id": "e", "op": "land"},
+            ]
+        )
+    )
     assert p.blocks[2].body[0].op == "rotate"
+
 
 def test_move_requires_valid_distance():
     with pytest.raises(ValidationError):
-        Program.model_validate(make([{"id": "a", "op": "move", "dir": "forward", "cm": 5}]))
+        Program.model_validate(
+            make([{"id": "a", "op": "move", "dir": "forward", "cm": 5}])
+        )
+
 
 def test_unknown_op_rejected():
     with pytest.raises(ValidationError):
@@ -159,18 +172,35 @@ MOVE_DIRS = {"forward", "back", "left", "right", "up", "down"}
 ROTATE_DIRS = {"cw", "ccw"}
 FLIP_DIRS = {"forward", "back", "left", "right"}
 
+
 class Condition(BaseModel):
-    sensor: Literal["marker_visible", "found_count_gte",
-                    "marker_position_left", "marker_position_center",
-                    "marker_position_right"]
+    sensor: Literal[
+        "marker_visible",
+        "found_count_gte",
+        "marker_position_left",
+        "marker_position_center",
+        "marker_position_right",
+    ]
     value: int = 0
+
 
 class Block(BaseModel):
     id: str
-    op: Literal["takeoff", "land", "move", "rotate", "flip", "approach_marker",
-                "mark_found", "end_mission", "repeat_n", "repeat_until", "if"]
+    op: Literal[
+        "takeoff",
+        "land",
+        "move",
+        "rotate",
+        "flip",
+        "approach_marker",
+        "mark_found",
+        "end_mission",
+        "repeat_n",
+        "repeat_until",
+        "if",
+    ]
     dir: str | None = None
-    cm: int | None = Field(None, ge=20, le=500)   # Tello SDK range
+    cm: int | None = Field(None, ge=20, le=500)  # Tello SDK range
     deg: int | None = Field(None, ge=1, le=360)
     n: int | None = Field(None, ge=1, le=50)
     cond: Condition | None = None
@@ -190,6 +220,7 @@ class Block(BaseModel):
         if self.op in need and not need[self.op]:
             raise ValueError(f"invalid params for op {self.op}")
         return self
+
 
 class Program(BaseModel):
     version: Literal[1]
@@ -217,14 +248,26 @@ class Program(BaseModel):
 import numpy as np
 from comp1.drone.mock import MockDrone
 
+
 def test_mock_logs_commands():
     d = MockDrone()
-    d.connect(); d.takeoff(); d.move("forward", 50); d.rotate("cw", 90); d.land()
-    assert d.log == [("connect",), ("takeoff",), ("move", "forward", 50),
-                     ("rotate", "cw", 90), ("land",)]
+    d.connect()
+    d.takeoff()
+    d.move("forward", 50)
+    d.rotate("cw", 90)
+    d.land()
+    assert d.log == [
+        ("connect",),
+        ("takeoff",),
+        ("move", "forward", 50),
+        ("rotate", "cw", 90),
+        ("land",),
+    ]
+
 
 def test_mock_frame_factory():
-    red = np.zeros((480, 640, 3), np.uint8); red[:] = (0, 0, 255)
+    red = np.zeros((480, 640, 3), np.uint8)
+    red[:] = (0, 0, 255)
     d = MockDrone(frame_factory=lambda: red)
     assert d.get_frame()[0, 0, 2] == 255
 ```
@@ -237,6 +280,7 @@ def test_mock_frame_factory():
 # comp1/drone/base.py
 from abc import ABC, abstractmethod
 import numpy as np
+
 
 class DroneAdapter(ABC):
     @abstractmethod
@@ -264,19 +308,40 @@ class DroneAdapter(ABC):
 import numpy as np
 from .base import DroneAdapter
 
+
 class MockDrone(DroneAdapter):
     def __init__(self, frame_factory=None):
         self.log = []
-        self._frame_factory = frame_factory or (lambda: np.zeros((480, 640, 3), np.uint8))
-    def connect(self): self.log.append(("connect",))
-    def takeoff(self): self.log.append(("takeoff",))
-    def land(self): self.log.append(("land",))
-    def emergency(self): self.log.append(("emergency",))
-    def move(self, direction, cm): self.log.append(("move", direction, cm))
-    def rotate(self, direction, deg): self.log.append(("rotate", direction, deg))
-    def flip(self, direction): self.log.append(("flip", direction))
-    def get_frame(self): return self._frame_factory()
-    def battery(self): return 100
+        self._frame_factory = frame_factory or (
+            lambda: np.zeros((480, 640, 3), np.uint8)
+        )
+
+    def connect(self):
+        self.log.append(("connect",))
+
+    def takeoff(self):
+        self.log.append(("takeoff",))
+
+    def land(self):
+        self.log.append(("land",))
+
+    def emergency(self):
+        self.log.append(("emergency",))
+
+    def move(self, direction, cm):
+        self.log.append(("move", direction, cm))
+
+    def rotate(self, direction, deg):
+        self.log.append(("rotate", direction, deg))
+
+    def flip(self, direction):
+        self.log.append(("flip", direction))
+
+    def get_frame(self):
+        return self._frame_factory()
+
+    def battery(self):
+        return 100
 ```
 
 - [ ] **Step 4: Run — PASS.**
@@ -300,6 +365,7 @@ class MockDrone(DroneAdapter):
 import cv2, numpy as np
 from comp1.vision.detector import detect_red_circle
 
+
 def frame_with(shape="circle", color=(0, 0, 220), cx=320):
     img = np.full((480, 640, 3), 255, np.uint8)
     if shape == "circle":
@@ -308,19 +374,24 @@ def frame_with(shape="circle", color=(0, 0, 220), cx=320):
         cv2.rectangle(img, (cx - 60, 180), (cx + 60, 300), color, -1)
     return img
 
+
 def test_detects_red_circle_centre():
     det = detect_red_circle(frame_with())
     assert det.found and det.position == "center"
+
 
 def test_position_left():
     det = detect_red_circle(frame_with(cx=80))
     assert det.found and det.position == "left"
 
+
 def test_ignores_blue_circle():
     assert not detect_red_circle(frame_with(color=(220, 0, 0))).found
 
+
 def test_ignores_red_square():
     assert not detect_red_circle(frame_with(shape="square")).found
+
 
 def test_empty_frame():
     det = detect_red_circle(np.full((480, 640, 3), 255, np.uint8))
@@ -335,6 +406,7 @@ def test_empty_frame():
 # comp1/vision/config.py
 from dataclasses import dataclass, field
 
+
 @dataclass
 class VisionConfig:
     # two HSV bands because red wraps the hue axis — re-tune on-site (§3.1)
@@ -342,13 +414,14 @@ class VisionConfig:
     upper1: tuple = (10, 255, 255)
     lower2: tuple = (170, 100, 80)
     upper2: tuple = (180, 255, 255)
-    min_area_ratio: float = 0.002      # ignore specks
-    circularity_min: float = 0.72      # 4πA/P²; squares ≈ 0.785 * corner-rounding → tune
-    center_band: float = 0.2           # |cx-0.5| < band/2 → "center"
-    approach_stop_area: float = 0.08   # "close enough" frame proportion (§3.2 option 2)
+    min_area_ratio: float = 0.002  # ignore specks
+    circularity_min: float = 0.72  # 4πA/P²; squares ≈ 0.785 * corner-rounding → tune
+    center_band: float = 0.2  # |cx-0.5| < band/2 → "center"
+    approach_stop_area: float = 0.08  # "close enough" frame proportion (§3.2 option 2)
     approach_step_cm: int = 30
     approach_turn_deg: int = 15
     approach_max_steps: int = 40
+
 
 DEFAULT_CONFIG = VisionConfig()
 ```
@@ -359,6 +432,7 @@ from dataclasses import dataclass
 import cv2, numpy as np
 from .config import VisionConfig, DEFAULT_CONFIG
 
+
 @dataclass
 class Detection:
     found: bool
@@ -366,11 +440,15 @@ class Detection:
     area_ratio: float = 0.0
     position: str = "none"
 
-def detect_red_circle(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> Detection:
+
+def detect_red_circle(
+    frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG
+) -> Detection:
     h, w = frame_bgr.shape[:2]
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, np.array(cfg.lower1), np.array(cfg.upper1)) | \
-           cv2.inRange(hsv, np.array(cfg.lower2), np.array(cfg.upper2))
+    mask = cv2.inRange(hsv, np.array(cfg.lower1), np.array(cfg.upper1)) | cv2.inRange(
+        hsv, np.array(cfg.lower2), np.array(cfg.upper2)
+    )
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     best = None
@@ -397,9 +475,12 @@ def detect_red_circle(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG)
         pos = "left" if cx < 0.5 else "right"
     return Detection(found=True, cx=cx, area_ratio=area_ratio, position=pos)
 
+
 def draw_overlay(frame_bgr: np.ndarray, det: Detection) -> np.ndarray:
     out = frame_bgr.copy()
-    label = f"VICTIM {det.position} ({det.area_ratio:.1%})" if det.found else "searching..."
+    label = (
+        f"VICTIM {det.position} ({det.area_ratio:.1%})" if det.found else "searching..."
+    )
     color = (0, 255, 0) if det.found else (0, 165, 255)
     cv2.putText(out, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     if det.found:
@@ -433,8 +514,10 @@ from comp1.drone.mock import MockDrone
 from comp1.vision.detector import Detection
 from comp1.interpreter import Interpreter
 
+
 def prog(blocks):
     return Program.model_validate({"version": 1, "blocks": blocks})
+
 
 async def run(blocks, det=Detection(found=False)):
     drone, events = MockDrone(), []
@@ -442,24 +525,31 @@ async def run(blocks, det=Detection(found=False)):
     await it.run(prog(blocks))
     return drone, events, it
 
+
 async def test_sequential_ops_and_highlights():
-    drone, events, _ = await run([
-        {"id": "a", "op": "takeoff"},
-        {"id": "b", "op": "move", "dir": "up", "cm": 30},
-        {"id": "c", "op": "land"},
-    ])
+    drone, events, _ = await run(
+        [
+            {"id": "a", "op": "takeoff"},
+            {"id": "b", "op": "move", "dir": "up", "cm": 30},
+            {"id": "c", "op": "land"},
+        ]
+    )
     assert drone.log == [("takeoff",), ("move", "up", 30), ("land",)]
     assert [e["blockId"] for e in events if e["type"] == "highlight"] == ["a", "b", "c"]
     assert events[-1] == {"type": "finished", "reason": "done", "detail": ""}
+
 
 async def test_stop_flag_halts_and_lands():
     drone, events = MockDrone(), []
     it = Interpreter(drone, lambda: Detection(found=False), events.append)
     it.request_stop()
-    await it.run(prog([{"id": "a", "op": "takeoff"}, {"id": "b", "op": "flip", "dir": "left"}]))
+    await it.run(
+        prog([{"id": "a", "op": "takeoff"}, {"id": "b", "op": "flip", "dir": "left"}])
+    )
     assert ("flip", "left") not in drone.log
     assert ("land",) in drone.log
     assert events[-1]["reason"] == "stopped"
+
 
 async def test_mark_found_signals_flip_and_counts():
     drone, events, it = await run([{"id": "a", "op": "mark_found"}])
@@ -479,13 +569,22 @@ from .protocol import Program, Block
 from .drone.base import DroneAdapter
 from .vision.detector import Detection
 
-class _Stopped(Exception): pass
-class _MissionEnd(Exception): pass
+
+class _Stopped(Exception):
+    pass
+
+
+class _MissionEnd(Exception):
+    pass
+
 
 class Interpreter:
-    def __init__(self, drone: DroneAdapter,
-                 get_detection: Callable[[], Detection],
-                 on_event: Callable[[dict], None]):
+    def __init__(
+        self,
+        drone: DroneAdapter,
+        get_detection: Callable[[], Detection],
+        on_event: Callable[[dict], None],
+    ):
         self._drone = drone
         self._detect = get_detection
         self._emit = on_event
@@ -504,7 +603,7 @@ class Interpreter:
             reason = "stopped"
         except _MissionEnd:
             pass
-        except Exception as exc:                      # drone error → land, report
+        except Exception as exc:  # drone error → land, report
             reason, detail = "error", str(exc)
         if reason != "done":
             try:
@@ -525,19 +624,26 @@ class Interpreter:
             return self._detect().found
         if c.sensor.startswith("marker_position_"):
             det = self._detect()
-            return det.found and det.position == c.sensor.removeprefix("marker_position_")
-        return self.found_count >= c.value            # found_count_gte
+            return det.found and det.position == c.sensor.removeprefix(
+                "marker_position_"
+            )
+        return self.found_count >= c.value  # found_count_gte
 
     async def _exec(self, b: Block):
         d = self._drone
         match b.op:
-            case "takeoff":  await asyncio.to_thread(d.takeoff)
-            case "land":     await asyncio.to_thread(d.land)
-            case "move":     await asyncio.to_thread(d.move, b.dir, b.cm)
-            case "rotate":   await asyncio.to_thread(d.rotate, b.dir, b.deg)
-            case "flip":     await asyncio.to_thread(d.flip, b.dir)
+            case "takeoff":
+                await asyncio.to_thread(d.takeoff)
+            case "land":
+                await asyncio.to_thread(d.land)
+            case "move":
+                await asyncio.to_thread(d.move, b.dir, b.cm)
+            case "rotate":
+                await asyncio.to_thread(d.rotate, b.dir, b.deg)
+            case "flip":
+                await asyncio.to_thread(d.flip, b.dir)
             case "mark_found":
-                await asyncio.to_thread(d.flip, "back")   # victory signal (§2.1)
+                await asyncio.to_thread(d.flip, "back")  # victory signal (§2.1)
                 self.found_count += 1
                 self._emit({"type": "found_count", "count": self.found_count})
             case "end_mission":
@@ -547,9 +653,11 @@ class Interpreter:
                 for _ in range(b.n):
                     await self._run_blocks(b.body)
             case "repeat_until":
-                for _ in range(1000):                     # hard safety bound
-                    if self._stop.is_set(): raise _Stopped()
-                    if self._cond(b.cond): break
+                for _ in range(1000):  # hard safety bound
+                    if self._stop.is_set():
+                        raise _Stopped()
+                    if self._cond(b.cond):
+                        break
                     await self._run_blocks(b.body)
             case "if":
                 await self._run_blocks(b.body if self._cond(b.cond) else b.else_body)
@@ -586,37 +694,56 @@ from comp1.drone.mock import MockDrone
 from comp1.vision.detector import Detection
 from comp1.interpreter import Interpreter
 
+
 def prog():
     return Program.model_validate(
-        {"version": 1, "blocks": [{"id": "a", "op": "approach_marker"}]})
+        {"version": 1, "blocks": [{"id": "a", "op": "approach_marker"}]}
+    )
+
 
 async def run_seq(seq):
     it_seq = iter(seq)
     last = seq[-1]
+
     def det():
         nonlocal last
-        try: last = next(it_seq)
-        except StopIteration: pass
+        try:
+            last = next(it_seq)
+        except StopIteration:
+            pass
         return last
+
     drone, events = MockDrone(), []
     interp = Interpreter(drone, det, events.append)
     await interp.run(prog())
     return drone
 
+
 async def test_turns_toward_left_marker_then_advances_and_stops():
-    drone = await run_seq([
-        Detection(True, cx=0.2, area_ratio=0.01, position="left"),
-        Detection(True, cx=0.5, area_ratio=0.02, position="center"),
-        Detection(True, cx=0.5, area_ratio=0.09, position="center"),  # >= stop area
-    ])
+    drone = await run_seq(
+        [
+            Detection(True, cx=0.2, area_ratio=0.01, position="left"),
+            Detection(True, cx=0.5, area_ratio=0.02, position="center"),
+            Detection(True, cx=0.5, area_ratio=0.09, position="center"),  # >= stop area
+        ]
+    )
     assert ("rotate", "ccw", 15) in drone.log
     assert ("move", "forward", 30) in drone.log
     idx = drone.log.index(("move", "forward", 30))
-    assert all(x[0] != "move" for x in drone.log[idx + 1:])  # stopped after close enough
+    assert all(
+        x[0] != "move" for x in drone.log[idx + 1 :]
+    )  # stopped after close enough
+
 
 async def test_gives_up_when_marker_lost():
-    drone = await run_seq([Detection(True, 0.5, 0.02, "center"),
-                           Detection(False), Detection(False), Detection(False)])
+    drone = await run_seq(
+        [
+            Detection(True, 0.5, 0.02, "center"),
+            Detection(False),
+            Detection(False),
+            Detection(False),
+        ]
+    )
     assert len(drone.log) <= 2  # one step at most, then abort — no runaway
 ```
 
@@ -625,29 +752,29 @@ async def test_gives_up_when_marker_lost():
 - [ ] **Step 3: Implement `_approach`**
 
 ```python
-    async def _approach(self):
-        cfg = self._cfg
+async def _approach(self):
+    cfg = self._cfg
+    lost = 0
+    for _ in range(cfg.approach_max_steps):
+        if self._stop.is_set():
+            raise _Stopped()
+        det = self._detect()
+        if not det.found:
+            lost += 1
+            if lost >= 3:
+                return
+            await asyncio.sleep(0.3)
+            continue
         lost = 0
-        for _ in range(cfg.approach_max_steps):
-            if self._stop.is_set():
-                raise _Stopped()
-            det = self._detect()
-            if not det.found:
-                lost += 1
-                if lost >= 3:
-                    return
-                await asyncio.sleep(0.3)
-                continue
-            lost = 0
-            if det.area_ratio >= cfg.approach_stop_area:
-                return                                    # close enough (§3.2)
-            if det.position == "left":
-                await asyncio.to_thread(self._drone.rotate, "ccw", cfg.approach_turn_deg)
-            elif det.position == "right":
-                await asyncio.to_thread(self._drone.rotate, "cw", cfg.approach_turn_deg)
-            else:
-                await asyncio.to_thread(self._drone.move, "forward", cfg.approach_step_cm)
-            await asyncio.sleep(0.2)                      # let video catch up
+        if det.area_ratio >= cfg.approach_stop_area:
+            return  # close enough (§3.2)
+        if det.position == "left":
+            await asyncio.to_thread(self._drone.rotate, "ccw", cfg.approach_turn_deg)
+        elif det.position == "right":
+            await asyncio.to_thread(self._drone.rotate, "cw", cfg.approach_turn_deg)
+        else:
+            await asyncio.to_thread(self._drone.move, "forward", cfg.approach_step_cm)
+        await asyncio.sleep(0.2)  # let video catch up
 ```
 
 Also: add `cfg: VisionConfig = DEFAULT_CONFIG` param to `__init__` storing `self._cfg`, importing `VisionConfig, DEFAULT_CONFIG` from `.vision.config`.
@@ -677,10 +804,12 @@ from fastapi.testclient import TestClient
 from comp1.drone.mock import MockDrone
 from comp1.server import create_app
 
+
 def red_frame():
     img = np.full((480, 640, 3), 255, np.uint8)
     cv2.circle(img, (320, 240), 60, (0, 0, 220), -1)
     return img
+
 
 def collect_until(ws, want_type, limit=50):
     for _ in range(limit):
@@ -694,29 +823,44 @@ def collect_until(ws, want_type, limit=50):
             return data
     raise AssertionError(f"no {want_type} message")
 
+
 def test_run_program_executes_and_reports():
     drone = MockDrone()
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "takeoff"}, {"id": "b", "op": "land"}]}})
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {
+                    "version": 1,
+                    "blocks": [{"id": "a", "op": "takeoff"}, {"id": "b", "op": "land"}],
+                },
+            }
+        )
         fin = collect_until(ws, "finished")
         assert fin["reason"] == "done"
     assert ("takeoff",) in drone.log and ("land",) in drone.log
+
 
 def test_video_frames_are_jpeg():
     app = create_app(MockDrone(frame_factory=red_frame))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         frame = collect_until(ws, "frame")
-        assert frame[:2] == b"\xff\xd8"          # JPEG magic
+        assert frame[:2] == b"\xff\xd8"  # JPEG magic
+
 
 def test_invalid_program_rejected():
     app = create_app(MockDrone())
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "run", "program": {"version": 1, "blocks": [
-            {"id": "a", "op": "goto_xy"}]}})
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {"version": 1, "blocks": [{"id": "a", "op": "goto_xy"}]},
+            }
+        )
         err = collect_until(ws, "error")
         assert "invalid" in err["message"].lower()
+
 
 def test_estop_calls_emergency():
     drone = MockDrone()
@@ -749,6 +893,7 @@ from .vision.detector import Detection, detect_red_circle, draw_overlay
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 FRAME_INTERVAL = 0.1  # ~10 fps
 
+
 def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -768,22 +913,29 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG) -> FastA
             if frame is not None:
                 det = detect_red_circle(frame, cfg)
                 app.state.latest_detection = det
-                small = cv2.resize(frame, (640, 480)) if frame.shape[1] != 640 else frame
-                ok, jpeg = cv2.imencode(".jpg", draw_overlay(small, det),
-                                        [cv2.IMWRITE_JPEG_QUALITY, 70])
+                small = (
+                    cv2.resize(frame, (640, 480)) if frame.shape[1] != 640 else frame
+                )
+                ok, jpeg = cv2.imencode(
+                    ".jpg", draw_overlay(small, det), [cv2.IMWRITE_JPEG_QUALITY, 70]
+                )
                 if ok:
                     await _broadcast_bytes(app, jpeg.tobytes())
             await asyncio.sleep(FRAME_INTERVAL)
 
     async def _broadcast_bytes(app, data: bytes):
         for ws in list(app.state.clients):
-            try: await ws.send_bytes(data)
-            except Exception: app.state.clients.discard(ws)
+            try:
+                await ws.send_bytes(data)
+            except Exception:
+                app.state.clients.discard(ws)
 
     async def _broadcast_json(app, data: dict):
         for ws in list(app.state.clients):
-            try: await ws.send_text(json.dumps(data))
-            except Exception: app.state.clients.discard(ws)
+            try:
+                await ws.send_text(json.dumps(data))
+            except Exception:
+                app.state.clients.discard(ws)
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):
@@ -796,24 +948,35 @@ def create_app(drone: DroneAdapter, cfg: VisionConfig = DEFAULT_CONFIG) -> FastA
                 msg = json.loads(await ws.receive_text())
                 if msg["type"] == "run":
                     if app.state.interp is not None:
-                        await _broadcast_json(app, {"type": "error", "message": "already running"})
+                        await _broadcast_json(
+                            app, {"type": "error", "message": "already running"}
+                        )
                         continue
                     try:
                         program = Program.model_validate(msg["program"])
                     except ValidationError as e:
-                        await _broadcast_json(app, {"type": "error",
-                                                    "message": f"invalid program: {e}"})
+                        await _broadcast_json(
+                            app, {"type": "error", "message": f"invalid program: {e}"}
+                        )
                         continue
-                    interp = Interpreter(drone, lambda: app.state.latest_detection, emit, cfg=cfg)
+                    interp = Interpreter(
+                        drone, lambda: app.state.latest_detection, emit, cfg=cfg
+                    )
                     app.state.interp = interp
+
                     async def _run():
-                        try: await interp.run(program)
-                        finally: app.state.interp = None
+                        try:
+                            await interp.run(program)
+                        finally:
+                            app.state.interp = None
+
                     asyncio.create_task(_run())
                 elif msg["type"] == "stop":
-                    if app.state.interp: app.state.interp.request_stop()
+                    if app.state.interp:
+                        app.state.interp.request_stop()
                 elif msg["type"] == "estop":
-                    if app.state.interp: app.state.interp.request_stop()
+                    if app.state.interp:
+                        app.state.interp.request_stop()
                     await asyncio.to_thread(drone.emergency)
                     await _broadcast_json(app, {"type": "estopped"})
         except WebSocketDisconnect:
@@ -1115,18 +1278,37 @@ Open http://localhost:8765 — verify: blocks drag from toolbox; a `take off →
 # append to tests/test_mock_drone.py
 def test_tello_adapter_maps_commands(monkeypatch):
     import comp1.drone.tello as t
+
     calls = []
+
     class FakeTello:
-        def connect(self): calls.append("connect")
-        def streamon(self): calls.append("streamon")
-        def takeoff(self): calls.append("takeoff")
-        def move_forward(self, cm): calls.append(f"move_forward {cm}")
-        def rotate_clockwise(self, deg): calls.append(f"cw {deg}")
-        def get_battery(self): return 87
-        def get_frame_read(self): raise RuntimeError("not in test")
+        def connect(self):
+            calls.append("connect")
+
+        def streamon(self):
+            calls.append("streamon")
+
+        def takeoff(self):
+            calls.append("takeoff")
+
+        def move_forward(self, cm):
+            calls.append(f"move_forward {cm}")
+
+        def rotate_clockwise(self, deg):
+            calls.append(f"cw {deg}")
+
+        def get_battery(self):
+            return 87
+
+        def get_frame_read(self):
+            raise RuntimeError("not in test")
+
     monkeypatch.setattr(t, "Tello", FakeTello)
     d = t.TelloDrone()
-    d.connect(); d.takeoff(); d.move("forward", 40); d.rotate("cw", 90)
+    d.connect()
+    d.takeoff()
+    d.move("forward", 40)
+    d.rotate("cw", 90)
     assert calls == ["connect", "streamon", "takeoff", "move_forward 40", "cw 90"]
     assert d.battery() == 87
 ```
@@ -1141,6 +1323,7 @@ import numpy as np
 from djitellopy import Tello
 from .base import DroneAdapter
 
+
 class TelloDrone(DroneAdapter):
     def __init__(self):
         self._t = Tello()
@@ -1150,21 +1333,36 @@ class TelloDrone(DroneAdapter):
         self._t.connect()
         self._t.streamon()
 
-    def takeoff(self): self._t.takeoff()
-    def land(self): self._t.land()
-    def emergency(self): self._t.emergency()
+    def takeoff(self):
+        self._t.takeoff()
+
+    def land(self):
+        self._t.land()
+
+    def emergency(self):
+        self._t.emergency()
 
     def move(self, direction, cm):
-        {"forward": self._t.move_forward, "back": self._t.move_back,
-         "left": self._t.move_left, "right": self._t.move_right,
-         "up": self._t.move_up, "down": self._t.move_down}[direction](cm)
+        {
+            "forward": self._t.move_forward,
+            "back": self._t.move_back,
+            "left": self._t.move_left,
+            "right": self._t.move_right,
+            "up": self._t.move_up,
+            "down": self._t.move_down,
+        }[direction](cm)
 
     def rotate(self, direction, deg):
-        (self._t.rotate_clockwise if direction == "cw"
-         else self._t.rotate_counter_clockwise)(deg)
+        (
+            self._t.rotate_clockwise
+            if direction == "cw"
+            else self._t.rotate_counter_clockwise
+        )(deg)
 
     def flip(self, direction):
-        self._t.flip({"forward": "f", "back": "b", "left": "l", "right": "r"}[direction])
+        self._t.flip(
+            {"forward": "f", "back": "b", "left": "l", "right": "r"}[direction]
+        )
 
     def get_frame(self) -> np.ndarray | None:
         if self._reader is None:
@@ -1182,6 +1380,7 @@ import argparse, threading, webbrowser
 import uvicorn
 from .server import create_app
 
+
 def main():
     ap = argparse.ArgumentParser("comp1")
     ap.add_argument("--drone", choices=["mock", "tello"], default="mock")
@@ -1190,13 +1389,18 @@ def main():
     args = ap.parse_args()
     if args.drone == "tello":
         from .drone.tello import TelloDrone
+
         drone = TelloDrone()
     else:
         from .drone.mock import MockDrone
+
         drone = MockDrone()
     if not args.no_browser:
-        threading.Timer(1.0, lambda: webbrowser.open(f"http://localhost:{args.port}")).start()
+        threading.Timer(
+            1.0, lambda: webbrowser.open(f"http://localhost:{args.port}")
+        ).start()
     uvicorn.run(create_app(drone), host="127.0.0.1", port=args.port)
+
 
 if __name__ == "__main__":
     main()
@@ -1230,6 +1434,7 @@ from pathlib import Path
 
 FRONTEND = Path(__file__).parent.parent / "comp1" / "frontend"
 
+
 def test_no_external_urls_in_frontend():
     pattern = re.compile(rb"https?://(?!localhost)")
     offenders = []
@@ -1238,6 +1443,7 @@ def test_no_external_urls_in_frontend():
             if pattern.search(f.read_bytes()):
                 offenders.append(str(f))
     assert not offenders, f"external URLs found (breaks offline use): {offenders}"
+
 
 def test_blockly_is_vendored():
     assert (FRONTEND / "vendor" / "blockly.min.js").stat().st_size > 500_000
@@ -1258,6 +1464,7 @@ def test_blockly_is_vendored():
 ```python
 # comp1/launcher.py
 from comp1.__main__ import main
+
 if __name__ == "__main__":
     main()
 ```
@@ -1269,9 +1476,13 @@ if __name__ == "__main__":
 a = Analysis(
     ["comp1/launcher.py"],
     datas=[("comp1/frontend", "comp1/frontend")],
-    hiddenimports=["uvicorn.logging", "uvicorn.loops.auto",
-                   "uvicorn.protocols.http.auto", "uvicorn.protocols.websockets.auto",
-                   "uvicorn.lifespan.on"],
+    hiddenimports=[
+        "uvicorn.logging",
+        "uvicorn.loops.auto",
+        "uvicorn.protocols.http.auto",
+        "uvicorn.protocols.websockets.auto",
+        "uvicorn.lifespan.on",
+    ],
 )
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, name="comp1", console=True)
@@ -1288,9 +1499,16 @@ Expected: server starts, http://localhost:8765 serves the full UI with the mock 
 
 ```python
 import sys
-FRONTEND_DIR = (Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent))
-                / "comp1" / "frontend") if getattr(sys, "frozen", False) \
-               else Path(__file__).parent / "frontend"
+
+FRONTEND_DIR = (
+    (
+        Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent))
+        / "comp1"
+        / "frontend"
+    )
+    if getattr(sys, "frozen", False)
+    else Path(__file__).parent / "frontend"
+)
 ```
 
 - [ ] **Step 4: Commit** — `git commit -m "build: PyInstaller onedir packaging"`

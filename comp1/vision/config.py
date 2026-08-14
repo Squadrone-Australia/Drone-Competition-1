@@ -2,7 +2,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .camera import CameraIntrinsics, TELLO_INTRINSICS
+from .camera import TELLO_INTRINSICS, CameraIntrinsics
 
 _TUPLE_FIELDS = {"lower1", "upper1", "lower2", "upper2"}
 
@@ -14,13 +14,15 @@ class VisionConfig:
     upper1: tuple = (10, 255, 255)
     lower2: tuple = (170, 100, 80)
     upper2: tuple = (180, 255, 255)
-    min_area_ratio: float = 0.002      # ignore specks — also caps detection range, see below
-    circularity_min: float = 0.82      # 4πA/P²: square ≈ 0.785, circle ≈ 0.95
-    center_band: float = 0.2           # |cx-0.5| < band/2 → "center"
+    min_area_ratio: float = (
+        0.002  # ignore specks — also caps detection range, see below
+    )
+    circularity_min: float = 0.82  # 4πA/P²: square ≈ 0.785, circle ≈ 0.95
+    center_band: float = 0.2  # |cx-0.5| < band/2 → "center"
 
     # --- physical geometry: what turns pixels into metres ---
     intrinsics: CameraIntrinsics = field(default=TELLO_INTRINSICS)
-    marker_diameter_m: float = 0.25    # printed victim marker, A4-ish
+    marker_diameter_m: float = 0.25  # printed victim marker, A4-ish
 
     # --- approach control, in real units (requirements §3.2) ---
     approach_stop_distance_m: float = 0.5
@@ -68,8 +70,11 @@ class VisionConfig:
         """
         with open(path, "rb") as f:
             data = tomllib.load(f)
-        kwargs = {k: (tuple(v) if k in _TUPLE_FIELDS else v)
-                  for k, v in data.items() if k != "camera_dfov_deg"}
+        kwargs = {
+            k: (tuple(v) if k in _TUPLE_FIELDS else v)
+            for k, v in data.items()
+            if k != "camera_dfov_deg"
+        }
         if "camera_dfov_deg" in data:
             kwargs["intrinsics"] = CameraIntrinsics.from_dfov(data["camera_dfov_deg"])
         return cls(**kwargs)

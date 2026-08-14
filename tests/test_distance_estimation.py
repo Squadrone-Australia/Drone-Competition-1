@@ -1,7 +1,7 @@
 import pytest
 
 from comp1.sim.render import render
-from comp1.sim.world import Marker, World, VICTIM
+from comp1.sim.world import VICTIM, Marker, World
 from comp1.vision.config import DEFAULT_CONFIG, VisionConfig
 from comp1.vision.detector import detect_red_circle
 
@@ -33,7 +33,7 @@ def test_elevation_is_near_zero_at_marker_height():
 
 def test_marker_above_the_camera_reads_positive_elevation():
     world = World(size_m=8.0, markers=[Marker(2.0, VICTIM_Y, VICTIM)])
-    low = detect_red_circle(render(world, 2.0, 2.0, 0.4, 0.0))   # flying below it
+    low = detect_red_circle(render(world, 2.0, 2.0, 0.4, 0.0))  # flying below it
     assert low.found and low.elevation_deg > 0
 
 
@@ -45,7 +45,7 @@ def test_range_estimate_is_unaffected_by_bearing():
     off = detect_red_circle(render(world, 1.2, 2.0, 1.0, 0.0))
     assert ahead.found and off.found
     assert off.distance_m == pytest.approx(off.target.distance_m)
-    assert off.distance_m > ahead.distance_m       # genuinely further away now
+    assert off.distance_m > ahead.distance_m  # genuinely further away now
 
 
 def test_detection_dies_past_the_area_gate_range():

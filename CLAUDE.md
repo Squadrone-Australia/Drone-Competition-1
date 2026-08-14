@@ -13,8 +13,9 @@ venv\Scripts\python -m comp1 --drone sim        # run against the simulator
 venv\Scripts\python -m comp1 --drone tello      # real Tello (join TELLO-xxxx WiFi first)
 venv\Scripts\python -m comp1 --script examples\02_search_and_mark.py --drone sim   # Python pathway
 venv\Scripts\python -m comp1 --vision-config vision_config.toml    # on-site re-tune, see below
+venv\Scripts\python -m comp1 --flight-config flight_config.toml    # on-site re-tune, see below
 venv\Scripts\pyinstaller comp1.spec --noconfirm # -> dist\comp1\comp1.exe
-node --test tests\js\blocks.test.js             # frontend serializer tests
+node --test tests/js/*.test.js                  # frontend tests
 ```
 
 `--drone sim` flags: `--seed N` (repeatable arena), `--noise 0.05` (movement drift),
@@ -110,6 +111,30 @@ live.
 `api.EmergencyStop` derives from `BaseException` deliberately: a student wrapping their flight loop
 in `try/except Exception` must not be able to swallow the stop and leave the drone flying.
 
+### Hardware quirks are config, not constants
+
+`FlightConfig` ([comp1/drone/config.py](comp1/drone/config.py)) is the flight-side twin of
+`VisionConfig` and follows the same three rules: code defaults in the dataclass, `load_file` overlays
+a TOML, importing the module never reads a file. Separate file and separate flag
+(`--flight-config` / [flight_config.example.toml](flight_config.example.toml)) because vision tuning
+and flight tuning are separate jobs — one is done with a camera pointed at a marker, the other with a
+tape measure on the arena floor.
+
+**A real Tello translates through a flip and stays displaced.** `TelloDrone.flip` follows the flip
+with a `flip_recover_cm` move the opposite way, so a "signal victim found" back-flip doesn't leave
+the drone short of the victim it just found and every following move starting from the wrong place.
+It lives in the adapter, so it covers both blocks and both pathways with no change to
+`interpreter.py` or `api.py`. Below the Tello's 20 cm translation floor the move is skipped, not
+attempted. `SimDrone.flip` animates the same lurch and recovery so the two views agree, but nets to
+zero — the flip is the *signal* (§2.1), never a way to travel, and the end pose must equal the start
+pose.
+
+**A flip drives the axis the real manoeuvre uses**: pitch for back/forward, roll for left/right. The
+signs in `_FLIP_SPIN` are fixed by how [comp1/frontend/scene3d.js](comp1/frontend/scene3d.js) orients
+the model (nose at local -Z, right arm at +X, pitch as `rotation.x`, roll as `rotation.z`), so +pitch
+is a back-flip and +roll is a left-flip. Every attitude angle is chased with `chaseAngle`, not a
+plain lerp: an angle that wraps 0 → 359 → 0 otherwise tumbles the wrong way or stalls at 180.
+
 ### Vision pipeline
 
 `VisionConfig` ([comp1/vision/config.py](comp1/vision/config.py)) holds everything tunable — HSV
@@ -120,6 +145,17 @@ override), so a re-tune on-site (requirements §3.1) means editing a copy of
 code. `DEFAULT_CONFIG` (still the hardcoded dataclass) stays the default everywhere else — tests,
 the Python pathway, and any call site that doesn't thread a `cfg` through — so importing
 `comp1.vision.config` never has a side effect of reading a file.
+
+`comp1/vision/calibration.py` is the on-site re-tuning path (§3.1) and is **operator-triggered
+only** — nothing in `interpreter.py` or `api.py` may call it. `auto_suggest_hsv` locates the marker
+itself by running `find_targets` against a loose prior, then fits bands with the same `suggest_hsv`
+a manual drag uses. **The prior widens the colour bands only.** `_PRIOR_BANDS` is overlaid on the
+*operator's active config* per call, so `min_area_ratio` and `circularity_min` still come from
+whatever `--vision-config` is in force — a locator looser than the detector it calibrates would fit
+bands to a blob the detector then rejects. It never becomes the detector's config.
+`check_coverage` rejects any *proposal* whose mask covers more than
+`MAX_MASK_COVERAGE` of the frame — without it a widened band passes its own preview and then flags
+a wall, silently invalidating `test_scenery_alone_is_never_a_victim`.
 
 [comp1/vision/camera.py](comp1/vision/camera.py) is the **single source of truth for geometry**.
 Everything is normalised by frame width (`f_norm = focal_px / width`) so one constant describes both

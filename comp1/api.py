@@ -33,15 +33,15 @@ import runpy
 import threading
 import time
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 from .drone.base import DroneAdapter
-from .vision.config import VisionConfig, DEFAULT_CONFIG
+from .vision.config import DEFAULT_CONFIG, VisionConfig
 from .vision.detector import Detection, Target, TargetTracker
 
-MIN_MOVE_CM, MAX_MOVE_CM = 20, 500      # Tello firmware limits, not preferences
+MIN_MOVE_CM, MAX_MOVE_CM = 20, 500  # Tello firmware limits, not preferences
 MIN_TURN_DEG, MAX_TURN_DEG = 1, 360
 
 
@@ -65,13 +65,14 @@ class Session:
     Under ``--script`` the server builds this; standalone, ``Drone`` builds its
     own. Either way ``stop`` is the single flag every API call consults.
     """
+
     drone: DroneAdapter
     get_detection: Callable[[], Detection]
     select_nearest_target: Callable[[], None] = lambda: None
     emit: Callable[[dict], None] = lambda ev: None
     stop: threading.Event = field(default_factory=threading.Event)
     cfg: VisionConfig = field(default_factory=lambda: DEFAULT_CONFIG)
-    settle_s: float = 0.0          # pause after a command so the video can catch up
+    settle_s: float = 0.0  # pause after a command so the video can catch up
     found_count: int = 0
 
 
@@ -106,39 +107,53 @@ def current_session() -> Session | None:
 @dataclass(frozen=True)
 class TargetView:
     """A victim marker in the units a student thinks in — no pixels."""
+
     distance_m: float
     distance_cm: float
-    bearing_deg: float         # + = to the right of the drone's nose
-    elevation_deg: float       # + = above the camera
-    position: str              # "left" | "center" | "right"
+    bearing_deg: float  # + = to the right of the drone's nose
+    elevation_deg: float  # + = above the camera
+    position: str  # "left" | "center" | "right"
 
     def __str__(self):
-        return (f"victim {self.distance_cm:.0f} cm away, "
-                f"{self.bearing_deg:+.0f} deg ({self.position})")
+        return (
+            f"victim {self.distance_cm:.0f} cm away, "
+            f"{self.bearing_deg:+.0f} deg ({self.position})"
+        )
 
 
 def _view(t: Target | None) -> TargetView | None:
     if t is None:
         return None
-    return TargetView(distance_m=t.distance_m, distance_cm=t.distance_m * 100,
-                      bearing_deg=t.bearing_deg, elevation_deg=t.elevation_deg,
-                      position=t.position)
+    return TargetView(
+        distance_m=t.distance_m,
+        distance_cm=t.distance_m * 100,
+        bearing_deg=t.bearing_deg,
+        elevation_deg=t.elevation_deg,
+        position=t.position,
+    )
 
 
-def _standalone_session(adapter=None, *, sim=False, seed=None,
-                        cfg: VisionConfig = DEFAULT_CONFIG) -> Session:
+def _standalone_session(
+    adapter=None, *, sim=False, seed=None, cfg: VisionConfig = DEFAULT_CONFIG
+) -> Session:
     if adapter is None:
         if sim:
             from .sim.drone import SimDrone
+
             adapter = SimDrone(seed=seed)
         else:
             from .drone.mock import MockDrone
+
             adapter = MockDrone()
     adapter.connect()
     # no server video loop here, so detect on demand — hence settle_s stays 0
     tracker = TargetTracker(cfg)
-    return Session(drone=adapter, cfg=cfg, select_nearest_target=tracker.reset,
-                   get_detection=lambda: tracker.update(adapter.get_frame()))
+    return Session(
+        drone=adapter,
+        cfg=cfg,
+        select_nearest_target=tracker.reset,
+        get_detection=lambda: tracker.update(adapter.get_frame()),
+    )
 
 
 class Drone:
@@ -153,13 +168,19 @@ class Drone:
     STOP interrupts your program even from inside a ``while True:`` loop.
     """
 
-    def __init__(self, adapter: DroneAdapter | None = None, *,
-                 sim: bool = False, seed: int | None = None,
-                 cfg: VisionConfig | None = None):
+    def __init__(
+        self,
+        adapter: DroneAdapter | None = None,
+        *,
+        sim: bool = False,
+        seed: int | None = None,
+        cfg: VisionConfig | None = None,
+    ):
         session = current_session()
         if session is None:
-            session = _standalone_session(adapter, sim=sim, seed=seed,
-                                          cfg=cfg or DEFAULT_CONFIG)
+            session = _standalone_session(
+                adapter, sim=sim, seed=seed, cfg=cfg or DEFAULT_CONFIG
+            )
         # captured, never re-read: a stopped script's Drone must stay pinned to
         # its own (stopped) session even after a later run binds a new one
         self._s = session
@@ -174,10 +195,10 @@ class Drone:
     def _act(self, fn, *args):
         self._check()
         fn(*args)
-        self._check()          # a command that finished after STOP ends the script here
+        self._check()  # a command that finished after STOP ends the script here
 
     def _warn(self, message: str):
-        print(f"! {message}")                        # the terminal they launched from
+        print(f"! {message}")  # the terminal they launched from
         self._s.emit({"type": "warning", "message": message})
 
     def _cm(self, name: str, cm) -> int:
@@ -186,14 +207,18 @@ class Drone:
         if fixed != cm:
             # nudge, don't crash — a student's arithmetic producing 5 should not
             # end the mission (see plan §6, runtime clamping)
-            self._warn(f"{name}({cm}) is outside {MIN_MOVE_CM}-{MAX_MOVE_CM} cm; using {fixed}")
+            self._warn(
+                f"{name}({cm}) is outside {MIN_MOVE_CM}-{MAX_MOVE_CM} cm; using {fixed}"
+            )
         return fixed
 
     def _deg(self, name: str, deg) -> int:
         deg = round(deg)
         fixed = _clamp(deg, MIN_TURN_DEG, MAX_TURN_DEG)
         if fixed != deg:
-            self._warn(f"{name}({deg}) is outside {MIN_TURN_DEG}-{MAX_TURN_DEG} deg; using {fixed}")
+            self._warn(
+                f"{name}({deg}) is outside {MIN_TURN_DEG}-{MAX_TURN_DEG} deg; using {fixed}"
+            )
         return fixed
 
     # ------------------------------------------------------------------ flight
@@ -300,8 +325,11 @@ class Drone:
         """
         cfg = self._s.cfg
         self._s.select_nearest_target()
-        stop_m = (cfg.approach_stop_distance_m if stop_distance_cm is None
-                  else stop_distance_cm / 100.0)
+        stop_m = (
+            cfg.approach_stop_distance_m
+            if stop_distance_cm is None
+            else stop_distance_cm / 100.0
+        )
         blind_until = None
         for _ in range(cfg.approach_max_steps):
             self._check()
@@ -319,16 +347,25 @@ class Drone:
             blind_until = None
             bearing, distance = det.bearing_deg, det.distance_m
             if abs(bearing) > cfg.approach_bearing_deadband_deg:
-                deg = _clamp(round(abs(bearing)),
-                             cfg.approach_min_turn_deg, cfg.approach_max_turn_deg)
+                deg = _clamp(
+                    round(abs(bearing)),
+                    cfg.approach_min_turn_deg,
+                    cfg.approach_max_turn_deg,
+                )
                 self._act(self._d.rotate, "cw" if bearing > 0 else "ccw", deg)
             elif distance > stop_m:
                 remaining_cm = (distance - stop_m) * 100
                 if remaining_cm < cfg.approach_min_step_cm:
-                    return True                   # closer than one step — done
-                self._act(self._d.move, "forward",
-                          _clamp(round(remaining_cm),
-                                 cfg.approach_min_step_cm, cfg.approach_max_step_cm))
+                    return True  # closer than one step — done
+                self._act(
+                    self._d.move,
+                    "forward",
+                    _clamp(
+                        round(remaining_cm),
+                        cfg.approach_min_step_cm,
+                        cfg.approach_max_step_cm,
+                    ),
+                )
             else:
                 return True
             self.wait(self._s.settle_s)
@@ -379,21 +416,32 @@ class ScriptRun:
     student's runaway loop in a pooled thread would wedge shutdown.
     """
 
-    def __init__(self, drone: DroneAdapter,
-                 get_detection: Callable[[], Detection],
-                 emit: Callable[[dict], None],
-                 cfg: VisionConfig = DEFAULT_CONFIG, *,
-                 select_nearest_target: Callable[[], None] = lambda: None,
-                 path: str | Path | None = None, name: str | None = None,
-                 settle_s: float = 0.2, grace_s: float = 3.0):
+    def __init__(
+        self,
+        drone: DroneAdapter,
+        get_detection: Callable[[], Detection],
+        emit: Callable[[dict], None],
+        cfg: VisionConfig = DEFAULT_CONFIG,
+        *,
+        select_nearest_target: Callable[[], None] = lambda: None,
+        path: str | Path | None = None,
+        name: str | None = None,
+        settle_s: float = 0.2,
+        grace_s: float = 3.0,
+    ):
         self._drone = drone
         self._raw_emit = emit
         self.path = Path(path) if path else None
         self.name = name or (self.path.name if self.path else "script")
         self.grace_s = grace_s
-        self.session = Session(drone=drone, get_detection=get_detection,
-                               select_nearest_target=select_nearest_target,
-                               emit=self._emit, cfg=cfg, settle_s=settle_s)
+        self.session = Session(
+            drone=drone,
+            get_detection=get_detection,
+            select_nearest_target=select_nearest_target,
+            emit=self._emit,
+            cfg=cfg,
+            settle_s=settle_s,
+        )
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: int | None = None
         self._fut: asyncio.Future | None = None
@@ -404,7 +452,7 @@ class ScriptRun:
         if loop is None or threading.get_ident() == self._loop_thread:
             self._raw_emit(ev)
         else:
-            loop.call_soon_threadsafe(self._raw_emit, ev)   # worker thread -> loop
+            loop.call_soon_threadsafe(self._raw_emit, ev)  # worker thread -> loop
 
     def request_stop(self):
         """Ask the script to stop. Called from the server's e-stop/stop handlers."""
@@ -424,9 +472,11 @@ class ScriptRun:
         ``Drone`` can never command it again, so the only thing left to do is
         free the run slot.
         """
-        self._resolve("abandoned",
-                      "script did not stop — a loop with no drone commands? "
-                      "It can no longer control the drone.")
+        self._resolve(
+            "abandoned",
+            "script did not stop — a loop with no drone commands? "
+            "It can no longer control the drone.",
+        )
 
     def _resolve(self, reason: str, detail: str):
         if self._fut is not None and not self._fut.done():
@@ -438,13 +488,14 @@ class ScriptRun:
         self._loop_thread = threading.get_ident()
         self._fut = self._loop.create_future()
         self._emit({"type": "script", "state": "started", "name": self.name})
-        threading.Thread(target=self._worker, args=(target,),
-                         name="student-script", daemon=True).start()
+        threading.Thread(
+            target=self._worker, args=(target,), name="student-script", daemon=True
+        ).start()
         reason, detail = await self._fut
         if self._watchdog is not None:
             self._watchdog.cancel()
         if reason != "done":
-            clear_session(self.session)          # no-op unless the thread is abandoned
+            clear_session(self.session)  # no-op unless the thread is abandoned
             try:
                 await asyncio.to_thread(self._drone.land)
             except Exception:
@@ -463,10 +514,10 @@ class ScriptRun:
         except EmergencyStop:
             reason = "stopped"
         except SystemExit:
-            pass                                 # a student's sys.exit() is a clean finish
+            pass  # a student's sys.exit() is a clean finish
         except BaseException as exc:
             reason, detail = "error", f"{type(exc).__name__}: {exc}"
-            traceback.print_exc()                # the student needs the line number
+            traceback.print_exc()  # the student needs the line number
         finally:
             clear_session(self.session)
         if self._loop is not None:

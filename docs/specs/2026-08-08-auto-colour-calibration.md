@@ -1,0 +1,212 @@
+# Automatic Marker Colour Calibration
+
+**Date:** 2026-08-08 · **Status:** Implemented
+
+## Purpose
+
+On-site HSV re-tuning (requirements §3.1) currently requires an operator to drag a box tightly
+inside a marker in the calibration dialog. `suggest_hsv` then does the rest: it finds the dominant
+colour on the circular hue axis, discards glare and shadow pixels, and proposes robust bands.
+
+The drag is the only manual step, and it is the one most likely to go wrong under time pressure at a
+venue — a loose box picks up floor, a box over a specular highlight picks up white.
+
+This design removes the drag. The operator points the drone at any red marker and presses one
+button; the system locates the marker itself and proposes bands from it. Everything downstream —
+preview, sliders, Apply, venue profiles, TOML download — is unchanged.
+
+**The victim marker is guaranteed red.** That guarantee is what makes this simple, and it is the
+premise the whole design rests on. If markers ever stop being red, `find_marker_roi` below must be
+replaced, not widened.
+
+## Scope
+
+Operator-triggered only. Calibration stays where it is today: an explicit setup action, refused
+while a mission is running, never invoked from `comp1/interpreter.py` or `comp1/api.py`.
+
+Explicitly rejected:
+
+- **Self-calibration at mission start.** Detection behaviour would change silently between runs,
+  which defeats the purpose of resetting every run so a student can judge their own change.
+- **Continuous adaptation in flight.** It would put band-fitting on the live sensor path, where its
+  failure modes — slow drift, locking onto a wall — are near-impossible to diagnose from a flying
+  aircraft.
+
+No block, no sensor, no change to `protocol.py`, `interpreter.py`, `api.py`, or `blocks.js`. §4
+anti-hardcoding is untouched: this calibrates *appearance*, not position.
+
+## Approach
+
+A wide red prior finds the marker; the existing `suggest_hsv` tightens the bands to it.
+
+Because red is guaranteed, no colour-agnostic circle finder is needed. `find_targets` already is a
+marker finder — colour mask, area gate, circularity gate, results sorted nearest-first. Running it
+against a deliberately loose HSV config turns it into the region locator with no new vision code.
+
+Nearest-first is the correct pick order here for a specific reason: `distance_m` is derived from
+apparent radius, so `targets[0]` is also the **largest** blob in the frame, which is the candidate
+with the most pixels available for computing statistics.
+
+## Components
+
+All four additions live in `comp1/vision/calibration.py`.
+
+### `_PRIOR_BANDS`
+
+A module-level dict of the four colour fields only, overlaid on a config with
+`dataclasses.replace(cfg, **_PRIOR_BANDS)` at each call:
+
+| Field | Default | Prior |
+|---|---|---|
+| `lower1` / `upper1` | `(0,100,80)` / `(10,255,255)` | `(0,60,40)` / `(15,255,255)` |
+| `lower2` / `upper2` | `(170,100,80)` / `(180,255,255)` | `(160,60,40)` / `(180,255,255)` |
+
+The saturation and value floors can be this generous because the *hue* gate is what excludes
+scenery. Sceneries are blue-dominant in BGR by construction (`B >= G >= R`, low saturation), so a
+lower saturation floor does not bring walls or floor into red hue range.
+
+**Only the colour bands widen.** `min_area_ratio` and `circularity_min` come from the caller's
+config, which is the operator's active one — `vision_config.example.toml` ships
+`circularity_min = 0.85` against the code default of `0.82`, so a prior frozen at import time would
+locate markers under gates *looser* than the detector being calibrated, and could fit bands to a
+blob the detector then rejects. Because `replace` applies the colour fields unconditionally,
+nothing an operator has already applied to the bands can narrow the prior either.
+
+### `find_marker_roi(frame_bgr) -> list[float]`
+
+Signature is `find_marker_roi(frame_bgr, cfg=DEFAULT_CONFIG)`. Runs `find_targets` against
+`replace(cfg, **_PRIOR_BANDS)` and takes `targets[0]`. Converts that target into a
+normalised ROI box centred on `(cx, cy)`, so the sample sits well inside the disc and clear of its
+anti-aliased rim. Coordinates are clamped to `[0, 1]` and returned as a list, so the value is
+JSON-serialisable for the browser without conversion.
+
+The two axes do not get the same half-extent. `radius_norm` is normalised by frame **width**
+(§ camera.py is the single source of truth for geometry), while `suggest_hsv` scales `y0`/`y1` by
+frame height. So:
+
+```
+half_x = ROI_FILL * radius_norm
+half_y = ROI_FILL * radius_norm * width / height
+```
+
+Using `half_x` on both axes would produce a box 33% too short vertically on a 4:3 frame — still
+inside the marker, but sampling fewer pixels than intended. As written, both half-extents are the
+same number of *pixels*, so the sample region is square on screen.
+
+`ROI_FILL = 0.5`. The constraint is on the box's **corners**, not its sides: a box of half-side
+`k·R` has corners at `k·R·sqrt(2)`, so the inscribed square's `k = 1/sqrt(2)` puts its corners
+exactly on the rim. `k = 0.5` puts them at `0.71·R`, comfortably interior and clear of the
+anti-aliased edge.
+
+The area gate keeps this workable at range. `min_area_ratio = 0.002` on a 640×480 frame implies a
+radius of at least ~14 px, giving a sample box of ~14×14 px — above `suggest_hsv`'s 25-pixel floor
+and above its `0.01` minimum normalised extent on both axes. No separate minimum-size check is
+needed.
+
+Raises `CalibrationError("no red marker in view — point the camera at one and try again")` when no
+candidate clears the gates.
+
+### `auto_suggest_hsv(frame_bgr, cfg=DEFAULT_CONFIG) -> tuple[dict, list[float]]`
+
+`find_marker_roi` followed by `suggest_hsv`, returning both the proposed bands and the ROI they came
+from. The ROI is returned so the browser can draw it: an auto-calibrator that will not show what it
+looked at is hard to trust at the moment it gets something wrong.
+
+### `check_coverage(frame_bgr, cfg) -> None`
+
+Builds `color_mask(frame_bgr, cfg)` and raises
+`CalibrationError("these ranges match too much of the scene — back away so the marker is smaller in
+frame, or check nothing else in the room is that colour")` when the mask covers more than
+`MAX_MASK_COVERAGE = 0.25` of the frame.
+
+The advice says *back away* deliberately. A tighter shot puts more marker in frame and raises
+coverage, so the obvious wording would have made the problem worse. `0.25` is about `0.36 m` for a
+0.25 m marker — inside `approach_stop_distance_m` (0.5 m) and far below `max_detect_range_m` (~4 m),
+so the gate sits just outside the drone's normal operating envelope, and the most likely operator
+who trips it is one holding the aircraft close to get a big clean sample.
+
+This is the guard that keeps calibration from quietly invalidating
+`test_scenery_alone_is_never_a_victim`. Over-wide saturation or value bounds produce a candidate
+that looks correct in its own preview — the marker *is* isolated in the shot being calibrated on —
+and then flags a wall on the next frame from a different angle.
+
+The gate runs in `server.py` on the candidate config produced by `vision_auto` and by
+`vision_sample`, before either responds. It deliberately does **not** run on `vision_preview` or
+`vision_apply`: those are the operator moving sliders by hand, and a person deliberately widening a
+band to see what happens should get the preview they asked for rather than an error. The gate
+guards *proposals*, which are the ones an operator is likely to accept without inspecting.
+
+## WebSocket contract
+
+One new message type, handled inside the existing guarded branch in `server.py` alongside
+`vision_sample` / `vision_preview` / `vision_apply` / `vision_reset`, and subject to the same
+refusals (drone switching in progress, mission active).
+
+Request:
+
+```json
+{"type": "vision_auto"}
+```
+
+Response reuses the existing suggestion message, with one added field:
+
+```json
+{"type": "vision_suggestion", "config": {...}, "preview_jpeg": "...", "roi": [x0, y0, x1, y1]}
+```
+
+`roi` is normalised `0..1` and is also added to the response for `vision_sample`, where it simply
+echoes the ROI the operator dragged. Failures return the existing
+`{"type": "vision_error", "message": ...}`.
+
+Because the response type is unchanged, the accept / preview / Apply / profile flow downstream needs
+no protocol work.
+
+## Frontend
+
+In the calibration dialog, one button beside **Refresh frame**, labelled **Find marker for me**. It
+sends `{"type": "vision_auto"}` and sets the status line to "Looking for a red marker…".
+
+The existing `vision_suggestion` handler additionally draws `message.roi` onto the frozen canvas
+using the same selection rectangle style as a manual drag, so the automatic and manual paths look
+identical once complete and the operator can see the sampled region either way.
+
+The instruction text on frame capture changes to name both routes: "Press *Find marker for me*, or
+drag a box tightly inside the coloured marker."
+
+## Testing
+
+Simulator frames are the fixtures. `SimDrone` renders genuine red discs through the real renderer
+using the same intrinsics the detector inverts, so a frame from it is a real detector input, not a
+mock.
+
+| Test | Asserts |
+|---|---|
+| ROI on a sim frame with a victim | returned box lies inside the marker's contour |
+| Scenery-only frame (victims cleared) | raises `CalibrationError`, does not calibrate on a wall |
+| Round trip | bands from `auto_suggest_hsv` still detect the marker they were derived from |
+| Auto bands against scenery | `detect_red_circle` finds nothing on victim-free frames |
+| Colour-cast recovery | a red disc under a warm/dim cast that `DEFAULT_CONFIG` misses is detected with auto-calibrated bands |
+| All-red frame | trips `check_coverage` |
+| Manual path coverage gate | an over-wide manual selection is now refused |
+
+The colour-cast test is the one that demonstrates the feature is worth having; the others are
+regressions against its failure modes.
+
+## Risks
+
+**A wide prior is a wider door.** `_PRIOR_BANDS` exists only inside calibration and never reaches
+the detector, but if its floors were dropped far enough that warm scenery entered red hue range, the
+located "marker" could be background. The area and circularity gates — which come from the
+operator's own config, not from the prior — and `check_coverage` are the two defences; the scenery
+colour invariant (`B >= G >= R`) is the third and is already enforced by existing tests.
+
+Measured margin, swept over the 324-pose arena grid and the 540-pose corridor grid: the prior's
+mask has **zero non-zero pixels at every pose**. Maximum saturation anywhere in scenery is 38
+against the prior's floor of 60, and the `B >= G >= R` rule puts every scenery hue in roughly
+`[90, 150]` — about 45° clear of both red bands. Two independent barriers, neither close to
+binding.
+
+**The destination sign calibrates identically.** In the corridor scenery the `DESTINATION` marker is
+byte-identical to a victim in the camera, so auto-calibration may sample it. This is harmless —
+same colour, same bands — but operator-facing text must say "marker", never "victim". The detector
+must not learn to tell them apart; that distinction is the student exercise.
