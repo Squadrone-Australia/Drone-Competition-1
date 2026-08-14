@@ -7,14 +7,29 @@
 # left out of the file simply keep the code default.
 
 # --- colour: red wraps the hue axis, so two HSV bands are ORed together (requirements §3.1) ---
-lower1 = [0, 100, 80]
-upper1 = [10, 255, 255]
-lower2 = [170, 100, 80]
+# The saturation and value floors are set low enough to reach a marker sitting in
+# a shadowed corner. Raise them if something red in the room is being picked up;
+# lower them further only if markers go missing in dim light, and re-run the
+# scenery false-positive tests afterwards.
+lower1 = [0, 70, 50]
+upper1 = [12, 255, 255]
+lower2 = [165, 70, 50]
 upper2 = [180, 255, 255]
 
 # --- shape gates ---
 min_area_ratio = 0.002     # ignore specks; also caps detection range (see max_detect_range_m)
-circularity_min = 0.85     # 4*pi*Area/Perimeter^2 -- square ~ 0.785, circle ~ 0.95
+max_area_ratio = 0.35      # a blob bigger than this is too close to be the marker --
+                           # rejects large red objects outside the cage, which would
+                           # otherwise read as very near and win the nearest-first sort.
+                           # Must stay above the marker's size at approach_stop_distance_m
+                           # (~0.13 at the defaults) or arriving blinds the detector.
+circularity_min = 0.82     # 4*pi*Area/Perimeter^2 of the convex hull -- square ~ 0.785,
+                           # clean circle ~ 0.99. Measured on the hull, not the raw
+                           # contour, so a shadow notch or a ragged compressed edge
+                           # no longer collapses it.
+solidity_min = 0.85        # contour area / hull area -- disc ~ 1.0, five-point star ~ 0.54.
+                           # This is what rejects non-convex red shapes, since the hull
+                           # itself smooths them into something near-circular.
 center_band = 0.2          # |cx - 0.5| < band/2 counts as "centered"
 
 # --- physical geometry: what turns pixels into metres ---

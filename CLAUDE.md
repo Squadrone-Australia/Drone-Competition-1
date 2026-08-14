@@ -150,9 +150,13 @@ the Python pathway, and any call site that doesn't thread a `cfg` through — so
 only** — nothing in `interpreter.py` or `api.py` may call it. `auto_suggest_hsv` locates the marker
 itself by running `find_targets` against a loose prior, then fits bands with the same `suggest_hsv`
 a manual drag uses. **The prior widens the colour bands only.** `_PRIOR_BANDS` is overlaid on the
-*operator's active config* per call, so `min_area_ratio` and `circularity_min` still come from
-whatever `--vision-config` is in force — a locator looser than the detector it calibrates would fit
-bands to a blob the detector then rejects. It never becomes the detector's config.
+*operator's active config* per call, so `min_area_ratio`, `max_area_ratio`, `circularity_min` and
+`solidity_min` still come from whatever `--vision-config` is in force — a locator looser than the
+detector it calibrates would fit bands to a blob the detector then rejects. It never becomes the
+detector's config. **`_PRIOR_BANDS` must stay looser than the shipped defaults on every axis** —
+wider hue, lower saturation and value floors — or the locator can no longer find the marker the
+operator is pointing at. Loosen the defaults in `config.py` and you must check the prior in the same
+commit; the margin is currently 25 on saturation and 10 on value.
 `check_coverage` rejects any *proposal* whose mask covers more than
 `MAX_MASK_COVERAGE` of the frame — without it a widened band passes its own preview and then flags
 a wall, silently invalidating `test_scenery_alone_is_never_a_victim`.
@@ -179,6 +183,32 @@ stale lock, while locking afterward prevents similar targets from making the con
 **`min_area_ratio` is a range limit, not just a speck filter.** It sets the smallest detectable
 blob, which caps detection distance for a given marker size. `VisionConfig.max_detect_range_m`
 computes it; `CameraIntrinsics.min_area_ratio_for_range` inverts it. Change it deliberately.
+
+**`max_area_ratio` is the anti-false-positive twin.** Range is derived from apparent size alone, so
+an unbounded blob reads as *very close* and wins the nearest-first sort — which is how a large red
+object beyond the cage net becomes the primary target. It must stay above the marker's size at
+`approach_stop_distance_m` (~0.13 at the defaults) or arriving blinds the detector; keep it a
+*marker-size plausibility bound*, never an arena bound, or §4 is breached.
+
+**Shape is judged on the convex hull, and that needs two gates, not one.** `4πA/P²` is dominated by
+its perimeter term, and perimeter is exactly what a damaged mask edge inflates — a glare bite drops a
+clean disc from 0.91 to 0.66, a compression-ragged edge to 0.50, both well under `circularity_min`.
+Measuring the hull instead puts a clean disc at ~0.99 and is unmoved by rim damage. But the hull
+fills concavities, so a red star hulls to 0.87 and *passes* — `solidity_min` (contour area / hull
+area; disc ≈ 1.0, star ≈ 0.54) is the only thing that rejects it. Neither gate is redundant: drop
+solidity and non-convex red shapes get in; drop circularity and half a marker (hull circularity 0.75,
+solidity 0.99) gets in.
+
+**`color_mask` closes before it opens.** `MORPH_OPEN` alone can only widen a shadow notch, never
+repair it. `MORPH_CLOSE` first fills the notch; `OPEN` then drops the specks. Keep the kernel small —
+`CLOSE` dilates before eroding, so a large one fuses adjacent markers into a single blob that then
+fails the shape gates, losing *both*.
+
+**The simulator cannot validate any of the above.** [comp1/sim/render.py](comp1/sim/render.py) draws
+flawless, evenly-lit discs — there is no shadow, glare or compression artifact for these gates to
+prove themselves against. The damaged-mask cases in `tests/test_detector.py` are hand-built stand-ins
+for what a real frame does. A green suite is a regression guard here, **not** evidence the detector
+survives the cage; only real captured footage is that.
 
 ### The sensor path must stay clean
 

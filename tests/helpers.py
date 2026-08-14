@@ -22,6 +22,7 @@ def fake_target(distance_m=2.0, bearing_deg=0.0, elevation_deg=0.0, cfg=DEFAULT_
         radius_norm=radius_norm,
         area_ratio=math.pi * radius_norm**2 / aspect_hw,
         circularity=0.95,
+        solidity=1.0,
         bearing_deg=bearing_deg,
         elevation_deg=elevation_deg,
         distance_m=distance_m,

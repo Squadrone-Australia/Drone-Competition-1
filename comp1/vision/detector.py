@@ -14,7 +14,8 @@ class Target:
     cy: float  # centroid, normalised by frame height (0..1)
     radius_norm: float  # apparent radius / frame width
     area_ratio: float  # contour area / frame area
-    circularity: float
+    circularity: float  # 4piA/P^2 of the convex hull, not the raw contour
+    solidity: float  # contour area / hull area — what the hull can't tell you
     bearing_deg: float  # + = to the right of the drone's nose
     elevation_deg: float  # + = above the camera axis
     distance_m: float
@@ -79,7 +80,16 @@ def color_mask(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> np.
     mask = cv2.inRange(hsv, np.array(cfg.lower1), np.array(cfg.upper1)) | cv2.inRange(
         hsv, np.array(cfg.lower2), np.array(cfg.upper2)
     )
-    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    kernel = np.ones((5, 5), np.uint8)
+    # CLOSE then OPEN, in that order. Uneven lighting in the cage is what makes
+    # this necessary: a shadow falling across the marker, or a highlight on its
+    # rim, cuts a notch out of the mask that OPEN alone can only ever make
+    # bigger. CLOSE fills the notch first; OPEN then removes the specks. A 5x5
+    # kernel is deliberately small -- CLOSE dilates before it erodes, so a large
+    # one would fuse two adjacent markers into a single blob that then fails the
+    # shape gates, losing both.
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
 
 def find_targets(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> list:
@@ -98,13 +108,34 @@ def find_targets(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> l
     out = []
     for c in contours:
         area = cv2.contourArea(c)
-        if area / (w * h) < cfg.min_area_ratio:
+        area_ratio = area / (w * h)
+        if area_ratio < cfg.min_area_ratio:
             continue
-        perim = cv2.arcLength(c, True)
-        if perim == 0:
+        # A blob far too large to be a marker is not a marker. Apparent size is
+        # the only thing range is derived from, so an unbounded one reads as
+        # very close and sorts to the front of the candidate list -- which is
+        # how a red jacket beyond the cage net becomes the primary target.
+        if area_ratio > cfg.max_area_ratio:
             continue
-        circularity = 4 * np.pi * area / (perim * perim)
+        # Shape is judged on the convex hull, not the raw contour. 4piA/P^2 is
+        # dominated by its perimeter term, and perimeter is what a ragged mask
+        # edge inflates -- shadow notches, glare bites, JPEG ringing on a small
+        # blob. The hull spans all of them, so the gate measures the marker's
+        # shape rather than the mask's edge quality.
+        hull = cv2.convexHull(c)
+        hull_area = cv2.contourArea(hull)
+        perim = cv2.arcLength(hull, True)
+        if perim == 0 or hull_area == 0:
+            continue
+        circularity = 4 * np.pi * hull_area / (perim * perim)
         if circularity < cfg.circularity_min:
+            continue
+        # The hull's blind spot: it fills concavities, so a red star or cross
+        # hulls into a near-circular polygon and sails through the gate above.
+        # Solidity is what sees the difference -- a disc is ~1.0, a five-point
+        # star ~0.5 -- and it costs one more contourArea call.
+        solidity = area / hull_area
+        if solidity < cfg.solidity_min:
             continue
         m = cv2.moments(c)
         if m["m00"] == 0:
@@ -124,8 +155,9 @@ def find_targets(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> l
                 cx=cx,
                 cy=cy,
                 radius_norm=radius_norm,
-                area_ratio=area / (w * h),
+                area_ratio=area_ratio,
                 circularity=float(circularity),
+                solidity=float(solidity),
                 bearing_deg=cam.bearing_deg(cx),
                 elevation_deg=cam.elevation_deg(cy, aspect_hw),
                 distance_m=cam.distance_m(radius_norm, cfg.marker_radius_m),

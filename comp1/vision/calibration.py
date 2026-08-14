@@ -17,9 +17,16 @@ HSV_KEYS = ("lower1", "upper1", "lower2", "upper2")
 # needed. The saturation and value floors can be this generous because the hue
 # gate is what excludes scenery: sceneries are blue-dominant in BGR by
 # construction, so a lower saturation floor does not bring a wall into range.
-# This never becomes the detector's config. The other gates (area, circularity)
-# still come from the operator's active config -- see find_marker_roi -- so the
-# locator never accepts a blob the detector itself would reject.
+# This never becomes the detector's config. The other gates (area, circularity,
+# solidity) still come from the operator's active config -- see find_marker_roi
+# -- so the locator never accepts a blob the detector itself would reject.
+#
+# INVARIANT: these bands must stay looser than VisionConfig's shipped defaults on
+# every axis -- wider hue, lower saturation floor, lower value floor. A locator
+# tighter than the detector it calibrates cannot find the marker the operator is
+# pointing at. If the defaults in config.py are ever loosened again, check this
+# block in the same commit; the margin is currently 25 on saturation and 10 on
+# value, which is not much.
 _PRIOR_BANDS = dict(
     lower1=(0, 60, 40),
     upper1=(15, 255, 255),

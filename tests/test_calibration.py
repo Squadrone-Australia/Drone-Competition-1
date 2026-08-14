@@ -167,8 +167,12 @@ def test_auto_calibration_recovers_a_marker_the_defaults_miss():
     """The point of the feature: a marker under a light level the shipped
     bands reject is recovered without anyone touching a slider."""
     frame = np.full((480, 640, 3), (90, 70, 60), np.uint8)
-    # dim red: HSV value ~70, under the default floor of 80
-    cv2.circle(frame, (320, 240), 60, (10, 10, 70), -1)
+    # Dim red, deliberately just under whatever value floor the defaults ship
+    # with. Derived rather than hardcoded: this test asserts "below the floor",
+    # not "below 80", and tightening or loosening config.py must not silently
+    # turn it into an assertion about something else.
+    dim = DEFAULT_CONFIG.lower1[2] - 5
+    cv2.circle(frame, (320, 240), 60, (dim // 6, dim // 6, dim), -1)
 
     assert not detect_red_circle(frame, DEFAULT_CONFIG).found
 

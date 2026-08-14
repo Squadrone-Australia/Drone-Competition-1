@@ -10,14 +10,24 @@ _TUPLE_FIELDS = {"lower1", "upper1", "lower2", "upper2"}
 @dataclass
 class VisionConfig:
     # two HSV bands because red wraps the hue axis — re-tune on-site (requirements §3.1)
-    lower1: tuple = (0, 100, 80)
-    upper1: tuple = (10, 255, 255)
-    lower2: tuple = (170, 100, 80)
+    # The saturation and value floors are set for a cage lit unevenly, not for a
+    # studio: the same sheet of paper reads S~110 in a bright patch and V~60 in a
+    # shadowed corner, and a floor tuned to the bright patch simply loses it in
+    # the corner. Band 2 starts at 165 rather than 170 because printer red is
+    # often a little magenta and lands just below the old edge.
+    lower1: tuple = (0, 70, 50)
+    upper1: tuple = (12, 255, 255)
+    lower2: tuple = (165, 70, 50)
     upper2: tuple = (180, 255, 255)
     min_area_ratio: float = (
         0.002  # ignore specks — also caps detection range, see below
     )
-    circularity_min: float = 0.82  # 4πA/P²: square ≈ 0.785, circle ≈ 0.95
+    # a blob larger than this cannot be the marker at any plausible range; see
+    # find_targets. 0.35 is ~0.3 m for a 0.25 m marker, comfortably inside
+    # approach_stop_distance_m so arriving never blinds the detector.
+    max_area_ratio: float = 0.35
+    circularity_min: float = 0.82  # 4πA/P² of the hull: square ≈ 0.785, circle ≈ 0.98
+    solidity_min: float = 0.85  # contour/hull area: disc ≈ 1.0, star ≈ 0.5
     center_band: float = 0.2  # |cx-0.5| < band/2 → "center"
 
     # --- physical geometry: what turns pixels into metres ---
