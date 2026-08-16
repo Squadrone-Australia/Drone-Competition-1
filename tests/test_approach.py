@@ -97,7 +97,7 @@ async def test_gives_up_when_marker_lost():
 
 async def test_rides_out_a_dropout_and_resumes_the_approach():
     # A cluttered arena drops frames mid-approach. Three misses in a row is
-    # under a second — the controller must keep waiting, not abandon a victim
+    # under a second — the controller must keep waiting, not abandon a fire
     # that is still there.
     drone = await run_seq(
         [

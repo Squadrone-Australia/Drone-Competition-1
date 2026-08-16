@@ -2,8 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>COMP1 Drone Coder</title>
-  <link rel="stylesheet" href="style.css?v=20260807-2">
+  <title>Squadrone Drone Coder</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="assets/squadrone-logo.webp">
+  <link rel="stylesheet" href="style.css?v=20260814-1">
   <script src="vendor/blockly.min.js"></script>
   <script type="importmap">
     { "imports": { "three": "./vendor/three.module.min.js" } }
@@ -11,13 +13,21 @@
 </head>
 <body>
   <header>
-    <span id="status" class="status">connecting…</span>
-    <span id="found">Victims found: 0</span>
-    <button id="run">▶ Run</button>
-    <button id="stop">⏹ Stop</button>
-    <button id="reset" title="Simulator: back to the start pad. Real drone: clears the counters only — it will not move.">⟲ Reset</button>
-    <span id="drone-mode" class="drone-mode">Drone: simulator</span>
-    <button id="use-tello" title="Connect to a real DJI Tello" disabled>Use real Tello</button>
+    <div class="brand">
+      <img class="brand-logo" src="assets/squadrone-logo.webp" alt="Squadrone" width="520" height="181">
+      <span class="brand-sub">Drone Coder</span>
+    </div>
+    <div class="run-group">
+      <button id="run">Run</button>
+      <button id="stop">Stop</button>
+      <button id="reset" title="Simulator: back to the start pad. Real drone: clears the counters only - it will not move.">Reset</button>
+    </div>
+    <div class="hud">
+      <span id="status" class="status">connecting…</span>
+      <span id="found">Fires found: 0</span>
+      <span id="drone-mode" class="drone-mode">Drone: simulator</span>
+      <button id="use-tello" title="Connect to a real DJI Tello" disabled>Use real Tello</button>
+    </div>
     <button id="estop" class="estop">EMERGENCY STOP</button>
   </header>
   <main>
@@ -58,10 +68,10 @@
           <span class="bar-title">3D view</span>
           <div id="view-tools">
             <button data-mode="follow" class="on"
-                    title="Third-person camera that follows the drone">🎥 Third person</button>
-            <button data-mode="orbit" title="Drag to look around, scroll to zoom">↻ Orbit</button>
-            <button data-mode="topdown" title="Whole arena from above">🗺 Map</button>
-            <button id="trail" class="on" title="Show the path flown">╌ Trail</button>
+                    title="Third-person camera that follows the drone">Follow</button>
+            <button data-mode="orbit" title="Drag to look around, scroll to zoom">Orbit</button>
+            <button data-mode="topdown" title="Whole arena from above">Map</button>
+            <button id="trail" class="on" title="Show the path flown">Trail</button>
           </div>
         </div>
 
@@ -82,9 +92,9 @@
       </section>
 
       <div id="telemetry">
-        <span class="t-label">target</span><span id="t-visible">—</span>
-        <span class="t-label">distance</span><span id="t-distance">—</span>
-        <span class="t-label">direction</span><span id="t-bearing">—</span>
+        <span class="t-label">target</span><span id="t-visible">-</span>
+        <span class="t-label">distance</span><span id="t-distance">-</span>
+        <span class="t-label">direction</span><span id="t-bearing">-</span>
       </div>
 
       <!-- Arena panel: the floor plan is the only place the room can be laid
@@ -94,15 +104,21 @@
         <div id="arena-bar">
           <span class="bar-title">Arena</span>
           <select id="scenery" title="Which arena to fly in"></select>
-          <button id="plan-edit" title="Click the plan to add or remove victims">✎ Edit</button>
-          <button id="plan-randomise" title="New random victim layout">🎲</button>
-          <button id="plan-clear" title="Remove every victim">↺</button>
+          <button id="plan-edit" title="Click the plan to add or remove fires">Edit</button>
+          <button id="plan-randomise" title="New random fire layout">Shuffle</button>
+          <button id="plan-clear" title="Remove every fire">Clear</button>
         </div>
         <canvas id="arena-plan"></canvas>
         <p id="plan-note"></p>
         <p id="mission"></p>
       </section>
 
+      <!-- The console is the only place a warning or a mission result is spelled
+           out in words, so it gets a named bar like every other panel rather
+           than reading as leftover space at the bottom of the column. -->
+      <div class="bar">
+        <span class="bar-title">Console</span>
+      </div>
       <pre id="console"></pre>
     </aside>
   </main>
@@ -112,7 +128,7 @@
       <header class="vision-dialog-header">
         <div>
           <h2 id="vision-title">Marker colour calibration</h2>
-          <p>Keep the drone still, capture a frame, then press Find marker for me — or drag a
+          <p>Keep the drone still, capture a frame, then press Find marker for me, or drag a
             box inside the red marker yourself.</p>
         </div>
         <button id="vision-close" type="button" aria-label="Close calibration">Close</button>
@@ -142,14 +158,14 @@
         <p>The camera describes every pixel using three properties. A pixel is accepted only when
           all three settings match. The mask preview highlights accepted pixels.</p>
         <dl>
-          <dt>Hue bands — which colour?</dt>
+          <dt>Hue bands: which colour?</dt>
           <dd>These select the red part of the colour wheel. Red sits at both ends of the wheel,
             so two bands are needed: usually one near 0 and one near 180. Wider bands accept more
             shades, but can also accept orange, pink, or purple objects.</dd>
-          <dt>Minimum saturation — how colourful?</dt>
+          <dt>Minimum saturation: how colourful?</dt>
           <dd>Raise it to reject white, grey, and washed-out areas. Lower it if pale parts of the
             marker are missing.</dd>
-          <dt>Minimum brightness — how light?</dt>
+          <dt>Minimum brightness: how light?</dt>
           <dd>Lower it to include the marker in shadow. Raise it to reject dark red or brown
             background objects.</dd>
         </dl>
@@ -195,10 +211,10 @@
       </footer>
     </section>
   </dialog>
-  <script src="blocks.js?v=20260803-4"></script>
-  <script src="app.js?v=20260803-8"></script>
-  <script src="calibration.js?v=20260808-1"></script>
-  <script src="plan.js?v=20260803-2"></script>
-  <script type="module" src="view3d.js?v=20260803-2"></script>
+  <script src="blocks.js?v=20260814-1"></script>
+  <script src="app.js?v=20260814-1"></script>
+  <script src="calibration.js?v=20260814-1"></script>
+  <script src="plan.js?v=20260814-1"></script>
+  <script type="module" src="view3d.js?v=20260814-1"></script>
 </body>
 </html>

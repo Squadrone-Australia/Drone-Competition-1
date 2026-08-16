@@ -1,7 +1,7 @@
 """The Python pathway: a plain, synchronous drone API for students.
 
 Both pathways drive the *same* engine. A ``Drone`` here talks to the same
-``DroneAdapter``, reads the same OpenCV ``Detection``, and closes on a victim
+``DroneAdapter``, reads the same OpenCV ``Detection``, and closes on a fire
 with the same proportional controller and the same ``VisionConfig`` constants
 as the ``approach marker`` block. Nothing here is a simulation of the blocks —
 it is the blocks' machinery with a different front door.
@@ -12,7 +12,7 @@ A whole mission::
 
     drone = Drone()
     drone.takeoff()
-    while not drone.sees_target():      # spin until a victim comes into view
+    while not drone.sees_target():      # spin until a fire comes into view
         drone.turn_right(20)
     drone.approach_target()
     drone.mark_found()
@@ -106,7 +106,7 @@ def current_session() -> Session | None:
 
 @dataclass(frozen=True)
 class TargetView:
-    """A victim marker in the units a student thinks in — no pixels."""
+    """A fire marker in the units a student thinks in — no pixels."""
 
     distance_m: float
     distance_cm: float
@@ -116,7 +116,7 @@ class TargetView:
 
     def __str__(self):
         return (
-            f"victim {self.distance_cm:.0f} cm away, "
+            f"fire {self.distance_cm:.0f} cm away, "
             f"{self.bearing_deg:+.0f} deg ({self.position})"
         )
 
@@ -276,12 +276,12 @@ class Drone:
     # ----------------------------------------------------------------- sensing
 
     def sees_target(self) -> bool:
-        """True if a red victim marker is visible right now."""
+        """True if a red fire marker is visible right now."""
         self._check()
         return self._s.get_detection().found
 
     def target(self) -> TargetView | None:
-        """The victim the drone is locked onto, or None if it cannot see one.
+        """The fire the drone is locked onto, or None if it cannot see one.
 
         The lock survives a brief loss of sight and does not jump to whichever
         marker happens to look biggest this frame, so a value you read once
@@ -291,34 +291,34 @@ class Drone:
         return _view(self._s.get_detection().target)
 
     def targets(self) -> list[TargetView]:
-        """Every victim marker in view, nearest first."""
+        """Every fire marker in view, nearest first."""
         self._check()
         return [_view(t) for t in self._s.get_detection().targets]
 
     def distance_cm(self) -> float | None:
-        """How far away the victim is, in centimetres — None if none is visible."""
+        """How far away the fire is, in centimetres — None if none is visible."""
         t = self.target()
         return t.distance_cm if t else None
 
     def bearing_deg(self) -> float | None:
-        """Which way to turn to face the victim: + is right, - is left.
+        """Which way to turn to face the fire: + is right, - is left.
 
-        None if no victim is visible.
+        None if no fire is visible.
         """
         t = self.target()
         return t.bearing_deg if t else None
 
     def elevation_deg(self) -> float | None:
-        """How far above (+) or below (-) the camera the victim sits, in degrees."""
+        """How far above (+) or below (-) the camera the fire sits, in degrees."""
         t = self.target()
         return t.elevation_deg if t else None
 
     # ---------------------------------------------------------------- missions
 
     def approach_target(self, stop_distance_cm: float | None = None) -> bool:
-        """Choose the nearest victim, fly to it, and stop a safe distance short.
+        """Choose the nearest fire, fly to it, and stop a safe distance short.
 
-        Returns True once it is in position, False if the victim was lost or it
+        Returns True once it is in position, False if the fire was lost or it
         ran out of steps. Same controller as the `approach marker` block: turn
         by the measured bearing error, then step forward by the measured range
         error, both clamped to what the drone will actually honour.
@@ -336,7 +336,7 @@ class Drone:
             det = self._s.get_detection()
             if not det.found:
                 # Hover out the whole budget: a cluttered arena drops frames in
-                # bursts, and a burst is not a victim that has gone away.
+                # bursts, and a burst is not a fire that has gone away.
                 now = time.monotonic()
                 if blind_until is None:
                     blind_until = now + cfg.approach_lost_timeout_s
@@ -372,14 +372,14 @@ class Drone:
         return False
 
     def mark_found(self):
-        """Signal that you have found a victim (requirements §2.1) and count it."""
+        """Signal that you have found a fire (requirements §2.1) and count it."""
         self._act(self._d.flip, "back")
         self._s.found_count += 1
         self._s.emit({"type": "found_count", "count": self._s.found_count})
 
     @property
     def found_count(self) -> int:
-        """How many victims you have marked so far this run."""
+        """How many fires you have marked so far this run."""
         return self._s.found_count
 
     # --------------------------------------------------------------- telemetry

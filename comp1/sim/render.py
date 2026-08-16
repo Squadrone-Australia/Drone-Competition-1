@@ -18,7 +18,7 @@ import numpy as np
 
 from ..vision.camera import SIM_INTRINSICS
 from .scene import Camera, draw_line, fill_quad, shade
-from .world import DEFAULT_MARKER_HEIGHT_M, DESTINATION, VICTIM
+from .world import DEFAULT_MARKER_HEIGHT_M, DESTINATION, FIRE
 
 # The camera model is shared with the real hardware (comp1/vision/camera.py) so
 # that anything tuned in the simulator transfers to the arena. It used to be a
@@ -50,8 +50,8 @@ SHADOW_BGR = (132, 123, 114)
 _WALL_SHADE = {(1, 0): 1.00, (0, -1): 0.93, (-1, 0): 0.86, (0, 1): 0.79}
 
 KIND_STYLE = {
-    VICTIM: ("circle", (0, 0, 220)),
-    # Byte-identical to a victim, on purpose: the destination sign is a red
+    FIRE: ("circle", (0, 0, 220)),
+    # Byte-identical to a fire, on purpose: the destination sign is a red
     # circle and the detector cannot tell them apart. Telling them apart is the
     # student's problem, not the renderer's.
     DESTINATION: ("circle", (0, 0, 220)),
@@ -270,7 +270,7 @@ def draw_minimap(img, world, x, y, heading, size=140, pad=10):
             px, py = to_px(m.x, m.y)
             cv2.rectangle(out, (px - 4, py - 4), (px + 4, py + 4), (0, 140, 0), -1)
             continue
-        color = (0, 0, 220) if m.kind == VICTIM else (140, 140, 140)
+        color = (0, 0, 220) if m.kind == FIRE else (140, 140, 140)
         cv2.circle(out, to_px(m.x, m.y), 4, color, -1)
     hr = math.radians(heading)
     px, py = to_px(x, y)

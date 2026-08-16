@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from comp1.sim.render import render
-from comp1.sim.world import VICTIM, Marker, World
+from comp1.sim.world import FIRE, Marker, World
 from comp1.vision.calibration import (
     CalibrationError,
     auto_suggest_hsv,
@@ -167,8 +167,12 @@ def test_auto_calibration_recovers_a_marker_the_defaults_miss():
     """The point of the feature: a marker under a light level the shipped
     bands reject is recovered without anyone touching a slider."""
     frame = np.full((480, 640, 3), (90, 70, 60), np.uint8)
-    # dim red: HSV value ~70, under the default floor of 80
-    cv2.circle(frame, (320, 240), 60, (10, 10, 70), -1)
+    # Dim red, deliberately just under whatever value floor the defaults ship
+    # with. Derived rather than hardcoded: this test asserts "below the floor",
+    # not "below 80", and tightening or loosening config.py must not silently
+    # turn it into an assertion about something else.
+    dim = DEFAULT_CONFIG.lower1[2] - 5
+    cv2.circle(frame, (320, 240), 60, (dim // 6, dim // 6, dim), -1)
 
     assert not detect_red_circle(frame, DEFAULT_CONFIG).found
 
@@ -178,8 +182,8 @@ def test_auto_calibration_recovers_a_marker_the_defaults_miss():
     assert len(roi) == 4
 
 
-def test_auto_calibration_on_a_simulated_victim_round_trips():
-    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, VICTIM)])
+def test_auto_calibration_on_a_simulated_fire_round_trips():
+    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, FIRE)])
     frame = render(world, 2.0, 2.0, 1.0, 0.0)
 
     values, _roi = auto_suggest_hsv(frame)
@@ -202,7 +206,7 @@ def test_auto_calibration_never_calibrates_on_scenery():
 
 def test_auto_calibrated_bands_do_not_flag_scenery_elsewhere_in_the_arena():
     """Bands fitted at one pose must still reject the room at every other."""
-    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, VICTIM)])
+    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, FIRE)])
     values, _roi = auto_suggest_hsv(render(world, 2.0, 2.0, 1.0, 0.0))
     candidate = config_with_hsv(DEFAULT_CONFIG, values)
 

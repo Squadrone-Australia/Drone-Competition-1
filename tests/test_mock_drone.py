@@ -82,8 +82,8 @@ def test_tello_adapter_maps_commands(fake_tello):
 
 
 def test_flip_flies_back_to_where_it_started(fake_tello):
-    """A Tello translates through a flip and stays displaced, so a victim signal
-    would leave the drone short of the victim it just found."""
+    """A Tello translates through a flip and stays displaced, so a fire signal
+    would leave the drone short of the fire it just found."""
     calls, TelloDrone = fake_tello
     TelloDrone().flip("back")
     assert calls == ["flip b", "move_forward 30"]

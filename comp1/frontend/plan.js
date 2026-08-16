@@ -1,9 +1,9 @@
 /**
- * Arena panel: pick a scenery, and lay out the victims by hand.
+ * Arena panel: pick a scenery, and lay out the fires by hand.
  *
  * A flat floor plan of the same room the 3D stage draws, fed by the same
  * `{"type":"scene"}` and `{"type":"pose"}` messages. Clicking empty floor adds a
- * victim, clicking one removes it; the edit goes to the server as
+ * fire, clicking one removes it; the edit goes to the server as
  * `{"type":"layout"}` and the canvas is redrawn from the `scene` that comes
  * back — never from what we asked for, because the server re-checks the spacing
  * rules and may refuse a point.
@@ -23,7 +23,7 @@
 
   const COL = {
     floor: "#16233c", grid: "#24354f", wall: "#7f9bd4",
-    victim: "#dc2626", destination: "#22c55e", other: "#64748b",
+    fire: "#dc2626", destination: "#22c55e", other: "#64748b",
     start: "#38bdf8", drone: "#f7941d",
   };
   const HIT_M = 0.35;          // click tolerance when picking a marker up
@@ -34,7 +34,7 @@
   let running = false;
   let view = null;             // {x0, y0, s} — plan pixels per metre
   // The server is the judge of whether a point is legal, so a rejected click is
-  // only visible as "the scene came back with fewer victims than I asked for".
+  // only visible as "the scene came back with fewer fires than I asked for".
   let pending = null;
 
   // --- geometry ------------------------------------------------------------
@@ -103,8 +103,8 @@
         ctx.fillRect(px - 6, py - 6, 12, 12);
         label("D", px, py + 20, COL.destination);
       } else {
-        ctx.fillStyle = m.kind === "victim" ? COL.victim : COL.other;
-        ctx.beginPath(); ctx.arc(px, py, m.kind === "victim" ? 6 : 4, 0, 2 * Math.PI);
+        ctx.fillStyle = m.kind === "fire" ? COL.fire : COL.other;
+        ctx.beginPath(); ctx.arc(px, py, m.kind === "fire" ? 6 : 4, 0, 2 * Math.PI);
         ctx.fill();
       }
     }
@@ -137,26 +137,26 @@
     if (window.COMP1_SEND) window.COMP1_SEND(msg);
   }
 
-  function victimNear(x, y) {
+  function fireNear(x, y) {
     return scene.markers.findIndex(
-      (m) => m.kind === "victim" && Math.hypot(m.x - x, m.y - y) <= HIT_M);
+      (m) => m.kind === "fire" && Math.hypot(m.x - x, m.y - y) <= HIT_M);
   }
 
   function onClick(ev) {
     if (!editing || !scene || !view || running) return;
     const r = canvas.getBoundingClientRect();
     const [x, y] = toWorld(ev.clientX - r.left, ev.clientY - r.top);
-    const victims = scene.markers.filter((m) => m.kind === "victim")
+    const fires = scene.markers.filter((m) => m.kind === "fire")
       .map((m) => ({ x: m.x, y: m.y }));
-    const hit = victimNear(x, y);
+    const hit = fireNear(x, y);
     if (hit >= 0) {
       const m = scene.markers[hit];
       send({ type: "layout",
-             victims: victims.filter((v) => v.x !== m.x || v.y !== m.y) });
+             fires: fires.filter((f) => f.x !== m.x || f.y !== m.y) });
       note("");
     } else {
-      const wanted = victims.length + 1;
-      send({ type: "layout", victims: [...victims, { x, y }] });
+      const wanted = fires.length + 1;
+      send({ type: "layout", fires: [...fires, { x, y }] });
       pending = wanted;
     }
   }
@@ -174,7 +174,7 @@
       depth_m: desc.depth_m ?? desc.size_m,
     };
     if (scene && pending !== null) {
-      const n = scene.markers.filter((m) => m.kind === "victim").length;
+      const n = scene.markers.filter((m) => m.kind === "fire").length;
       note(n < pending ? "⚠ too close to a wall, the start pad or another marker" : "");
       pending = null;
     }
@@ -197,10 +197,10 @@
   }
 
   function setMission(m) {
-    const bits = [`victims ${m.found}/${m.total}`];
+    const bits = [`fires ${m.found}/${m.total}`];
     if (m.needs_destination) bits.push(m.at_destination ? "at destination" : "→ destination");
     missionEl.textContent = m.state === "success"
-      ? `🏆 mission success — ${bits.join(" · ")}`
+      ? `🏆 mission success: ${bits.join(", ")}`
       : bits.join(" · ");
     missionEl.className = m.state === "success" ? "success" : "";
   }
@@ -228,7 +228,7 @@
   function setEditing(on) {
     editing = on;
     editBtn.classList.toggle("on", on);
-    note(on ? "click the plan to add a victim, click a victim to remove it" : "");
+    note(on ? "click the plan to add a fire, click a fire to remove it" : "");
     refreshControls();
   }
 
@@ -237,7 +237,7 @@
   document.getElementById("plan-randomise").onclick =
     () => send({ type: "scenery", name: picker.value, randomise: true });
   document.getElementById("plan-clear").onclick =
-    () => send({ type: "layout", victims: [] });
+    () => send({ type: "layout", fires: [] });
   canvas.addEventListener("click", onClick);
   new ResizeObserver(draw).observe(canvas);
 })();

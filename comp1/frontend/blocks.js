@@ -2,7 +2,11 @@
 // Loaded as a plain <script> in the browser; also require()-able from node for tests,
 // which is why every browser global is guarded.
 
-const C = { flight: 210, sense: 0, mission: 280, flow: 120, logic: 160, math: 230, vars: 330 };
+// Blockly hues, one per toolbox category. Mission sits on the Squadrone orange
+// (hue 32) because those are the blocks the competition is actually about;
+// sensing moved off hue 0 so a "fire marker seen?" block is not the same red
+// as the fire marker itself in the camera and on the plan.
+const C = { flight: 205, sense: 185, mission: 32, flow: 120, logic: 255, math: 285, vars: 330 };
 
 const BLOCKS = [
   // ── flight ────────────────────────────────────────────────────────────────
@@ -36,41 +40,41 @@ const BLOCKS = [
     tooltip: "Charge left, 0 to 100." },
 
   // ── sensing ───────────────────────────────────────────────────────────────
-  { type: "marker_visible", message0: "victim marker seen?", colour: C.sense,
-    tooltip: "True while the camera can see a victim marker.",
+  { type: "marker_visible", message0: "fire marker seen?", colour: C.sense,
+    tooltip: "True while the camera can see a fire marker.",
     output: "Boolean" },
-  { type: "marker_position_is", message0: "victim marker is %1", colour: C.sense,
+  { type: "marker_position_is", message0: "fire marker is %1", colour: C.sense,
     args0: [{ type: "field_dropdown", name: "POS", options: [
       ["on the left", "left"], ["in the centre", "center"], ["on the right", "right"]] }],
-    tooltip: "True when the visible victim marker is in the selected part of the camera view.",
+    tooltip: "True when the visible fire marker is in the selected part of the camera view.",
     output: "Boolean" },
-  { type: "sense_distance", message0: "distance to victim (cm)", colour: C.sense,
-    tooltip: "How far away the victim is. Reads 9999 when nothing is in view, " +
+  { type: "sense_distance", message0: "distance to fire (cm)", colour: C.sense,
+    tooltip: "How far away the fire is. Reads 9999 when nothing is in view, " +
              "so 'keep doing until distance < 120' keeps searching instead of stopping.",
     output: "Number" },
-  { type: "sense_bearing", message0: "direction to victim (°)", colour: C.sense,
+  { type: "sense_bearing", message0: "direction to fire (°)", colour: C.sense,
     tooltip: "Negative = to the left, positive = to the right. 0 when nothing is in view.",
     output: "Number" },
-  { type: "sense_elevation", message0: "height angle to victim (°)", colour: C.sense,
+  { type: "sense_elevation", message0: "height angle to fire (°)", colour: C.sense,
     tooltip: "Negative = below the drone, positive = above. 0 when nothing is in view.",
     output: "Number" },
-  { type: "sense_count", message0: "victims in view", colour: C.sense,
-    tooltip: "How many victim markers the camera can see right now.",
+  { type: "sense_count", message0: "fires in view", colour: C.sense,
+    tooltip: "How many fire markers the camera can see right now.",
     output: "Number" },
 
   // ── mission ───────────────────────────────────────────────────────────────
-  { type: "approach_marker", message0: "approach victim and stop", colour: C.mission,
-    tooltip: "Chooses the closest visible victim, flies toward it, and stops at the configured safe distance.",
+  { type: "approach_marker", message0: "approach fire and stop", colour: C.mission,
+    tooltip: "Chooses the closest visible fire, flies toward it, and stops at the configured safe distance.",
     previousStatement: null, nextStatement: null },
-  { type: "mark_found", message0: "signal victim found 🎉", colour: C.mission,
-    tooltip: "Performs the required signal and adds one to the victims-found count.",
+  { type: "mark_found", message0: "signal fire found 🎉", colour: C.mission,
+    tooltip: "Performs the required signal and adds one to the fires-found count.",
     previousStatement: null, nextStatement: null },
-  { type: "sense_found_count", message0: "victims found so far", colour: C.mission,
-    tooltip: "The number of times this program has used 'signal victim found'.",
+  { type: "sense_found_count", message0: "fires found so far", colour: C.mission,
+    tooltip: "The number of times this program has used 'signal fire found'.",
     output: "Number" },
-  { type: "found_count_gte", message0: "victims found ≥ %1", colour: C.mission,
+  { type: "found_count_gte", message0: "fires found ≥ %1", colour: C.mission,
     args0: [{ type: "field_number", name: "N", value: 3, min: 1, max: 20 }],
-    tooltip: "True when the victims-found count is at least the selected number.",
+    tooltip: "True when the fires-found count is at least the selected number.",
     output: "Boolean" },
   { type: "end_mission", message0: "end mission and land 🏁", colour: C.mission,
     tooltip: "Lands immediately and finishes the program without running later blocks.",
@@ -93,7 +97,7 @@ const BLOCKS = [
   { type: "while_block", message0: "while %1 keep doing %2", colour: C.flow,
     args0: [{ type: "input_value", name: "COND", check: "Boolean" },
             { type: "input_statement", name: "BODY" }],
-    tooltip: "The opposite of 'keep doing until' — runs while the test is true.",
+    tooltip: "The opposite of 'keep doing until'. Runs while the test is true.",
     previousStatement: null, nextStatement: null },
   { type: "if_block", message0: "if %1 then %2 else %3", colour: C.flow,
     args0: [{ type: "input_value", name: "COND", check: "Boolean" },
@@ -118,7 +122,7 @@ const BLOCKS = [
             { type: "field_dropdown", name: "OP", options: [
               ["<", "<"], [">", ">"], ["≤", "<="], ["≥", ">="], ["=", "=="], ["≠", "!="]] },
             { type: "input_value", name: "B", check: "Number" }],
-    tooltip: "Compares two numbers, e.g. distance to victim < 120.",
+    tooltip: "Compares two numbers, e.g. distance to fire < 120.",
     output: "Boolean" },
   { type: "logic_op", message0: "%1 %2 %3", colour: C.logic, inputsInline: true,
     args0: [{ type: "input_value", name: "A", check: "Boolean" },
@@ -219,7 +223,7 @@ function operand(b, name) {
 }
 
 function fill(what, dflt, why) {
-  warn(`${what} is empty — ${why || `filled in with ${dflt}`}`);
+  warn(`${what} is empty, ${why || `filled in with ${dflt}`}`);
   return dflt;
 }
 
@@ -232,7 +236,7 @@ function slot(b, name, what, dflt, limit, why) {
   if (typeof out !== "number" || !LIMITS[limit]) return out; // expressions clamp at run time
   const [lo, hi] = LIMITS[limit];
   const c = Math.min(hi, Math.max(lo, out));
-  if (c !== out) warn(`${what} has to be ${lo} to ${hi} — using ${c} instead of ${out}`);
+  if (c !== out) warn(`${what} has to be ${lo} to ${hi}, using ${c} instead of ${out}`);
   return c;
 }
 

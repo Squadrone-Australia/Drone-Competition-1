@@ -231,7 +231,7 @@ test("statement blocks are not values", () => {
 
 // ── recursion ───────────────────────────────────────────────────────────────
 test("expressions nest to arbitrary depth", () => {
-  // not( (distance / 2) + battery > found_count * 3  and  victim seen? )
+  // not( (distance / 2) + battery > found_count * 3  and  fire seen? )
   const expr = fake("logic_not", { inputs: { VALUE:
     fake("logic_op", { fields: { OP: "and" }, inputs: {
       A: fake("compare", { fields: { OP: ">" }, inputs: {

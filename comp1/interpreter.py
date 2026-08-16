@@ -317,7 +317,7 @@ class Interpreter:
                 # A cluttered arena drops frames in bursts — glare, motion blur
                 # after a rotate, something passing in front. Hover and keep
                 # looking for the whole budget rather than treating the first
-                # few empty frames as a vanished victim.
+                # few empty frames as a vanished fire.
                 now = asyncio.get_running_loop().time()
                 if blind_until is None:
                     blind_until = now + cfg.approach_lost_timeout_s

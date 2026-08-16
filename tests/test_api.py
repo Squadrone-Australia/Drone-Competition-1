@@ -11,7 +11,7 @@ from comp1.api import Drone, EmergencyStop, ScriptRun, Session, current_session
 from comp1.drone.mock import MockDrone
 from comp1.server import create_app
 from comp1.sim.drone import SimDrone
-from comp1.sim.world import VICTIM, Marker, World
+from comp1.sim.world import FIRE, Marker, World
 from comp1.vision.config import DEFAULT_CONFIG
 from comp1.vision.detector import Detection, TargetTracker
 
@@ -30,7 +30,7 @@ def mock_session(detection=None, **kw):
 
 def sim_session(world=None, heading=0.0, **kw):
     adapter = SimDrone(
-        world=world or World(size_m=4.0, markers=[Marker(2.0, 4.0, VICTIM)]), delay=0
+        world=world or World(size_m=4.0, markers=[Marker(2.0, 4.0, FIRE)]), delay=0
     )
     adapter.heading = heading
     tracker = TargetTracker(DEFAULT_CONFIG)
@@ -194,7 +194,7 @@ def test_approach_gives_up_when_the_target_is_never_seen():
 
 def test_approach_rides_out_a_dropout_and_resumes():
     # Same burst-of-dropped-frames case as the block pathway: a cluttered arena
-    # blinds the detector for well under a second and the victim is still there.
+    # blinds the detector for well under a second and the fire is still there.
     seq = iter(
         [
             seen(distance_m=3.0, bearing_deg=0.0),

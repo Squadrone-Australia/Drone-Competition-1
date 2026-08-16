@@ -6,7 +6,7 @@ Run it:  python -m comp1 --script examples/03_distance_decisions.py --drone sim
 see what it is made of — and so you can build something smarter.
 
 Two readings drive everything:
-  drone.bearing_deg()   which way the victim is:  + right, - left, 0 straight ahead
+  drone.bearing_deg()   which way the fire is:  + right, - left, 0 straight ahead
   drone.distance_cm()   how far away it is
 """
 
