@@ -132,6 +132,9 @@ def reconnectable_tello(monkeypatch):
     import comp1.drone.tello as t
 
     instances = []
+    # djitellopy keys its response queue by aircraft IP, so every Tello object
+    # pointed at the same drone reads the same one
+    queue = {"responses": [], "state": {}}
 
     class FakeTello:
         def __init__(self):
@@ -141,9 +144,12 @@ def reconnectable_tello(monkeypatch):
             self.background_frame_read = None
             self.address = ("192.168.10.1", 8889)
             self.reader = FakeReader()
+            self.queue = queue
+            self.queued_at_connect = None
             instances.append(self)
 
         def connect(self):
+            self.queued_at_connect = len(self.queue["responses"])
             self.log.append("connect")
 
         def streamon(self):
@@ -162,6 +168,9 @@ def reconnectable_tello(monkeypatch):
 
         def send_command_without_return(self, command):
             self.log.append(command)
+
+        def get_own_udp_object(self):
+            return self.queue
 
     monkeypatch.setattr(t, "Tello", FakeTello)
     return instances, t.TelloDrone
@@ -248,3 +257,25 @@ def test_a_command_failure_marks_the_link_down(reconnectable_tello):
     with pytest.raises(RuntimeError):
         drone.takeoff()
     assert drone.link_ok is False
+
+
+def test_a_reconnect_starts_with_an_empty_response_queue(
+    reconnectable_tello, monkeypatch
+):
+    """djitellopy pairs replies with commands *positionally* — a command takes
+    whatever datagram is at the head of the queue. One stray "ok" left over from
+    a dead session therefore offsets every reply from then on, and a command
+    reads the answer to the one before it: which is how the aircraft's "error
+    Not joystick" ends up reported against an innocent command."""
+    import comp1.drone.tello as tello_module
+
+    monkeypatch.setattr(tello_module, "_STALE_RESPONSE_SETTLE_S", 0)
+    instances, TelloDrone = reconnectable_tello
+    drone = TelloDrone()
+    drone.connect()
+
+    # a late answer from the session we are retiring, or from before a reboot
+    instances[-1].queue["responses"].append(b"ok")
+    drone.reconnect()
+
+    assert instances[-1].queued_at_connect == 0

@@ -131,6 +131,15 @@ exactly what made sim → tello → sim need a restart. `server._activate` close
 never the simulator (it holds the seed, the scenery and any teacher edits). **`close()` must never
 fly the aircraft.**
 
+**Replies are paired with commands positionally, so a stale one poisons everything after it.**
+`send_command_with_return` takes whatever datagram is at the head of `drones[ip]["responses"]` — it
+does not correlate it to the command it just sent. One leftover `ok` from a retired session therefore
+offsets every reply from then on and each command reads the answer to the one before it, which is how
+the aircraft's own `error Not joystick` gets reported against an innocent command. `TelloDrone.connect`
+pauses `_STALE_RESPONSE_SETTLE_S` after retiring a live session so its last answers land in the queue
+that is about to be discarded, then drains what is left before entering SDK mode. Never send a command
+from a retired object — that is also why `close()` uses `send_command_without_return`.
+
 **Loss is detected as silence, and repaired by the watchdog.** `TelloDrone.get_frame` treats the same
 frame object past `flight.link_timeout_s` as a dead link and returns `None` (a frozen picture reads
 as a working camera); any command that raises clears `link_ok` too. `server._link_loop` polls

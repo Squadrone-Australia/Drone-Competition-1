@@ -13,6 +13,23 @@ _OPPOSITE = {"forward": "back", "back": "forward", "left": "right", "right": "le
 #: video loop asks for a frame ten times a second and re-opening the stream
 #: blocks for seconds, so without this a dead stream would stall the loop.
 _REOPEN_INTERVAL_S = 2.0
+#: How long a reconnect pauses so the retiring session's last replies land in
+#: the queue that is about to be thrown away rather than the new one. Every
+#: command's own timeout is measured in seconds, so this is cheap insurance.
+_STALE_RESPONSE_SETTLE_S = 0.4
+
+
+def _drain_responses(t) -> None:
+    """Throw away datagrams queued for this aircraft. Never raises.
+
+    They can only be answers to commands from a session that no longer exists —
+    a reboot, or the adapter we just retired — and djitellopy would hand the
+    first of them to the next command as if it were its own reply.
+    """
+    try:
+        t.get_own_udp_object()["responses"].clear()
+    except Exception:
+        pass
 
 
 class TelloDrone(DroneAdapter):
@@ -39,6 +56,9 @@ class TelloDrone(DroneAdapter):
         self._reader = None
         self.flight = flight
         self.link_ok = False
+        #: whether a session has actually been opened on the aircraft — a
+        #: teardown only has replies to outrun if there was one
+        self._session_live = False
         self._last_frame = None  # identity of the last *decoded* frame
         self._frame_at = 0.0
         self._reopen_at = 0.0
@@ -52,10 +72,22 @@ class TelloDrone(DroneAdapter):
         (see :meth:`DroneAdapter.reconnect`) and can be called any number of
         times.
         """
+        had_session = self._session_live
         self.close()
-        self._t = Tello()
+        if had_session:
+            # Let the dying session's last answers arrive before the new one
+            # starts listening. djitellopy pairs replies with commands
+            # *positionally* — a command takes whatever datagram is at the head
+            # of the queue — so one stray "ok" left over from the old session
+            # offsets every reply from then on, and a command reads the answer
+            # to the one before it. That mis-pairing is how an innocent command
+            # ends up reporting the aircraft's "error Not joystick".
+            time.sleep(_STALE_RESPONSE_SETTLE_S)
+        self._t = Tello()  # installs a fresh, empty response queue
+        _drain_responses(self._t)  # ...and anything that beat us to it
         self._t.connect()
         self._t.streamon()
+        self._session_live = True
         self.link_ok = True
         self._last_frame = None
         self._frame_at = time.monotonic()
@@ -69,6 +101,7 @@ class TelloDrone(DroneAdapter):
         """Drop the video stream and retire the aircraft object. Never flies."""
         self._release_reader()
         old, self._t = self._t, None
+        self._session_live = False
         self.link_ok = False
         if old is None:
             return
@@ -121,16 +154,20 @@ class TelloDrone(DroneAdapter):
         except Exception:
             pass
 
-    def _cmd(self, call, *args):
+    def _cmd(self, name: str, *args):
         """Run an aircraft command, noting a link loss before re-raising.
 
-        The interpreter turns the exception into a finished-with-error mission;
-        the cleared flag is what lets the server reconnect once it stops.
+        Looked up by name rather than taken as a bound method so that a command
+        issued between a close and the next connect reports what is actually
+        wrong instead of an AttributeError on None. The interpreter turns the
+        exception into a finished-with-error mission; the cleared flag is what
+        lets the server reconnect once it stops.
         """
-        if self._t is None:
+        aircraft = self._t
+        if aircraft is None:
             raise RuntimeError("the Tello is not connected")
         try:
-            return call(*args)
+            return getattr(aircraft, name)(*args)
         except Exception:
             self.link_ok = False
             raise
@@ -138,27 +175,24 @@ class TelloDrone(DroneAdapter):
     # --- flight ----------------------------------------------------------
 
     def takeoff(self):
-        self._cmd(self._t.takeoff)
+        self._cmd("takeoff")
 
     def land(self):
-        self._cmd(self._t.land)
+        self._cmd("land")
 
     def emergency(self):
-        self._cmd(self._t.emergency)
+        self._cmd("emergency")
 
     def move(self, direction, cm):
-        self._cmd(getattr(self._t, f"move_{direction}"), cm)
+        self._cmd(f"move_{direction}", cm)
 
     def rotate(self, direction, deg):
         self._cmd(
-            self._t.rotate_clockwise
-            if direction == "cw"
-            else self._t.rotate_counter_clockwise,
-            deg,
+            "rotate_clockwise" if direction == "cw" else "rotate_counter_clockwise", deg
         )
 
     def flip(self, direction):
-        self._cmd(self._t.flip, _FLIP_CODE[direction])
+        self._cmd("flip", _FLIP_CODE[direction])
         # The aircraft throws itself along the flip direction and stays there,
         # so without this a "signal fire found" back-flip leaves the drone
         # short of the fire it just found and every following move starts from
@@ -213,4 +247,4 @@ class TelloDrone(DroneAdapter):
         return True
 
     def battery(self) -> int:
-        return self._cmd(self._t.get_battery)
+        return self._cmd("get_battery")
