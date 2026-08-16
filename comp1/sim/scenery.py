@@ -8,10 +8,10 @@ A scenery is just a recipe for a :class:`~comp1.sim.world.World`. Two exist:
 
 ``corridor``
     A long hall. The drone starts at one end, a fixed **destination sign** sits
-    at the other, and the victims are sprinkled free-standing down the middle —
+    at the other, and the fires are sprinkled free-standing down the middle —
     a point A to point B navigation exercise (requirements §3.4) on top of the
     search task. The destination is an ordinary red circle, so the detector
-    reports it exactly like a victim; working out which is which is the job.
+    reports it exactly like a fire; working out which is which is the job.
 
 **These are absolute arena coordinates.** Like :meth:`DroneAdapter.scene`, they
 reach the browser so the arena can be drawn and edited, and they must never
@@ -21,18 +21,18 @@ forbids any "fly to a fixed coordinate" capability.
 
 import random
 
-from .world import DESTINATION, DISTRACTOR_KINDS, VICTIM, Marker, World
+from .world import DESTINATION, DISTRACTOR_KINDS, FIRE, Marker, World
 
 CORRIDOR_W_M = 2.5
 CORRIDOR_L_M = 10.0
-CORRIDOR_VICTIMS = 3
+CORRIDOR_FIRES = 3
 CORRIDOR_DISTRACTORS = 2
 
-# Placement rules for free-standing markers. A victim on a wall is a different
+# Placement rules for free-standing markers. A fire on a wall is a different
 # exercise (you can sweep the perimeter); these stand in the open, so they need
 # real clearance to stay individually detectable.
 WALL_CLEARANCE_M = 0.5  # never flush against a wall
-MIN_VICTIM_SEP_M = 1.2  # two closer than this read as one blob to the detector
+MIN_FIRE_SEP_M = 1.2  # two closer than this read as one blob to the detector
 PAD_CLEARANCE_M = 1.2  # keep the start pad and its approach clear
 
 _PLACE_ATTEMPTS = 2000
@@ -50,7 +50,7 @@ def catalog() -> list[dict]:
             "id": "corridor",
             "name": "Corridor",
             "description": f"{CORRIDOR_W_M:g} x {CORRIDOR_L_M:g} m hall — fly from the "
-            "start pad to the destination sign, finding victims on the way.",
+            "start pad to the destination sign, finding fires on the way.",
         },
     ]
 
@@ -75,7 +75,7 @@ def _corridor(seed=None) -> World:
     # Fixed, and deliberately so: the destination is the one thing in the room a
     # student can count on being in the same place every run.
     markers = [Marker(w / 2, length - 0.6, DESTINATION)]
-    kinds = [VICTIM] * CORRIDOR_VICTIMS + [
+    kinds = [FIRE] * CORRIDOR_FIRES + [
         rng.choice(DISTRACTOR_KINDS) for _ in range(CORRIDOR_DISTRACTORS)
     ]
     rng.shuffle(kinds)
@@ -106,23 +106,23 @@ def is_free(x, y, w, d, markers, start_xy) -> bool:
         return False
     if (x - start_xy[0]) ** 2 + (y - start_xy[1]) ** 2 < PAD_CLEARANCE_M**2:
         return False
-    return all((m.x - x) ** 2 + (m.y - y) ** 2 >= MIN_VICTIM_SEP_M**2 for m in markers)
+    return all((m.x - x) ** 2 + (m.y - y) ** 2 >= MIN_FIRE_SEP_M**2 for m in markers)
 
 
-def with_victims(world: World, points) -> World:
-    """``world`` with its victims replaced by ``points``.
+def with_fires(world: World, points) -> World:
+    """``world`` with its fires replaced by ``points``.
 
     Everything else — the destination, the distractors, the start pad — is kept
-    exactly where it was, so editing the victims never shuffles the rest of the
+    exactly where it was, so editing the fires never shuffles the rest of the
     room under the user. Points that break the placement rules are dropped;
     the caller finds out by reading the world it gets back.
     """
-    kept = [m for m in world.markers if m.kind != VICTIM]
+    kept = [m for m in world.markers if m.kind != FIRE]
     w, d, start = world.width_m, world.depth_m, world.start_xy
     for p in points:
         x, y = (p["x"], p["y"]) if isinstance(p, dict) else (p[0], p[1])
         if is_free(float(x), float(y), w, d, kept, start):
-            kept.append(Marker(float(x), float(y), VICTIM))
+            kept.append(Marker(float(x), float(y), FIRE))
     return World(
         size_m=world.size_m,
         markers=kept,

@@ -1,4 +1,4 @@
-# Vision tuning for the red victim marker detector.
+# Vision tuning for the red fire marker detector.
 #
 # Copy this file (e.g. to vision_config.toml) and pass it with
 #   comp1 --vision-config vision_config.toml
@@ -33,7 +33,7 @@ solidity_min = 0.85        # contour area / hull area -- disc ~ 1.0, five-point 
 center_band = 0.2          # |cx - 0.5| < band/2 counts as "centered"
 
 # --- physical geometry: what turns pixels into metres ---
-marker_diameter_m = 0.25   # printed victim marker, A4-ish
+marker_diameter_m = 0.25   # printed fire marker, A4-ish
 # camera_dfov_deg = 82.6   # uncomment to override the Tello's diagonal FOV (see calibrate.py)
 
 # --- approach control, in real units (requirements §3.2) ---

@@ -3,7 +3,7 @@
    One theme (dark), one accent (Squadrone orange), one radius scale.
    The orange is the logo's own colour and is already what the simulator paints
    the drone arms with (scene3d.js COL.arm), so the brand reads in both views.
-   Semantic colours (ok / warn / danger / victim-red) are NOT accents and never
+   Semantic colours (ok / warn / danger / fire-red) are NOT accents and never
    stand in for the brand.
    ========================================================================== */
 :root {

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from comp1.sim.render import render
-from comp1.sim.world import VICTIM, Marker, World
+from comp1.sim.world import FIRE, Marker, World
 from comp1.vision.detector import detect_red_circle
 
 
@@ -14,20 +14,20 @@ def see(kind, x=2.0, y=4.0, heading=0.0):
     return detect_red_circle(render(world_with(kind, x, y), 2.0, 2.0, 1.0, heading))
 
 
-def test_victim_ahead_is_detected_centre():
-    det = see(VICTIM)
+def test_fire_ahead_is_detected_centre():
+    det = see(FIRE)
     assert det.found and det.position == "center"
 
 
-def test_victim_to_left_reads_left():
+def test_fire_to_left_reads_left():
     # ~27 deg off the nose: inside the real Tello's ~70 deg horizontal FOV
-    assert see(VICTIM, x=1.0).position == "left"
+    assert see(FIRE, x=1.0).position == "left"
 
 
 def test_marker_outside_the_real_camera_fov_is_not_seen():
     # ~37 deg off the nose — visible under the old 83 deg sim camera, but past
     # the edge of the actual hardware's frame
-    assert not see(VICTIM, x=0.5).found
+    assert not see(FIRE, x=0.5).found
 
 
 def test_distractors_not_detected():
@@ -36,13 +36,13 @@ def test_distractors_not_detected():
 
 
 def test_marker_behind_not_detected_and_minimap_is_not_a_false_positive():
-    # victim behind the drone: only the minimap's red dot is in frame
-    assert not see(VICTIM, y=0.0, heading=0.0).found
+    # fire behind the drone: only the minimap's red dot is in frame
+    assert not see(FIRE, y=0.0, heading=0.0).found
 
 
 def test_apparent_size_grows_as_drone_nears():
-    far = detect_red_circle(render(world_with(VICTIM), 2.0, 1.0, 1.0, 0.0))
-    near = detect_red_circle(render(world_with(VICTIM), 2.0, 3.4, 1.0, 0.0))
+    far = detect_red_circle(render(world_with(FIRE), 2.0, 1.0, 1.0, 0.0))
+    near = detect_red_circle(render(world_with(FIRE), 2.0, 3.4, 1.0, 0.0))
     assert near.area_ratio > far.area_ratio > 0
 
 
@@ -53,7 +53,7 @@ def empty_room(size_m=4.0):
     return World(size_m=size_m, markers=[])
 
 
-def test_scenery_alone_is_never_a_victim():
+def test_scenery_alone_is_never_a_fire():
     """The room fills nearly every pixel, so a warm-toned wall would be a
     false positive on every frame. Sweep the arena rather than spot-check one
     pose — corners, floor-facing and ceiling-facing views all shade differently.
@@ -81,7 +81,7 @@ def empty_corridor():
     )
 
 
-def test_corridor_scenery_alone_is_never_a_victim():
+def test_corridor_scenery_alone_is_never_a_fire():
     """The same sweep for the rectangular room.
 
     A corridor is not the square arena with different numbers: the walls are at
@@ -100,24 +100,24 @@ def test_corridor_scenery_alone_is_never_a_victim():
                     )
 
 
-def test_a_victim_down_the_corridor_measures_true():
+def test_a_fire_down_the_corridor_measures_true():
     """The whole exercise is flying a long way to something small, so the range
     estimate has to survive being made at range."""
     world = empty_corridor()
-    world.markers = [Marker(1.25, 4.0, VICTIM)]
+    world.markers = [Marker(1.25, 4.0, FIRE)]
     det = detect_red_circle(render(world, 1.25, 1.0, 1.0, 0.0))
     assert det.found and det.distance_m == pytest.approx(3.0, rel=0.1)
 
 
-def test_the_destination_sign_reads_exactly_like_a_victim():
+def test_the_destination_sign_reads_exactly_like_a_fire():
     """§3.1 and the corridor's whole premise: the detector cannot tell them apart."""
     from comp1.sim.world import DESTINATION
 
-    victim = detect_red_circle(render(world_with(VICTIM), 2.0, 2.0, 1.0, 0.0))
+    fire = detect_red_circle(render(world_with(FIRE), 2.0, 2.0, 1.0, 0.0))
     dest = detect_red_circle(render(world_with(DESTINATION), 2.0, 2.0, 1.0, 0.0))
-    assert victim.found and dest.found
-    assert dest.distance_m == pytest.approx(victim.distance_m)
-    assert dest.bearing_deg == pytest.approx(victim.bearing_deg)
+    assert fire.found and dest.found
+    assert dest.distance_m == pytest.approx(fire.distance_m)
+    assert dest.bearing_deg == pytest.approx(fire.bearing_deg)
 
 
 def test_the_room_is_actually_drawn():
@@ -137,11 +137,11 @@ def test_the_view_changes_as_the_drone_moves_with_no_marker_in_sight():
 
 
 def test_a_marker_is_still_measurable_against_the_new_background():
-    det = detect_red_circle(render(world_with(VICTIM), 2.0, 2.0, 1.0, 0.0))
+    det = detect_red_circle(render(world_with(FIRE), 2.0, 2.0, 1.0, 0.0))
     assert det.found and det.distance_m == pytest.approx(2.0, rel=0.1)
 
 
 def test_markers_are_drawn_over_the_scenery_not_behind_it():
     plain = detect_red_circle(render(empty_room(), 2.0, 2.0, 1.0, 0.0))
-    with_marker = detect_red_circle(render(world_with(VICTIM), 2.0, 2.0, 1.0, 0.0))
+    with_marker = detect_red_circle(render(world_with(FIRE), 2.0, 2.0, 1.0, 0.0))
     assert not plain.found and with_marker.found

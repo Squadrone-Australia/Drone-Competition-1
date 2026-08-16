@@ -1,6 +1,6 @@
 # Colour calibration for beginners
 
-The drone finds victims by looking for a red circle in its camera picture. A red marker can look
+The drone finds fires by looking for a red circle in its camera picture. A red marker can look
 bright scarlet outdoors, dark brown in a shadow, or pale pink under strong indoor lights. Colour
 calibration teaches the program what **red looks like in the current room**.
 
@@ -48,7 +48,7 @@ The camera describes each pixel using three properties:
 
 A pixel enters the highlighted mask only when it passes **all three** checks. After that, the
 program still checks whether the highlighted area is large enough and circular enough. Seeing a
-few red pixels does not automatically count as finding a victim.
+few red pixels does not automatically count as finding a fire.
 
 ## Hue bands: which colours are accepted?
 
@@ -131,7 +131,7 @@ while breaking several others.
 ## Understanding the preview
 
 The preview deliberately dims rejected pixels and highlights accepted pixels. It answers “which
-pixels match the configured colour?” It does not mean every highlighted patch is a detected victim.
+pixels match the configured colour?” It does not mean every highlighted patch is a detected fire.
 
 A good preview has:
 

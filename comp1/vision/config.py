@@ -32,7 +32,7 @@ class VisionConfig:
 
     # --- physical geometry: what turns pixels into metres ---
     intrinsics: CameraIntrinsics = field(default=TELLO_INTRINSICS)
-    marker_diameter_m: float = 0.25  # printed victim marker, A4-ish
+    marker_diameter_m: float = 0.25  # printed fire marker, A4-ish
 
     # --- approach control, in real units (requirements §3.2) ---
     approach_stop_distance_m: float = 0.5
@@ -48,7 +48,7 @@ class VisionConfig:
     # A budget in seconds, not in polls: a poll costs 0.3 s when the marker is
     # missing but several seconds when it is visible and the drone is flying a
     # blocking move, so a poll count is not a predictable amount of blindness.
-    # Cluttered arenas drop frames in bursts, and a burst is not a lost victim.
+    # Cluttered arenas drop frames in bursts, and a burst is not a lost fire.
     approach_lost_timeout_s: float = 2.5
 
     # --- multi-target locking ---

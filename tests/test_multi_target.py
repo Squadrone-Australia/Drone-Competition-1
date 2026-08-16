@@ -3,7 +3,7 @@ import numpy as np
 
 from comp1.sim.drone import SimDrone
 from comp1.sim.render import draw_minimap, render
-from comp1.sim.world import VICTIM, Marker, World
+from comp1.sim.world import FIRE, Marker, World
 from comp1.vision.detector import TargetTracker, detect_red_circle, find_targets
 
 RED = (0, 0, 220)
@@ -84,7 +84,7 @@ def test_tracker_handles_a_dropped_frame():
 
 
 def test_minimap_is_not_in_the_frame_the_detector_sees():
-    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, VICTIM)])
+    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, FIRE)])
     drone = SimDrone(world=world, delay=0)
     sensor = drone.get_frame()
     assert np.array_equal(
@@ -98,11 +98,11 @@ def test_minimap_is_not_in_the_frame_the_detector_sees():
 
 
 def test_minimap_dots_would_otherwise_be_detectable_clutter():
-    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, VICTIM)])
+    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, FIRE)])
     drone = SimDrone(world=world, delay=0)
     sensor = drone.get_frame()
     mapped = draw_minimap(sensor, world, drone.x, drone.y, drone.heading)
-    # the dots are drawn in exactly the victim's red, so keeping them out of the
+    # the dots are drawn in exactly the fire's red, so keeping them out of the
     # sensor path is what makes the area gate safe to re-tune
     x0 = mapped.shape[1] - 150
     assert (mapped[10:150, x0:] != sensor[10:150, x0:]).any()

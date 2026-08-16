@@ -4,7 +4,7 @@ import time
 import pytest
 
 from comp1.sim.drone import SimDrone
-from comp1.sim.world import VICTIM, Marker, World
+from comp1.sim.world import FIRE, Marker, World
 
 
 def drone():
@@ -189,11 +189,11 @@ def test_pose_reports_what_the_third_person_view_needs():
 
 
 def test_scene_describes_the_arena():
-    world = World(size_m=5.0, markers=[Marker(1.0, 5.0, VICTIM)])
+    world = World(size_m=5.0, markers=[Marker(1.0, 5.0, FIRE)])
     s = SimDrone(world=world, delay=0).scene()
     assert s["size_m"] == 5.0 and s["wall_height_m"] > 0
     assert s["markers"] == [
-        {"x": 1.0, "y": 5.0, "kind": VICTIM, "size_m": 0.25, "height_m": 1.0}
+        {"x": 1.0, "y": 5.0, "kind": FIRE, "size_m": 0.25, "height_m": 1.0}
     ]
 
 

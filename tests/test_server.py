@@ -440,17 +440,17 @@ def test_editing_the_layout_re_sends_the_arena():
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         collect_until(ws, "sceneries")
-        ws.send_json({"type": "layout", "victims": [{"x": 1.25, "y": 5.0}]})
+        ws.send_json({"type": "layout", "fires": [{"x": 1.25, "y": 5.0}]})
         scene = collect_where(
             ws,
             "scene",
-            lambda m: [k["kind"] for k in m["scene"]["markers"]].count("victim") <= 1,
+            lambda m: [k["kind"] for k in m["scene"]["markers"]].count("fire") <= 1,
         )
-        victims = [k for k in scene["scene"]["markers"] if k["kind"] == "victim"]
-        assert len(victims) <= 1
+        fires = [k for k in scene["scene"]["markers"] if k["kind"] == "fire"]
+        assert len(fires) <= 1
         # whatever survived validation, the destination is untouched
         assert any(k["kind"] == "destination" for k in scene["scene"]["markers"])
-    assert scenery.MIN_VICTIM_SEP_M > 0
+    assert scenery.MIN_FIRE_SEP_M > 0
 
 
 def test_clearing_the_layout_leaves_the_destination_alone():
@@ -460,13 +460,13 @@ def test_clearing_the_layout_leaves_the_destination_alone():
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         collect_until(ws, "sceneries")
-        ws.send_json({"type": "layout", "victims": []})
+        ws.send_json({"type": "layout", "fires": []})
         collect_where(
             ws,
             "scene",
-            lambda m: not [k for k in m["scene"]["markers"] if k["kind"] == "victim"],
+            lambda m: not [k for k in m["scene"]["markers"] if k["kind"] == "fire"],
         )
-    assert drone.world.victims == []
+    assert drone.world.fires == []
     assert drone.world.destination is not None
 
 
@@ -507,19 +507,19 @@ def test_a_drone_with_no_arena_says_so_rather_than_failing_quietly():
 
 def _corridor_drone():
     from comp1.sim.drone import SimDrone
-    from comp1.sim.world import DESTINATION, VICTIM, Marker, World
+    from comp1.sim.world import DESTINATION, FIRE, Marker, World
 
     world = World(
         size_m=2.5,
         length_m=10.0,
         start=(1.25, 0.6),
         name="corridor",
-        markers=[Marker(1.25, 9.4, DESTINATION), Marker(1.25, 3.0, VICTIM)],
+        markers=[Marker(1.25, 9.4, DESTINATION), Marker(1.25, 3.0, FIRE)],
     )
     return SimDrone(world=world, delay=0)
 
 
-# start pad -> victim -> destination, then land
+# start pad -> fire -> destination, then land
 FLY_THE_CORRIDOR = {
     "version": 2,
     "blocks": [
@@ -557,7 +557,7 @@ def test_signalling_on_the_start_pad_credits_nothing():
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         ws.send_json({"type": "run", "program": program})
         msg = collect_where(ws, "mission", lambda m: m["signal"] is not None)
-        assert msg["signal"] == "no victim nearby"
+        assert msg["signal"] == "no fire nearby"
         assert msg["found"] == 0 and msg["state"] == "flying"
 
 

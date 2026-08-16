@@ -1,8 +1,8 @@
 import random
 from dataclasses import dataclass
 
-VICTIM = "victim"
-# The destination sign is a red circle, exactly like a victim, and the detector
+FIRE = "fire"
+# The destination sign is a red circle, exactly like a fire, and the detector
 # cannot tell the two apart — that is the point. Distinguishing them (the
 # destination is the one at the end of the corridor) is the student's problem.
 DESTINATION = "destination"
@@ -41,9 +41,9 @@ class World:
     name: str = "arena"
 
     @classmethod
-    def random(cls, seed=None, n_victims=3, n_distractors=4, size_m=4.0):
+    def random(cls, seed=None, n_fires=3, n_distractors=4, size_m=4.0):
         rng = random.Random(seed)
-        kinds = [VICTIM] * n_victims + [
+        kinds = [FIRE] * n_fires + [
             rng.choice(DISTRACTOR_KINDS) for _ in range(n_distractors)
         ]
         rng.shuffle(kinds)
@@ -79,8 +79,8 @@ class World:
     # --- markers -----------------------------------------------------------
 
     @property
-    def victims(self):
-        return [m for m in self.markers if m.kind == VICTIM]
+    def fires(self):
+        return [m for m in self.markers if m.kind == FIRE]
 
     @property
     def destination(self):

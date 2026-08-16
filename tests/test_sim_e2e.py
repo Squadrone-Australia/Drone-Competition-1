@@ -3,7 +3,7 @@ import math
 from comp1.interpreter import Interpreter
 from comp1.protocol import Program
 from comp1.sim.drone import SimDrone
-from comp1.sim.world import VICTIM, Marker, World
+from comp1.sim.world import FIRE, Marker, World
 from comp1.vision.config import DEFAULT_CONFIG
 from comp1.vision.detector import detect_red_circle
 
@@ -24,10 +24,10 @@ SEARCH_PROGRAM = {
 }
 
 
-async def test_full_mission_finds_victim_without_hardware():
-    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, VICTIM)])
+async def test_full_mission_finds_fire_without_hardware():
+    world = World(size_m=4.0, markers=[Marker(2.0, 4.0, FIRE)])
     drone = SimDrone(world=world, delay=0)
-    drone.heading = 180.0  # start facing AWAY from the victim
+    drone.heading = 180.0  # start facing AWAY from the fire
     events = []
     interp = Interpreter(
         drone, lambda: detect_red_circle(drone.get_frame()), events.append

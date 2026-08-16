@@ -29,7 +29,7 @@ monkeypatched and `SimDrone` substitutes for a real Tello.
 ## What this is
 
 A search-and-rescue drone competition platform for secondary-school students. Students drag Blockly
-blocks to program a DJI Tello EDU to patrol an arena, find red circular "victim" markers via
+blocks to program a DJI Tello EDU to patrol an arena, find red circular "fire" markers via
 onboard-camera OpenCV, signal each find, and (planned) navigate point A → point B.
 
 ## Architecture
@@ -121,8 +121,8 @@ and flight tuning are separate jobs — one is done with a camera pointed at a m
 tape measure on the arena floor.
 
 **A real Tello translates through a flip and stays displaced.** `TelloDrone.flip` follows the flip
-with a `flip_recover_cm` move the opposite way, so a "signal victim found" back-flip doesn't leave
-the drone short of the victim it just found and every following move starting from the wrong place.
+with a `flip_recover_cm` move the opposite way, so a "signal fire found" back-flip doesn't leave
+the drone short of the fire it just found and every following move starting from the wrong place.
 It lives in the adapter, so it covers both blocks and both pathways with no change to
 `interpreter.py` or `api.py`. Below the Tello's 20 cm translation floor the move is skipped, not
 attempted. `SimDrone.flip` animates the same lurch and recovery so the two views agree, but nets to
@@ -159,7 +159,7 @@ operator is pointing at. Loosen the defaults in `config.py` and you must check t
 commit; the margin is currently 25 on saturation and 10 on value.
 `check_coverage` rejects any *proposal* whose mask covers more than
 `MAX_MASK_COVERAGE` of the frame — without it a widened band passes its own preview and then flags
-a wall, silently invalidating `test_scenery_alone_is_never_a_victim`.
+a wall, silently invalidating `test_scenery_alone_is_never_a_fire`.
 
 [comp1/vision/camera.py](comp1/vision/camera.py) is the **single source of truth for geometry**.
 Everything is normalised by frame width (`f_norm = focal_px / width`) so one constant describes both
@@ -214,7 +214,7 @@ survives the cage; only real captured footage is that.
 
 `DroneAdapter.get_frame()` returns only what a real camera would see. Debug graphics go through
 `DroneAdapter.annotate()`, which the server applies to a *display copy* after detection has run.
-`SimDrone` uses this for its minimap — which is drawn in victim-red and would otherwise be clutter
+`SimDrone` uses this for its minimap — which is drawn in fire-red and would otherwise be clutter
 in the detector's own input.
 
 ### The simulator draws two views of one truth
@@ -228,8 +228,8 @@ freely; leave the disc alone.
 
 **Scenery colours must stay blue-dominant in BGR (`B >= G >= R`) and low-saturation.** Walls and
 floor are most of the frame, so a warm-grey wall is a false positive on every frame.
-`test_scenery_alone_is_never_a_victim` sweeps 324 poses of the square arena and
-`test_corridor_scenery_alone_is_never_a_victim` another 540 of the corridor to hold this.
+`test_scenery_alone_is_never_a_fire` sweeps 324 poses of the square arena and
+`test_corridor_scenery_alone_is_never_a_fire` another 540 of the corridor to hold this.
 
 The third-person view is browser-side three.js ([comp1/frontend/scene3d.js](comp1/frontend/scene3d.js),
 wired up by [comp1/frontend/view3d.js](comp1/frontend/view3d.js)). It is fed by two WebSocket
@@ -245,12 +245,12 @@ means "square" when the others are unset, so every old call site still works —
 `width_m`/`depth_m`/`start_xy` downstream, never `size_m`**.
 
 [comp1/sim/scenery.py](comp1/sim/scenery.py) is the registry: `catalog()`, `build(name, seed)`, and
-`with_victims(world, points)`. Two exist — `arena` (the 4 m square, markers on the walls) and
-`corridor` (2.5 x 10 m, drone at one end, a fixed `DESTINATION` marker at the other, victims
+`with_fires(world, points)`. Two exist — `arena` (the 4 m square, markers on the walls) and
+`corridor` (2.5 x 10 m, drone at one end, a fixed `DESTINATION` marker at the other, fires
 sprinkled free-standing down the middle by rejection sampling against `WALL_CLEARANCE_M` /
-`MIN_VICTIM_SEP_M` / `PAD_CLEARANCE_M`).
+`MIN_FIRE_SEP_M` / `PAD_CLEARANCE_M`).
 
-**The destination sign is byte-identical to a victim in the camera** — same red circle, same
+**The destination sign is byte-identical to a fire in the camera** — same red circle, same
 `KIND_STYLE` entry. The detector cannot tell them apart and must not learn how: distinguishing them
 is the exercise. `MissionScorer` knows the difference because it reads the arena, not the frame.
 
@@ -261,11 +261,11 @@ anything standing in the open.
 ### Mission success is scored against sim truth
 
 `mark_found` is a bare counter in `interpreter.py` and `api.py` — neither can know whether the drone
-was actually beside a victim. [comp1/sim/mission.py](comp1/sim/mission.py) can, and `server.py`
-scores every find through it: a signal credits the nearest un-credited victim within
-`CREDIT_RADIUS_M`, and the mission succeeds when all victims are credited *and* the drone has landed
-within `ARRIVAL_RADIUS_M` of the destination. A scenery with no destination succeeds on victims
-alone; a corridor cleared of victims succeeds on arrival alone.
+was actually beside a fire. [comp1/sim/mission.py](comp1/sim/mission.py) can, and `server.py`
+scores every find through it: a signal credits the nearest un-credited fire within
+`CREDIT_RADIUS_M`, and the mission succeeds when all fires are credited *and* the drone has landed
+within `ARRIVAL_RADIUS_M` of the destination. A scenery with no destination succeeds on fires
+alone; a corridor cleared of fires succeeds on arrival alone.
 
 **Crediting is synchronous, broadcasting is not.** `server._score` runs inside the `emit` callback,
 before the task that broadcasts. With `delay=0` a whole program finishes before a scheduled task
@@ -314,12 +314,12 @@ The cracks in that wall are all one-way and all live in `server.py` plus `comp1/
 - **Display** — `DroneAdapter.pose()`/`.scene()` hand arena coordinates to the browser so the 3D
   view and the plan panel can draw the room.
 - **Authoring** — `DroneAdapter.scenery_catalog()`/`.load_scenery()` let the browser's arena panel
-  pick a scenery and write victim coordinates back, so a teacher can lay a problem out by hand.
+  pick a scenery and write fire coordinates back, so a teacher can lay a problem out by hand.
 - **Scoring** — `MissionScorer` reads both to decide whether a find counted.
 
 Nothing in `comp1/interpreter.py` or `comp1/api.py` may call any of them, and **none of them may
 ever gain a block or a sensor**: no "fly to the destination" block, no `at_destination` sensor, no
-`victims_remaining` sensor. The drone finds the destination the way it finds a victim — by looking
+`fires_remaining` sensor. The drone finds the destination the way it finds a fire — by looking
 at it.
 
 **The frontend must work fully offline.** Blockly and three.js are vendored under

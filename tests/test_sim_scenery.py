@@ -4,7 +4,7 @@ import pytest
 
 from comp1.sim import scenery
 from comp1.sim.drone import SimDrone
-from comp1.sim.world import DESTINATION, VICTIM, Marker
+from comp1.sim.world import DESTINATION, FIRE, Marker
 
 
 def _dist(a, b):
@@ -13,7 +13,7 @@ def _dist(a, b):
 
 def _free_spot(world):
     """A legal spot down the centre line of ``world``, clear of what is already there."""
-    kept = [m for m in world.markers if m.kind != VICTIM]
+    kept = [m for m in world.markers if m.kind != FIRE]
     x = world.width_m / 2
     for i in range(5, int(world.depth_m * 10)):
         y = i / 10
@@ -50,17 +50,17 @@ def test_corridor_starts_at_one_end_and_finishes_at_the_other():
     assert sy < w.depth_m * 0.2 < w.depth_m * 0.8 < dest.y
 
 
-def test_destination_looks_exactly_like_a_victim_to_the_camera():
+def test_destination_looks_exactly_like_a_fire_to_the_camera():
     """§3.1: it is a red circle. The detector cannot tell them apart, on purpose."""
     from comp1.sim.render import KIND_STYLE
 
-    assert KIND_STYLE[DESTINATION] == KIND_STYLE[VICTIM]
+    assert KIND_STYLE[DESTINATION] == KIND_STYLE[FIRE]
 
 
-def test_corridor_victims_stand_free_in_the_room():
+def test_corridor_fires_stand_free_in_the_room():
     w = scenery.build("corridor", seed=3)
-    assert len(w.victims) == scenery.CORRIDOR_VICTIMS
-    for m in w.victims:
+    assert len(w.fires) == scenery.CORRIDOR_FIRES
+    for m in w.fires:
         assert scenery.WALL_CLEARANCE_M <= m.x <= w.width_m - scenery.WALL_CLEARANCE_M
         assert scenery.WALL_CLEARANCE_M <= m.y <= w.depth_m - scenery.WALL_CLEARANCE_M
 
@@ -71,7 +71,7 @@ def test_corridor_markers_are_far_enough_apart_to_be_told_apart():
         placed = [(m.x, m.y) for m in w.markers]
         for i, a in enumerate(placed):
             for b in placed[i + 1 :]:
-                assert _dist(a, b) >= scenery.MIN_VICTIM_SEP_M - 1e-9
+                assert _dist(a, b) >= scenery.MIN_FIRE_SEP_M - 1e-9
 
 
 def test_corridor_keeps_the_start_pad_clear():
@@ -88,23 +88,23 @@ def test_same_seed_is_the_same_corridor():
     )
 
 
-def test_randomising_moves_the_victims_but_never_the_destination():
+def test_randomising_moves_the_fires_but_never_the_destination():
     a = scenery.build("corridor", seed=1)
     b = scenery.build("corridor", seed=2)
-    assert a.victims != b.victims
+    assert a.fires != b.fires
     assert a.destination == b.destination
 
 
 # --- hand-editing ---------------------------------------------------------
 
 
-def test_with_victims_replaces_only_the_victims():
+def test_with_fires_replaces_only_the_fires():
     w = scenery.build("corridor", seed=5)
-    others = [m for m in w.markers if m.kind != VICTIM]
+    others = [m for m in w.markers if m.kind != FIRE]
     x, y = _free_spot(w)
-    edited = scenery.with_victims(w, [{"x": x, "y": y}])
-    assert edited.victims == [Marker(x, y, VICTIM)]
-    assert [m for m in edited.markers if m.kind != VICTIM] == others
+    edited = scenery.with_fires(w, [{"x": x, "y": y}])
+    assert edited.fires == [Marker(x, y, FIRE)]
+    assert [m for m in edited.markers if m.kind != FIRE] == others
     assert (edited.width_m, edited.depth_m, edited.start_xy) == (
         w.width_m,
         w.depth_m,
@@ -112,11 +112,11 @@ def test_with_victims_replaces_only_the_victims():
     )
 
 
-def test_a_victim_may_stand_in_the_middle_of_the_corridor_not_just_on_a_wall():
+def test_a_fire_may_stand_in_the_middle_of_the_corridor_not_just_on_a_wall():
     base = scenery.build("corridor", seed=5)
     x, y = _free_spot(base)
-    w = scenery.with_victims(base, [(x, y)])
-    assert w.victims == [Marker(x, y, VICTIM)]
+    w = scenery.with_fires(base, [(x, y)])
+    assert w.fires == [Marker(x, y, FIRE)]
     # nowhere near a wall — that is the whole point of the corridor scenery
     assert min(x, w.width_m - x) >= scenery.WALL_CLEARANCE_M
 
@@ -131,20 +131,20 @@ def test_a_victim_may_stand_in_the_middle_of_the_corridor_not_just_on_a_wall():
     ],
 )
 def test_illegal_placements_are_dropped_not_clamped(point):
-    w = scenery.with_victims(scenery.build("corridor", seed=5), [point])
-    assert w.victims == []
+    w = scenery.with_fires(scenery.build("corridor", seed=5), [point])
+    assert w.fires == []
 
 
-def test_a_victim_cannot_be_stacked_on_the_destination():
+def test_a_fire_cannot_be_stacked_on_the_destination():
     base = scenery.build("corridor", seed=5)
     dest = base.destination
-    w = scenery.with_victims(base, [(dest.x, dest.y)])
-    assert w.victims == []
+    w = scenery.with_fires(base, [(dest.x, dest.y)])
+    assert w.fires == []
 
 
 def test_clearing_leaves_a_corridor_with_only_its_destination():
-    w = scenery.with_victims(scenery.build("corridor", seed=5), [])
-    assert w.victims == [] and w.destination is not None
+    w = scenery.with_fires(scenery.build("corridor", seed=5), [])
+    assert w.fires == [] and w.destination is not None
 
 
 # --- the adapter ----------------------------------------------------------
@@ -191,20 +191,20 @@ def test_load_scenery_keeps_a_seeded_session_repeatable():
 
 def test_randomise_gives_a_new_layout_even_with_a_fixed_seed():
     d = SimDrone(scenery_name="corridor", seed=4, delay=0)
-    before = list(d.world.victims)
+    before = list(d.world.fires)
     for _ in range(5):
         d.load_scenery(randomise=True)
-        if d.world.victims != before:
+        if d.world.fires != before:
             return
     raise AssertionError("randomise never produced a different layout")
 
 
-def test_editing_victims_does_not_change_scenery():
+def test_editing_fires_does_not_change_scenery():
     d = SimDrone(scenery_name="corridor", seed=4, delay=0)
     x, y = _free_spot(d.world)
-    d.load_scenery(victims=[{"x": x, "y": y}])
+    d.load_scenery(fires=[{"x": x, "y": y}])
     assert d.world.name == "corridor"
-    assert d.world.victims == [Marker(x, y, VICTIM)]
+    assert d.world.fires == [Marker(x, y, FIRE)]
     assert d.world.destination is not None
 
 

@@ -9,7 +9,7 @@
 
 # --- flip recovery ---
 # A Tello does not flip on the spot: it throws itself along the flip direction
-# and stays there, so a "signal victim found" back-flip leaves the drone short
+# and stays there, so a "signal fire found" back-flip leaves the drone short
 # of where it made the find and every following move starts from the wrong
 # place. Measure the displacement on the arena floor and put it here; the
 # adapter flies the same distance the opposite way once the flip completes.

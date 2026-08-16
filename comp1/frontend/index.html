@@ -24,7 +24,7 @@
     </div>
     <div class="hud">
       <span id="status" class="status">connecting…</span>
-      <span id="found">Victims found: 0</span>
+      <span id="found">Fires found: 0</span>
       <span id="drone-mode" class="drone-mode">Drone: simulator</span>
       <button id="use-tello" title="Connect to a real DJI Tello" disabled>Use real Tello</button>
     </div>
@@ -104,9 +104,9 @@
         <div id="arena-bar">
           <span class="bar-title">Arena</span>
           <select id="scenery" title="Which arena to fly in"></select>
-          <button id="plan-edit" title="Click the plan to add or remove victims">Edit</button>
-          <button id="plan-randomise" title="New random victim layout">Shuffle</button>
-          <button id="plan-clear" title="Remove every victim">Clear</button>
+          <button id="plan-edit" title="Click the plan to add or remove fires">Edit</button>
+          <button id="plan-randomise" title="New random fire layout">Shuffle</button>
+          <button id="plan-clear" title="Remove every fire">Clear</button>
         </div>
         <canvas id="arena-plan"></canvas>
         <p id="plan-note"></p>
@@ -211,10 +211,10 @@
       </footer>
     </section>
   </dialog>
-  <script src="blocks.js?v=20260803-4"></script>
-  <script src="app.js?v=20260803-8"></script>
-  <script src="calibration.js?v=20260808-1"></script>
-  <script src="plan.js?v=20260803-2"></script>
-  <script type="module" src="view3d.js?v=20260803-2"></script>
+  <script src="blocks.js?v=20260814-1"></script>
+  <script src="app.js?v=20260814-1"></script>
+  <script src="calibration.js?v=20260814-1"></script>
+  <script src="plan.js?v=20260814-1"></script>
+  <script type="module" src="view3d.js?v=20260814-1"></script>
 </body>
 </html>

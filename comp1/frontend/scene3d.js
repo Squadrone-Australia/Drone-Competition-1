@@ -24,12 +24,12 @@ const PROP_SPIN = 25;        // rad/s while flying
 const COL = {
   bg: 0x0b1220, floor: 0x27364f, grid: 0x3b4e78, gridMajor: 0x5b74ac,
   wall: 0x7f9bd4, body: 0x1b2333, arm: 0xf7941d, prop: 0xc7d3ea,
-  victim: 0xdc2626, post: 0x475569, trail: 0x38bdf8, fov: 0x38bdf8,
+  fire: 0xdc2626, post: 0x475569, trail: 0x38bdf8, fov: 0x38bdf8,
 };
 const MARKER_COL = {
-  // `destination` is the same red as a victim on purpose — the camera cannot
+  // `destination` is the same red as a fire on purpose — the camera cannot
   // tell them apart, and a 3D view that could would be teaching the wrong thing.
-  victim: COL.victim, destination: COL.victim, red_square: COL.victim,
+  fire: COL.fire, destination: COL.fire, red_square: COL.fire,
   blue_circle: 0x2563eb, green_triangle: 0x16a34a, yellow_square: 0xeab308,
 };
 
@@ -333,7 +333,7 @@ function buildMarker(m) {
   const g = new THREE.Group();
   g.position.copy(toThree(m.x, m.y, 0));
   const color = MARKER_COL[m.kind] ?? 0x94a3b8;
-  const isVictim = m.kind === "victim" || m.kind === "destination";
+  const isFire = m.kind === "fire" || m.kind === "destination";
 
   const post = new THREE.Mesh(
     new THREE.CylinderGeometry(0.02, 0.02, m.height_m, 8),
@@ -353,7 +353,7 @@ function buildMarker(m) {
   const face = new THREE.Mesh(
     markerGeometry(m),
     new THREE.MeshStandardMaterial({
-      color, emissive: color, emissiveIntensity: isVictim ? 0.55 : 0.2,
+      color, emissive: color, emissiveIntensity: isFire ? 0.55 : 0.2,
       side: THREE.DoubleSide, roughness: 0.6,
     }),
   );
@@ -364,7 +364,7 @@ function buildMarker(m) {
   // renderer billboards every marker anyway.
   g.add(face);
 
-  if (isVictim) g.add(new THREE.PointLight(color, 1.6, 1.6, 2)
+  if (isFire) g.add(new THREE.PointLight(color, 1.6, 1.6, 2)
     .translateY(m.height_m));
   return { group: g, face };
 }

@@ -352,17 +352,17 @@ def create_app(
         """Credit a ``mark found`` at the instant it happens.
 
         ``mark found`` is a bare counter in the interpreter and in comp1.api —
-        neither can know whether the drone was actually beside a victim, and the
+        neither can know whether the drone was actually beside a fire, and the
         simulator can. This has to be synchronous: broadcasting is a task, and a
         whole program can run to completion before a task gets a turn, by which
-        point the drone is nowhere near the victim it was signalling.
+        point the drone is nowhere near the fire it was signalling.
         """
         if ev.get("type") != "found_count" or app.state.scorer is None:
             return None
         return (
             "credited"
             if app.state.scorer.signal(app.state.drone.pose())
-            else "no victim nearby"
+            else "no fire nearby"
         )
 
     async def _on_event(ev: dict, signal=None):
@@ -558,7 +558,7 @@ def create_app(
                             randomise=bool(msg.get("randomise")),
                         )
                     else:
-                        await _rebuild_arena(app, victims=msg.get("victims") or [])
+                        await _rebuild_arena(app, fires=msg.get("fires") or [])
                 elif msg["type"] in (
                     "vision_sample",
                     "vision_auto",

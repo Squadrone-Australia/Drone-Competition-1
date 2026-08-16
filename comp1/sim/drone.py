@@ -303,17 +303,17 @@ class SimDrone(DroneAdapter):
     def scenery_catalog(self):
         return scenery.catalog()
 
-    def load_scenery(self, name=None, victims=None, randomise=False):
+    def load_scenery(self, name=None, fires=None, randomise=False):
         """Swap or edit the arena, then go back to the start pad.
 
-        ``victims`` replaces just the victim markers and leaves the rest of the
+        ``fires`` replaces just the fire markers and leaves the rest of the
         room where it was. Otherwise ``name`` picks a scenery (``None`` keeps
         the current one), built from the launch ``--seed`` so a seeded session
         stays repeatable — unless ``randomise``, which is the panel's dice
         button asking for a genuinely new layout.
         """
-        if victims is not None:
-            self.world = scenery.with_victims(self.world, victims)
+        if fires is not None:
+            self.world = scenery.with_fires(self.world, fires)
         else:
             self.scenery_name = name or self.scenery_name
             self.world = scenery.build(
