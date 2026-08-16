@@ -110,7 +110,12 @@ header button:disabled { opacity: .45; cursor: default; }
   background: var(--brand-wash); border: 1px solid var(--brand-line); color: var(--brand-hi);
 }
 .drone-mode { color: var(--text-3); font-size: 13px; white-space: nowrap; }
-#use-tello { padding: 7px 12px; font-size: 13px; }
+#use-tello, #reconnect-drone { padding: 7px 12px; font-size: 13px; }
+#reconnect-drone[hidden] { display: none; }
+/* a lost link is the one thing the operator has to notice from across a hall */
+#reconnect-drone.needs-attention {
+  background: var(--danger-deep); border-color: var(--danger); color: #fff;
+}
 
 .estop {
   margin-left: auto; font-weight: 800 !important; letter-spacing: .04em;

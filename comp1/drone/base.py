@@ -41,6 +41,36 @@ class DroneAdapter(ABC):
     #: they left it is how a drone gets flown into a wall.
     can_reset: bool = False
 
+    #: Whether the adapter currently believes it can still reach its aircraft.
+    #: Only hardware can lose a link, so the simulated adapters leave this True
+    #: forever; :class:`~comp1.drone.tello.TelloDrone` clears it when the
+    #: aircraft stops answering, and the server's watchdog reconnects.
+    link_ok: bool = True
+
+    def close(self) -> None:
+        """Release every OS resource the adapter holds and stop its threads.
+
+        The server calls this whenever an adapter stops being the active drone.
+        It matters because the Tello video stream owns a UDP port for the life
+        of the process unless it is closed explicitly: an adapter that is merely
+        dropped keeps that port, and the *next* connection cannot open the
+        stream — which is why switching to the simulator and back used to need a
+        restart of the whole program.
+
+        Must never fly the aircraft. Closing is a housekeeping operation, and a
+        surprise landing (or worse) from letting go of an object is not.
+        """
+
+    def reconnect(self) -> None:
+        """Re-establish the link to the aircraft, from scratch.
+
+        A rebooted Tello is a brand-new SDK session — the old one cannot be
+        resumed, so the default is a full close-and-connect rather than a
+        keepalive. Safe to call repeatedly: it is the watchdog's retry.
+        """
+        self.close()
+        self.connect()
+
     def reset(self) -> None:
         """Put a simulated drone back on its start pad.
 

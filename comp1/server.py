@@ -35,6 +35,10 @@ FRAME_INTERVAL = 0.1  # ~10 fps
 # smoothing hides a 100 ms step in heading during a fast yaw.
 POSE_INTERVAL = 1 / 30
 SCRIPT_CLIENT_WAIT = 5.0  # how long a --script run holds off for the browser
+#: How often the watchdog looks at the hardware link, and how long it waits
+#: between reconnection attempts. A reboot of the aircraft takes several
+#: seconds; retrying faster than this only fills the console.
+LINK_CHECK_INTERVAL = 2.0
 
 
 def _new_tello() -> DroneAdapter:
@@ -67,13 +71,26 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        drone.connect()
+        startup_error = None
+        try:
+            drone.connect()
+        except Exception as exc:
+            # `--drone tello` launched before the Wi-Fi is joined must not kill
+            # the server. The watchdog keeps trying, so joining the network is
+            # all the operator has to do — no relaunch, and the browser is up
+            # to say what is wrong in the meantime.
+            drone.link_ok = False
+            startup_error = f"could not connect to the drone: {exc}"
         app.state.drone = drone
         # Keep the configured simulator (seed, scenery, noise, and any teacher
         # edits) available while a real Tello is active so the UI can switch
         # back to the same arena rather than silently creating a different one.
         app.state.simulator = drone if drone.mode == "sim" else None
         app.state.drone_switching = False
+        # Last link state broadcast to the browser. Tracked separately from
+        # ``drone.link_ok`` so the watchdog reports transitions, not every tick.
+        app.state.link_ok = startup_error is None
+        app.state.link_message = startup_error
         app.state.latest_detection = Detection(found=False)
         app.state.latest_frame = None
         app.state.tracker = TargetTracker(cfg)
@@ -88,17 +105,23 @@ def create_app(
         app.state.interp = None
         app.state.video_task = asyncio.create_task(_video_loop(app))
         app.state.pose_task = asyncio.create_task(_pose_loop(app))
+        app.state.link_task = asyncio.create_task(_link_loop(app))
         app.state.script_task = (
             asyncio.create_task(_script_loop(app)) if script else None
         )
         yield
         app.state.video_task.cancel()
         app.state.pose_task.cancel()
+        app.state.link_task.cancel()
         if app.state.script_task:
             # cancelling the task only drops the await — tell the script itself
             if isinstance(app.state.interp, ScriptRun):
                 app.state.interp.request_stop()
             app.state.script_task.cancel()
+        # Hand back the video port and the aircraft object. Without this a
+        # relaunch of the app inside the same process (the test suite, a
+        # reloader) finds the stream still held by the previous run.
+        await _close_drone(app.state.drone)
 
     app = FastAPI(lifespan=lifespan)
 
@@ -106,7 +129,15 @@ def create_app(
         last_telemetry = None
         while True:
             active_drone = app.state.drone
-            frame = await asyncio.to_thread(active_drone.get_frame)
+            try:
+                frame = await asyncio.to_thread(active_drone.get_frame)
+            except Exception:
+                # A camera that throws must not take the video loop down with
+                # it: this task never restarts, so the dead loop would outlive
+                # the fault and the picture would stay black even after the
+                # drone came back. The watchdog below does the recovering.
+                active_drone.link_ok = False
+                frame = None
             if frame is not None:
                 # detection runs on the raw sensor frame; every overlay below is
                 # applied to a copy, so nothing we draw can be detected
@@ -147,6 +178,70 @@ def create_app(
                 # noticed — on change only, like telemetry
                 await _publish_mission(app, pose)
             await asyncio.sleep(POSE_INTERVAL)
+
+    async def _link_loop(app: FastAPI):
+        """Watch the hardware link and put it back up by itself.
+
+        A Tello that is rebooted mid-session comes back as a brand-new SDK
+        session: the old one answers nothing and its video stream never resumes.
+        Nothing in the protocol announces that, so it is noticed the only way it
+        can be — the adapter stops getting frames and answers — and repaired the
+        only way it can be, by connecting again from scratch. Before this loop
+        existed the only cure was restarting the whole program, which on
+        competition day costs a team its slot.
+        """
+        while True:
+            await asyncio.sleep(LINK_CHECK_INTERVAL)
+            active_drone = app.state.drone
+            if app.state.drone_switching:
+                continue
+            if active_drone.link_ok:
+                if not app.state.link_ok:
+                    await _publish_link(app, True, "drone reconnected")
+                continue
+            if app.state.link_ok:
+                await _publish_link(app, False, "lost contact with the drone")
+            # Never reconnect underneath a flying mission: the interpreter is
+            # issuing commands on this same adapter from a worker thread. The
+            # mission fails on the first unanswered command anyway, and the
+            # retry below picks it up as soon as it has stopped.
+            if app.state.interp is not None:
+                continue
+            try:
+                await asyncio.to_thread(active_drone.reconnect)
+            except Exception:
+                continue  # still gone — try again next tick, quietly
+            if app.state.drone is active_drone and active_drone.link_ok:
+                app.state.latest_frame = None
+                app.state.tracker = TargetTracker(cfg)
+                app.state.latest_detection = Detection(found=False)
+                await _publish_link(app, True, "drone reconnected")
+
+    async def _publish_link(app: FastAPI, ok: bool, message: str | None):
+        app.state.link_ok = ok
+        app.state.link_message = message
+        await _broadcast_json(
+            app,
+            {
+                "type": "drone_link",
+                "ok": ok,
+                "mode": app.state.drone.mode,
+                "message": message,
+            },
+        )
+
+    async def _close_drone(candidate: DroneAdapter):
+        """Release an adapter that is no longer the active drone.
+
+        Dropping the reference is not enough for a Tello — its video decoder
+        keeps the UDP port for the life of the process, and the *next*
+        connection then cannot open a stream. That is why switching to the
+        simulator and back used to require restarting the program.
+        """
+        try:
+            await asyncio.to_thread(candidate.close)
+        except Exception:
+            pass  # housekeeping must never block a drone switch
 
     def _new_scorer(app: FastAPI):
         scene = app.state.drone.scene()
@@ -247,100 +342,87 @@ def create_app(
         )
         await _publish_mission(app)
 
+    async def _begin_switch(app: FastAPI):
+        app.state.drone_switching = True
+        await _broadcast_json(
+            app, {"type": "drone_mode", "mode": app.state.drone.mode, "switching": True}
+        )
+
+    async def _abandon_switch(app: FastAPI, message: str):
+        app.state.drone_switching = False
+        await _broadcast_json(
+            app,
+            {"type": "drone_mode", "mode": app.state.drone.mode, "switching": False},
+        )
+        await _broadcast_json(app, {"type": "error", "message": message})
+
+    async def _activate(app: FastAPI, candidate: DroneAdapter):
+        """Make a connected adapter the active drone and re-sync every panel."""
+        previous = app.state.drone
+        app.state.drone = candidate
+        app.state.drone_switching = False
+        app.state.latest_frame = None
+        app.state.tracker = TargetTracker(cfg)
+        app.state.latest_detection = Detection(found=False)
+        app.state.scorer = _new_scorer(app)
+        app.state.mission = None
+        # The simulator is kept, not closed — it holds the seed, the scenery and
+        # any teacher edits, so switching back returns to the same arena.
+        if previous is not candidate and previous is not app.state.simulator:
+            await _close_drone(previous)
+        await _publish_link(app, candidate.link_ok, None)
+        await _broadcast_json(app, {"type": "scene", "scene": candidate.scene()})
+        await _broadcast_json(
+            app,
+            {
+                "type": "sceneries",
+                "sceneries": candidate.scenery_catalog(),
+                "current": _current_scenery(app),
+            },
+        )
+        await _broadcast_json(
+            app, {"type": "drone_mode", "mode": candidate.mode, "switching": False}
+        )
+
     async def _switch_to_tello(app: FastAPI):
         """Connect hardware first, then atomically make it the active adapter.
 
         Keeping the simulator active until ``connect`` succeeds means a missing
         Tello or incorrect Wi-Fi never leaves the application without a usable
         drone. Missions are refused while the connection attempt is in flight.
+
+        Also the reconnect path: a Tello that has been rebooted needs a whole new
+        adapter — the old one's SDK session, response buffer and video stream all
+        died with it — so the previous one is closed rather than reused.
         """
-        app.state.drone_switching = True
-        await _broadcast_json(
-            app, {"type": "drone_mode", "mode": app.state.drone.mode, "switching": True}
-        )
+        await _begin_switch(app)
+        previous_tello = app.state.drone if app.state.drone.mode == "tello" else None
+        if previous_tello is not None:
+            # Free the video port *before* the new stream tries to open it.
+            await _close_drone(previous_tello)
+        candidate = None
         try:
             candidate = tello_factory()
             await asyncio.to_thread(candidate.connect)
         except Exception as exc:
-            app.state.drone_switching = False
-            await _broadcast_json(
-                app,
-                {
-                    "type": "drone_mode",
-                    "mode": app.state.drone.mode,
-                    "switching": False,
-                },
-            )
-            await _broadcast_json(
-                app, {"type": "error", "message": f"could not connect to Tello: {exc}"}
-            )
+            if candidate is not None:
+                await _close_drone(candidate)  # half-open sockets are still sockets
+            await _abandon_switch(app, f"could not connect to Tello: {exc}")
             return
-
-        app.state.drone = candidate
-        app.state.drone_switching = False
-        app.state.latest_frame = None
-        app.state.tracker = TargetTracker(cfg)
-        app.state.latest_detection = Detection(found=False)
-        app.state.scorer = _new_scorer(app)
-        app.state.mission = None
-        await _broadcast_json(app, {"type": "scene", "scene": candidate.scene()})
-        await _broadcast_json(
-            app,
-            {
-                "type": "sceneries",
-                "sceneries": candidate.scenery_catalog(),
-                "current": _current_scenery(app),
-            },
-        )
-        await _broadcast_json(
-            app, {"type": "drone_mode", "mode": candidate.mode, "switching": False}
-        )
+        await _activate(app, candidate)
 
     async def _switch_to_simulator(app: FastAPI):
         """Restore the configured simulator, creating one for Tello-first launches."""
-        app.state.drone_switching = True
-        await _broadcast_json(
-            app, {"type": "drone_mode", "mode": app.state.drone.mode, "switching": True}
-        )
+        await _begin_switch(app)
         try:
             candidate = app.state.simulator or simulator_factory()
             if app.state.simulator is None:
                 await asyncio.to_thread(candidate.connect)
                 app.state.simulator = candidate
         except Exception as exc:
-            app.state.drone_switching = False
-            await _broadcast_json(
-                app,
-                {
-                    "type": "drone_mode",
-                    "mode": app.state.drone.mode,
-                    "switching": False,
-                },
-            )
-            await _broadcast_json(
-                app, {"type": "error", "message": f"could not start simulator: {exc}"}
-            )
+            await _abandon_switch(app, f"could not start simulator: {exc}")
             return
-
-        app.state.drone = candidate
-        app.state.drone_switching = False
-        app.state.latest_frame = None
-        app.state.tracker = TargetTracker(cfg)
-        app.state.latest_detection = Detection(found=False)
-        app.state.scorer = _new_scorer(app)
-        app.state.mission = None
-        await _broadcast_json(app, {"type": "scene", "scene": candidate.scene()})
-        await _broadcast_json(
-            app,
-            {
-                "type": "sceneries",
-                "sceneries": candidate.scenery_catalog(),
-                "current": _current_scenery(app),
-            },
-        )
-        await _broadcast_json(
-            app, {"type": "drone_mode", "mode": candidate.mode, "switching": False}
-        )
+        await _activate(app, candidate)
 
     def _select_nearest_target():
         """Make the closest currently visible marker the new tracker lock."""
@@ -445,6 +527,16 @@ def create_app(
                 }
             )
         )
+        await ws.send_text(
+            json.dumps(
+                {
+                    "type": "drone_link",
+                    "ok": app.state.link_ok,
+                    "mode": active_drone.mode,
+                    "message": app.state.link_message,
+                }
+            )
+        )
         await ws.send_text(json.dumps(_vision_message("vision_config", cfg)))
 
         try:
@@ -463,6 +555,18 @@ def create_app(
                     if app.state.interp is not None:
                         await _broadcast_json(
                             app, {"type": "error", "message": "already running"}
+                        )
+                        continue
+                    if not app.state.drone.link_ok:
+                        # Flying at an aircraft that is not answering ends as a
+                        # mission that dies on its first command; say why now.
+                        await _broadcast_json(
+                            app,
+                            {
+                                "type": "error",
+                                "message": "the drone is not connected — "
+                                "reconnecting, try again in a moment",
+                            },
                         )
                         continue
                     try:
@@ -630,8 +734,51 @@ def create_app(
                 elif msg["type"] == "estop":
                     if app.state.interp:
                         app.state.interp.request_stop()
-                    await asyncio.to_thread(app.state.drone.emergency)
+                    try:
+                        await asyncio.to_thread(app.state.drone.emergency)
+                    except Exception as exc:
+                        # The stop button must survive an unreachable aircraft:
+                        # the program stop above already happened, and killing
+                        # this socket would take the button away entirely.
+                        await _broadcast_json(
+                            app,
+                            {
+                                "type": "error",
+                                "message": f"emergency stop could not reach the drone: {exc}",
+                            },
+                        )
                     await _broadcast_json(app, {"type": "estopped"})
+                elif msg["type"] == "reconnect_drone":
+                    # The manual twin of the watchdog: an operator who has just
+                    # power-cycled the aircraft should not have to wait for the
+                    # timeout, and a link that looks fine but is not (stale SDK
+                    # session after a reboot) has no other cure.
+                    if app.state.drone_switching:
+                        await _broadcast_json(
+                            app,
+                            {
+                                "type": "error",
+                                "message": "a drone connection is already in progress",
+                            },
+                        )
+                    elif app.state.interp is not None:
+                        await _broadcast_json(
+                            app,
+                            {
+                                "type": "error",
+                                "message": "stop the mission before reconnecting",
+                            },
+                        )
+                    elif app.state.drone.mode != "tello":
+                        await _broadcast_json(
+                            app,
+                            {
+                                "type": "error",
+                                "message": "only the real Tello can be reconnected",
+                            },
+                        )
+                    else:
+                        await _switch_to_tello(app)
                 elif msg["type"] == "switch_drone":
                     requested_mode = msg.get("mode")
                     if requested_mode not in ("sim", "tello"):

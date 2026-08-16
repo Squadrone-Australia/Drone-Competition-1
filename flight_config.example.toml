@@ -18,3 +18,14 @@
 # it, so re-measure on the day. The Tello refuses translations below 20 cm, so
 # anything under that (including 0) skips the recovery move entirely.
 flip_recover_cm = 30
+
+# --- link watchdog ---
+# How long the video stream may be silent before the adapter calls the link
+# dead and the server reconnects by itself. This is what makes a Tello that
+# was rebooted (or that dropped its Wi-Fi) come back without restarting the
+# program: a lost aircraft does not report an error, it simply stops sending
+# frames, and the decoder keeps handing back the last one it got forever.
+#
+# Raise it if a congested hall makes the stream stutter for seconds at a time
+# and you see needless reconnects; lower it to notice a lost drone sooner.
+link_timeout_s = 6.0

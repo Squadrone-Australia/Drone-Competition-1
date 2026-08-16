@@ -22,6 +22,14 @@ class FlightConfig:
     #: 0 disables the recovery move entirely.
     flip_recover_cm: int = 30
 
+    #: How long the video stream may go without a new decoded frame before the
+    #: adapter calls the link dead, in seconds. A rebooted or out-of-range Tello
+    #: stops sending frames but the decoder keeps handing back the last one it
+    #: got, so silence — not an error — is what a lost aircraft looks like.
+    #: Long enough to cover stream start-up and a normal decoder hiccup; the
+    #: server's watchdog reconnects once this expires.
+    link_timeout_s: float = 6.0
+
     @classmethod
     def load_file(cls, path: str | Path) -> "FlightConfig":
         """Build a config from a TOML file.

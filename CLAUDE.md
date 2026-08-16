@@ -111,6 +111,38 @@ live.
 `api.EmergencyStop` derives from `BaseException` deliberately: a student wrapping their flight loop
 in `try/except Exception` must not be able to swallow the stop and leave the drone flying.
 
+### A Tello that goes away must come back without a relaunch
+
+A rebooted aircraft is a **new SDK session** and nothing in the protocol announces it: the old
+session answers nothing, and the video decoder keeps handing back the last frame it managed to
+decode, forever. Three pieces cover it, and all three are load-bearing.
+
+**Every connection is a fresh `djitellopy.Tello`, every disconnection is explicit.**
+`TelloDrone.connect` closes first and rebuilds, so it doubles as the reconnect path; the retired
+object is neutered (`is_flying`/`stream_on` cleared, `address` renamed) because djitellopy's
+`__del__` calls `end()`, which would **land a drone it believes is flying** and delete the global
+`drones[host]` entry the *live* instance is using.
+
+**`DroneAdapter.close()` must actually release the video port.** `BackgroundFrameRead.stop()` only
+sets a flag the decode thread checks *after the next frame arrives* — which never happens once the
+aircraft is gone — so `TelloDrone._release_reader` closes the container itself. Without this the UDP
+port is held for the life of the process and the *next* connection cannot open a stream: that is
+exactly what made sim → tello → sim need a restart. `server._activate` closes the outgoing adapter,
+never the simulator (it holds the seed, the scenery and any teacher edits). **`close()` must never
+fly the aircraft.**
+
+**Loss is detected as silence, and repaired by the watchdog.** `TelloDrone.get_frame` treats the same
+frame object past `flight.link_timeout_s` as a dead link and returns `None` (a frozen picture reads
+as a working camera); any command that raises clears `link_ok` too. `server._link_loop` polls
+`link_ok` every `LINK_CHECK_INTERVAL` and calls `reconnect()` — but never underneath a running
+mission, where the interpreter is issuing commands on that same adapter from a worker thread. The
+manual twin is the `reconnect_drone` message behind the browser's Reconnect button, for the case a
+reboot leaves a stale session that still *looks* healthy.
+
+Two consequences worth preserving: `_video_loop` swallows `get_frame` exceptions (that task never
+restarts, so a dead loop would outlive the fault), and a failed `connect()` at startup no longer
+kills the server — `--drone tello` before the Wi-Fi is joined comes up, says so, and reconnects.
+
 ### Hardware quirks are config, not constants
 
 `FlightConfig` ([comp1/drone/config.py](comp1/drone/config.py)) is the flight-side twin of

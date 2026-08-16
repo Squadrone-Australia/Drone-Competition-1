@@ -99,3 +99,152 @@ def test_flip_recovery_is_skipped_below_the_tello_move_floor(fake_tello):
     TelloDrone(FlightConfig(flip_recover_cm=0)).flip("back")
     TelloDrone(FlightConfig(flip_recover_cm=15)).flip("back")
     assert calls == ["flip b", "flip b"]
+
+
+# --- surviving a Tello that goes away -------------------------------------
+#
+# A rebooted aircraft is a new SDK session: nothing announces it, the old
+# object answers nothing, and its video decoder keeps the UDP port. These
+# tests hold the three halves of the cure — notice, release, reconnect.
+
+
+class FakeContainer:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class FakeReader:
+    def __init__(self):
+        self.container = FakeContainer()
+        self.stopped = False
+        self.frame = np.zeros((480, 640, 3), np.uint8)
+
+    def stop(self):
+        self.stopped = True
+
+
+@pytest.fixture
+def reconnectable_tello(monkeypatch):
+    """Patch in a Tello that records the calls a teardown must and must not make."""
+    import comp1.drone.tello as t
+
+    instances = []
+
+    class FakeTello:
+        def __init__(self):
+            self.log = []
+            self.is_flying = False
+            self.stream_on = False
+            self.background_frame_read = None
+            self.address = ("192.168.10.1", 8889)
+            self.reader = FakeReader()
+            instances.append(self)
+
+        def connect(self):
+            self.log.append("connect")
+
+        def streamon(self):
+            self.log.append("streamon")
+            self.stream_on = True
+
+        def takeoff(self):
+            self.log.append("takeoff")
+            self.is_flying = True
+
+        def land(self):
+            self.log.append("land")
+
+        def get_frame_read(self):
+            return self.reader
+
+        def send_command_without_return(self, command):
+            self.log.append(command)
+
+    monkeypatch.setattr(t, "Tello", FakeTello)
+    return instances, t.TelloDrone
+
+
+def test_closing_releases_the_video_port(reconnectable_tello):
+    """stop() alone only sets a flag the decode thread checks after the *next*
+    frame — which never arrives from a drone that is gone, so the port would be
+    held for the life of the process and no later stream could open."""
+    instances, TelloDrone = reconnectable_tello
+    drone = TelloDrone()
+    drone.connect()
+    reader = instances[-1].reader
+
+    drone.close()
+    assert reader.stopped and reader.container.closed
+    assert "streamoff" in instances[-1].log
+
+
+def test_closing_never_flies_the_aircraft(reconnectable_tello):
+    """Letting go of an object must not be a flight command."""
+    instances, TelloDrone = reconnectable_tello
+    drone = TelloDrone()
+    drone.connect()
+    drone.takeoff()
+
+    drone.close()
+    assert "land" not in instances[-1].log
+    # ...and djitellopy's own __del__ must not do it later either
+    assert instances[-1].is_flying is False
+
+
+def test_reconnect_starts_a_whole_new_session(reconnectable_tello):
+    """The old session died with the reboot; its queued responses are answers
+    to commands from before it."""
+    instances, TelloDrone = reconnectable_tello
+    drone = TelloDrone()
+    drone.connect()
+    first = instances[-1]
+
+    drone.reconnect()
+    assert instances[-1] is not first
+    assert instances[-1].log[:2] == ["connect", "streamon"]
+    assert drone.link_ok
+    # the retired object can no longer delete the live one's entry in
+    # djitellopy's global `drones` dict when it is garbage collected
+    assert first.address[0] != "192.168.10.1"
+
+
+def test_a_silent_camera_is_a_lost_link(reconnectable_tello):
+    """A dead stream is silence, not an error: the decoder hands back the last
+    frame it managed to decode, forever."""
+    instances, TelloDrone = reconnectable_tello
+    drone = TelloDrone(FlightConfig(link_timeout_s=0))
+    drone.connect()
+
+    assert drone.get_frame() is not None  # the first frame is genuinely new
+    assert drone.get_frame() is None  # the same frame again, past the timeout
+    assert drone.link_ok is False
+
+
+def test_a_freshly_decoded_frame_is_not_a_lost_link(reconnectable_tello):
+    instances, TelloDrone = reconnectable_tello
+    drone = TelloDrone(FlightConfig(link_timeout_s=0))
+    drone.connect()
+
+    for _ in range(3):
+        instances[-1].reader.frame = np.zeros((480, 640, 3), np.uint8)
+        assert drone.get_frame() is not None
+    assert drone.link_ok
+
+
+def test_a_command_failure_marks_the_link_down(reconnectable_tello):
+    """The interpreter turns this into a finished-with-error mission; the flag
+    is what lets the server reconnect once it has stopped."""
+    instances, TelloDrone = reconnectable_tello
+    drone = TelloDrone()
+    drone.connect()
+
+    def boom():
+        raise RuntimeError("no response after 7 seconds")
+
+    instances[-1].takeoff = boom
+    with pytest.raises(RuntimeError):
+        drone.takeoff()
+    assert drone.link_ok is False

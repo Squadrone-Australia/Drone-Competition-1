@@ -41,6 +41,7 @@ const foundEl = document.getElementById("found");
 const blockHelpEl = document.querySelector("#block-help span");
 const droneModeEl = document.getElementById("drone-mode");
 const useTelloEl = document.getElementById("use-tello");
+const reconnectEl = document.getElementById("reconnect-drone");
 const debugNoteEl = document.getElementById("debug-note");
 const debugPythonEl = document.getElementById("debug-python");
 const debugProgramEl = document.getElementById("debug-program");
@@ -50,6 +51,7 @@ let ws, lastUrl;
 let missionRunning = false;
 let droneMode = null;
 let droneSwitching = false;
+let droneLinkOk = true;
 let debugSequence = 0;
 let debugHasTrace = false;
 let debugView = "python";
@@ -191,6 +193,7 @@ window.COMP1_SEND = (msg) => {
 function setRunning(running) {
   missionRunning = running;
   useTelloEl.disabled = running || droneSwitching || !droneMode;
+  updateReconnect();
   bus.emit({ type: "running", running });
 }
 
@@ -207,10 +210,37 @@ function showDroneMode(msg) {
     ? "Switch back to the simulator"
     : "Connect to a real DJI Tello";
   useTelloEl.disabled = missionRunning || droneSwitching || !droneMode;
+  updateReconnect();
   if (previousMode && previousMode !== droneMode) {
     foundEl.textContent = "Fires found: 0";
     missionState = null;
     log(`switched to ${names[droneMode] || droneMode}`);
+  }
+}
+
+// Only the real aircraft can lose its link, so the button only exists there.
+// It is deliberately still available while the link looks fine: a rebooted
+// Tello answers nothing but reports nothing either, and this is the cure.
+function updateReconnect() {
+  if (!reconnectEl) return;
+  reconnectEl.hidden = droneMode !== "tello";
+  reconnectEl.disabled = missionRunning || droneSwitching;
+  reconnectEl.classList.toggle("needs-attention", droneMode === "tello" && !droneLinkOk);
+}
+
+function showDroneLink(msg) {
+  const wasOk = droneLinkOk;
+  droneLinkOk = msg.ok !== false;
+  updateReconnect();
+  if (msg.message && droneLinkOk !== wasOk) {
+    log((droneLinkOk ? "🔗 " : "⚠ ") + msg.message);
+  }
+  if (!droneLinkOk) {
+    statusEl.textContent = "drone offline, reconnecting";
+    statusEl.className = "status bad";
+  } else if (wasOk === false) {
+    statusEl.textContent = "connected";
+    statusEl.className = "status ok";
   }
 }
 
@@ -275,6 +305,7 @@ function connect() {
     else if (msg.type === "mission") showMission(msg);
     else if (msg.type === "telemetry") showTelemetry(msg);
     else if (msg.type === "drone_mode") showDroneMode(msg);
+    else if (msg.type === "drone_link") showDroneLink(msg);
     else if (msg.type === "error") log("⚠ " + msg.message);
     else if (msg.type === "estopped") { log("⛔ EMERGENCY STOP"); setRunning(false); }
     else if (msg.type === "reset") {
@@ -315,4 +346,10 @@ useTelloEl.onclick = () => {
     window.COMP1_SEND({ type: "switch_drone", mode: useSimulator ? "sim" : "tello" });
   }
 };
+if (reconnectEl) {
+  reconnectEl.onclick = () => {
+    log("reconnecting to the Tello…");
+    window.COMP1_SEND({ type: "reconnect_drone" });
+  };
+}
 document.getElementById("estop").onclick = () => ws.send(JSON.stringify({ type: "estop" }));

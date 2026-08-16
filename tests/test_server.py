@@ -382,6 +382,123 @@ def test_failed_tello_connection_keeps_the_simulator_active():
         assert app.state.drone is simulator
 
 
+# --- surviving a Tello that goes away --------------------------------------
+
+
+class ClosableTello(MockDrone):
+    mode = "tello"
+
+    def close(self):
+        self.log.append(("close",))
+
+
+def test_switching_back_to_the_simulator_releases_the_tello():
+    """The video decoder holds its UDP port until the adapter is closed, so an
+    adapter that is merely dropped makes the *next* Tello connection fail —
+    which is why sim -> tello -> sim used to need a restart of the program."""
+    from comp1.sim.drone import SimDrone
+
+    tello = ClosableTello()
+    app = create_app(SimDrone(seed=2, delay=0), tello_factory=lambda: tello)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "drone_mode")
+        ws.send_json({"type": "switch_drone", "mode": "tello"})
+        collect_where(ws, "drone_mode", lambda m: m["mode"] == "tello" and not m["switching"])
+        assert ("close",) not in tello.log
+
+        ws.send_json({"type": "switch_drone", "mode": "sim"})
+        collect_where(ws, "drone_mode", lambda m: m["mode"] == "sim" and not m["switching"])
+    assert ("close",) in tello.log
+
+
+def test_reconnect_rebuilds_the_tello_without_leaving_the_hardware():
+    """A rebooted Tello answers nothing, and its old adapter cannot be revived.
+    The operator gets a new one — still in hardware mode throughout."""
+    from comp1.sim.drone import SimDrone
+
+    built = []
+
+    def factory():
+        built.append(ClosableTello())
+        return built[-1]
+
+    app = create_app(SimDrone(seed=2, delay=0), tello_factory=factory)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "drone_mode")
+        ws.send_json({"type": "switch_drone", "mode": "tello"})
+        collect_where(ws, "drone_mode", lambda m: m["mode"] == "tello" and not m["switching"])
+
+        ws.send_json({"type": "reconnect_drone"})
+        collect_where(ws, "drone_mode", lambda m: not m["switching"])
+        assert app.state.drone is built[1]
+    assert ("close",) in built[0].log  # the stale one released its video port
+    assert ("connect",) in built[1].log
+
+
+def test_a_dropped_link_reconnects_by_itself(monkeypatch):
+    """Nothing in the protocol announces a reboot, so the watchdog is the only
+    thing between a student and restarting the whole program."""
+    from comp1.sim.drone import SimDrone
+
+    import comp1.server as server_module
+
+    monkeypatch.setattr(server_module, "LINK_CHECK_INTERVAL", 0.01)
+
+    class FlakyTello(ClosableTello):
+        def reconnect(self):
+            self.log.append(("reconnect",))
+            self.link_ok = True
+
+    tello = FlakyTello()
+    app = create_app(SimDrone(seed=2, delay=0), tello_factory=lambda: tello)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "drone_mode")
+        ws.send_json({"type": "switch_drone", "mode": "tello"})
+        collect_where(ws, "drone_mode", lambda m: m["mode"] == "tello" and not m["switching"])
+
+        tello.link_ok = False
+        assert collect_where(ws, "drone_link", lambda m: not m["ok"], limit=800)
+        assert collect_where(ws, "drone_link", lambda m: m["ok"], limit=800)
+    assert ("reconnect",) in tello.log
+
+
+def test_a_disconnected_drone_refuses_to_fly(monkeypatch):
+    """Better than a mission that dies on its first unanswered command."""
+    from comp1.sim.drone import SimDrone
+
+    tello = ClosableTello()
+    app = create_app(SimDrone(seed=2, delay=0), tello_factory=lambda: tello)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "drone_mode")
+        ws.send_json({"type": "switch_drone", "mode": "tello"})
+        collect_where(ws, "drone_mode", lambda m: m["mode"] == "tello" and not m["switching"])
+        tello.link_ok = False
+        ws.send_json(
+            {
+                "type": "run",
+                "program": {"version": 1, "blocks": [{"id": "a", "op": "takeoff"}]},
+            }
+        )
+        assert "not connected" in collect_until(ws, "error", limit=200)["message"]
+    assert ("takeoff",) not in tello.log
+
+
+def test_a_launch_with_the_drone_missing_still_starts_the_server():
+    """Joining the Tello Wi-Fi late is an ordinary mistake, not a relaunch."""
+
+    class UnavailableTello(MockDrone):
+        mode = "tello"
+
+        def connect(self):
+            raise RuntimeError("not reachable")
+
+    app = create_app(UnavailableTello())
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        link = collect_until(ws, "drone_link")
+        assert link["ok"] is False
+        assert "could not connect" in link["message"]
+
+
 # --- choosing and editing the arena ---------------------------------------
 
 
