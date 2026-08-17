@@ -5,7 +5,7 @@
   <title>Squadrone Drone Coder</title>
   <meta name="color-scheme" content="dark">
   <link rel="icon" href="assets/squadrone-logo.webp">
-  <link rel="stylesheet" href="style.css?v=20260814-1">
+  <link rel="stylesheet" href="style.css?v=20260817-1">
   <script src="vendor/blockly.min.js"></script>
   <script type="importmap">
     { "imports": { "three": "./vendor/three.module.min.js" } }
@@ -25,6 +25,14 @@
     <div class="hud">
       <span id="status" class="status">connecting…</span>
       <span id="found">Fires found: 0</span>
+      <!-- Aircraft health, so it sits with the drone-state group in the app bar
+           rather than in the telemetry strip, which reports only what the
+           detector saw. Charge governs whether a flip - the "fire found"
+           signal - will be accepted at all, so it stays visible always. -->
+      <span id="battery" class="battery unknown" title="Drone battery charge" aria-live="polite">
+        <span class="battery-meter"><span class="battery-fill"></span></span>
+        <span class="battery-text">--%</span>
+      </span>
       <span id="drone-mode" class="drone-mode">Drone: simulator</span>
       <button id="use-tello" title="Connect to a real DJI Tello" disabled>Use real Tello</button>
       <button id="reconnect-drone" title="Reconnect to the real Tello - use after rebooting it or rejoining its Wi-Fi" hidden>Reconnect</button>
@@ -212,10 +220,10 @@
       </footer>
     </section>
   </dialog>
-  <script src="blocks.js?v=20260814-1"></script>
-  <script src="app.js?v=20260814-1"></script>
-  <script src="calibration.js?v=20260814-1"></script>
-  <script src="plan.js?v=20260814-1"></script>
-  <script type="module" src="view3d.js?v=20260814-1"></script>
+  <script src="blocks.js?v=20260817-1"></script>
+  <script src="app.js?v=20260817-1"></script>
+  <script src="calibration.js?v=20260817-1"></script>
+  <script src="plan.js?v=20260817-1"></script>
+  <script type="module" src="view3d.js?v=20260817-1"></script>
 </body>
 </html>

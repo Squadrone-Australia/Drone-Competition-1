@@ -1,9 +1,11 @@
 import json
+import time
 
 import cv2
 import numpy as np
 from fastapi.testclient import TestClient
 
+from comp1 import server
 from comp1.drone.mock import MockDrone
 from comp1.server import create_app
 from comp1.vision.config import VisionConfig
@@ -166,6 +168,47 @@ def test_scene_is_null_for_a_drone_with_no_arena():
     app = create_app(MockDrone())
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         assert json.loads(ws.receive()["text"]) == {"type": "scene", "scene": None}
+
+
+class _CountingBatteryDrone(MockDrone):
+    """A drone that reports a charge and remembers how often it was asked."""
+
+    def __init__(self):
+        super().__init__()
+        self.battery_polls = 0
+
+    def battery(self):
+        self.battery_polls += 1
+        return 77
+
+
+def test_battery_is_broadcast_to_the_app_bar(monkeypatch):
+    monkeypatch.setattr(server, "BATTERY_INTERVAL", 0.01)
+    app = create_app(_CountingBatteryDrone())
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        for _ in range(100):
+            msg = collect_until(ws, "battery")
+            if msg["percent"] is not None:
+                break
+        assert msg == {"type": "battery", "percent": 77}
+
+
+def test_battery_is_not_polled_while_a_mission_is_running(monkeypatch):
+    """A poll from the server would sit between the interpreter's own commands,
+    and djitellopy pairs replies with commands positionally — every reply after
+    it would belong to the command before it."""
+    monkeypatch.setattr(server, "BATTERY_INTERVAL", 0.01)
+    drone = _CountingBatteryDrone()
+    app = create_app(drone)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "battery")
+        app.state.interp = object()  # stands in for a flying program
+        polled = drone.battery_polls
+        time.sleep(0.1)  # many poll intervals
+        assert drone.battery_polls == polled
+        app.state.interp = None
+        time.sleep(0.1)
+        assert drone.battery_polls > polled  # and it resumes once the mission ends
 
 
 def test_pose_is_broadcast_while_flying():

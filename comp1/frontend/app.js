@@ -39,6 +39,7 @@ const consoleEl = document.getElementById("console");
 const videoEl = document.getElementById("video");
 const foundEl = document.getElementById("found");
 const blockHelpEl = document.querySelector("#block-help span");
+const batteryEl = document.getElementById("battery");
 const droneModeEl = document.getElementById("drone-mode");
 const useTelloEl = document.getElementById("use-tello");
 const reconnectEl = document.getElementById("reconnect-drone");
@@ -244,6 +245,38 @@ function showDroneLink(msg) {
   }
 }
 
+// Aircraft charge. `null` is "not known", which is honest for a drone that is
+// not answering — a stale number beside a dead link reads as a healthy battery.
+// The 50% line is where a real Tello starts refusing flips, so a student sees
+// the reading turn amber before their find signal stops working.
+let batteryLow = null;
+function showBattery(msg) {
+  const fill = batteryEl.querySelector(".battery-fill");
+  const text = batteryEl.querySelector(".battery-text");
+  const percent = msg.percent;
+  if (percent === null || percent === undefined) {
+    batteryEl.className = "battery unknown";
+    batteryEl.title = "Battery unknown: the drone has not reported one yet";
+    fill.style.width = "0%";
+    text.textContent = "--%";
+    batteryLow = null;
+    return;
+  }
+  const level = Math.max(0, Math.min(100, Math.round(percent)));
+  const state = level <= 15 ? " critical" : level < 50 ? " low" : "";
+  batteryEl.className = "battery" + state;
+  batteryEl.title = level < 50
+    ? "Battery below 50%: the drone will refuse to flip, so the find signal fails"
+    : "Drone battery charge";
+  fill.style.width = `${level}%`;
+  text.textContent = `${level}%`;
+  const low = level < 50;
+  if (low && batteryLow === false) {
+    log("⚠ battery below 50% — the drone will refuse to flip, so a find cannot be signalled");
+  }
+  batteryLow = low;
+}
+
 // the same numbers the "distance to fire" / "direction to fire" blocks read,
 // shown live so students can see what their program is reacting to
 function showTelemetry(t) {
@@ -304,6 +337,7 @@ function connect() {
     else if (msg.type === "script") setRunning(msg.state === "started");
     else if (msg.type === "mission") showMission(msg);
     else if (msg.type === "telemetry") showTelemetry(msg);
+    else if (msg.type === "battery") showBattery(msg);
     else if (msg.type === "drone_mode") showDroneMode(msg);
     else if (msg.type === "drone_link") showDroneLink(msg);
     else if (msg.type === "error") log("⚠ " + msg.message);

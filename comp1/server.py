@@ -39,6 +39,11 @@ SCRIPT_CLIENT_WAIT = 5.0  # how long a --script run holds off for the browser
 #: between reconnection attempts. A reboot of the aircraft takes several
 #: seconds; retrying faster than this only fills the console.
 LINK_CHECK_INTERVAL = 2.0
+#: How often the aircraft is asked for its charge. A Tello answers `get_battery`
+#: over the same command socket every flight command uses, so this is kept slow:
+#: the reading moves by one point every few minutes, and each poll is a datagram
+#: that has to be paired with its reply.
+BATTERY_INTERVAL = 5.0
 
 
 def _new_tello() -> DroneAdapter:
@@ -94,6 +99,9 @@ def create_app(
         app.state.latest_detection = Detection(found=False)
         app.state.latest_frame = None
         app.state.tracker = TargetTracker(cfg)
+        # Last charge read from the active drone; None means "not known yet",
+        # which is what a client sees before the first poll and after a switch.
+        app.state.battery = None
         app.state.clients = set()
         # ground truth for the mission panel; None whenever the adapter has no
         # arena to score against (mock, real Tello)
@@ -106,6 +114,7 @@ def create_app(
         app.state.video_task = asyncio.create_task(_video_loop(app))
         app.state.pose_task = asyncio.create_task(_pose_loop(app))
         app.state.link_task = asyncio.create_task(_link_loop(app))
+        app.state.battery_task = asyncio.create_task(_battery_loop(app))
         app.state.script_task = (
             asyncio.create_task(_script_loop(app)) if script else None
         )
@@ -113,6 +122,7 @@ def create_app(
         app.state.video_task.cancel()
         app.state.pose_task.cancel()
         app.state.link_task.cancel()
+        app.state.battery_task.cancel()
         if app.state.script_task:
             # cancelling the task only drops the await — tell the script itself
             if isinstance(app.state.interp, ScriptRun):
@@ -216,6 +226,36 @@ def create_app(
                 app.state.tracker = TargetTracker(cfg)
                 app.state.latest_detection = Detection(found=False)
                 await _publish_link(app, True, "drone reconnected")
+
+    async def _battery_loop(app: FastAPI):
+        """Keep the app bar's charge reading current.
+
+        Never polls while a mission is running. On a real Tello the interpreter
+        is issuing commands on this same adapter from a worker thread, and
+        djitellopy pairs replies with commands positionally — an extra
+        ``get_battery`` slipped in from here would offset every reply after it
+        and each command would read the answer to the one before. The reading
+        simply holds its last value for the length of a flight, which is what a
+        charge that moves by a point every few minutes can afford to do.
+        """
+        while True:
+            active_drone = app.state.drone
+            if app.state.interp is None and not app.state.drone_switching:
+                try:
+                    level = await asyncio.to_thread(active_drone.battery)
+                except Exception:
+                    # A command that raises means the aircraft is not answering;
+                    # the link watchdog does the repairing, this just stops
+                    # reporting a charge nobody can vouch for.
+                    active_drone.link_ok = False
+                    level = None
+                if app.state.drone is active_drone and level != app.state.battery:
+                    app.state.battery = level
+                    await _broadcast_json(app, _battery_message(app))
+            await asyncio.sleep(BATTERY_INTERVAL)
+
+    def _battery_message(app: FastAPI) -> dict:
+        return {"type": "battery", "percent": app.state.battery}
 
     async def _publish_link(app: FastAPI, ok: bool, message: str | None):
         app.state.link_ok = ok
@@ -366,6 +406,9 @@ def create_app(
         app.state.latest_detection = Detection(found=False)
         app.state.scorer = _new_scorer(app)
         app.state.mission = None
+        # The previous drone's charge says nothing about this one: the simulator
+        # is always full, an aircraft rarely is. Blank it until the next poll.
+        app.state.battery = None
         # The simulator is kept, not closed — it holds the seed, the scenery and
         # any teacher edits, so switching back returns to the same arena.
         if previous is not candidate and previous is not app.state.simulator:
@@ -383,6 +426,7 @@ def create_app(
         await _broadcast_json(
             app, {"type": "drone_mode", "mode": candidate.mode, "switching": False}
         )
+        await _broadcast_json(app, _battery_message(app))
 
     async def _switch_to_tello(app: FastAPI):
         """Connect hardware first, then atomically make it the active adapter.
@@ -537,6 +581,7 @@ def create_app(
                 }
             )
         )
+        await ws.send_text(json.dumps(_battery_message(app)))
         await ws.send_text(json.dumps(_vision_message("vision_config", cfg)))
 
         try:
