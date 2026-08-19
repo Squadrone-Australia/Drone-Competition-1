@@ -8,10 +8,10 @@ A scenery is just a recipe for a :class:`~comp1.sim.world.World`. Two exist:
 
 ``corridor``
     A long hall. The drone starts at one end, a fixed **destination sign** sits
-    at the other, and the fires are sprinkled free-standing down the middle —
+    at the other, and the targets are sprinkled free-standing down the middle —
     a point A to point B navigation exercise (requirements §3.4) on top of the
     search task. The destination is an ordinary red circle, so the detector
-    reports it exactly like a fire; working out which is which is the job.
+    reports it exactly like a target; working out which is which is the job.
 
 **These are absolute arena coordinates.** Like :meth:`DroneAdapter.scene`, they
 reach the browser so the arena can be drawn and edited, and they must never
@@ -28,7 +28,7 @@ CORRIDOR_L_M = 10.0
 CORRIDOR_FIRES = 3
 CORRIDOR_DISTRACTORS = 2
 
-# Placement rules for free-standing markers. A fire on a wall is a different
+# Placement rules for free-standing markers. A target on a wall is a different
 # exercise (you can sweep the perimeter); these stand in the open, so they need
 # real clearance to stay individually detectable.
 WALL_CLEARANCE_M = 0.5  # never flush against a wall
@@ -50,7 +50,7 @@ def catalog() -> list[dict]:
             "id": "corridor",
             "name": "Corridor",
             "description": f"{CORRIDOR_W_M:g} x {CORRIDOR_L_M:g} m hall — fly from the "
-            "start pad to the destination sign, finding fires on the way.",
+            "start pad to the destination sign, finding targets on the way.",
         },
     ]
 
@@ -110,10 +110,10 @@ def is_free(x, y, w, d, markers, start_xy) -> bool:
 
 
 def with_fires(world: World, points) -> World:
-    """``world`` with its fires replaced by ``points``.
+    """``world`` with its targets replaced by ``points``.
 
     Everything else — the destination, the distractors, the start pad — is kept
-    exactly where it was, so editing the fires never shuffles the rest of the
+    exactly where it was, so editing the targets never shuffles the rest of the
     room under the user. Points that break the placement rules are dropped;
     the caller finds out by reading the world it gets back.
     """

@@ -306,7 +306,7 @@ class SimDrone(DroneAdapter):
     def load_scenery(self, name=None, fires=None, randomise=False):
         """Swap or edit the arena, then go back to the start pad.
 
-        ``fires`` replaces just the fire markers and leaves the rest of the
+        ``fires`` replaces just the targets and leaves the rest of the
         room where it was. Otherwise ``name`` picks a scenery (``None`` keeps
         the current one), built from the launch ``--seed`` so a seeded session
         stays repeatable — unless ``randomise``, which is the panel's dice

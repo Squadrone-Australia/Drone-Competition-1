@@ -24,10 +24,10 @@
     </div>
     <div class="hud">
       <span id="status" class="status">connecting…</span>
-      <span id="found">Fires found: 0</span>
+      <span id="found">Targets found: 0</span>
       <!-- Aircraft health, so it sits with the drone-state group in the app bar
            rather than in the telemetry strip, which reports only what the
-           detector saw. Charge governs whether a flip - the "fire found"
+           detector saw. Charge governs whether a flip - the "target found"
            signal - will be accepted at all, so it stays visible always. -->
       <span id="battery" class="battery unknown" title="Drone battery charge" aria-live="polite">
         <span class="battery-meter"><span class="battery-fill"></span></span>
@@ -113,9 +113,9 @@
         <div id="arena-bar">
           <span class="bar-title">Arena</span>
           <select id="scenery" title="Which arena to fly in"></select>
-          <button id="plan-edit" title="Click the plan to add or remove fires">Edit</button>
-          <button id="plan-randomise" title="New random fire layout">Shuffle</button>
-          <button id="plan-clear" title="Remove every fire">Clear</button>
+          <button id="plan-edit" title="Click the plan to add or remove targets">Edit</button>
+          <button id="plan-randomise" title="New random target layout">Shuffle</button>
+          <button id="plan-clear" title="Remove every target">Clear</button>
         </div>
         <canvas id="arena-plan"></canvas>
         <p id="plan-note"></p>
@@ -220,10 +220,10 @@
       </footer>
     </section>
   </dialog>
-  <script src="blocks.js?v=20260817-1"></script>
-  <script src="app.js?v=20260817-1"></script>
+  <script src="blocks.js?v=20260819-1"></script>
+  <script src="app.js?v=20260819-1"></script>
   <script src="calibration.js?v=20260817-1"></script>
-  <script src="plan.js?v=20260817-1"></script>
+  <script src="plan.js?v=20260819-1"></script>
   <script type="module" src="view3d.js?v=20260817-1"></script>
 </body>
 </html>

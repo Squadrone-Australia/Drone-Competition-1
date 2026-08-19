@@ -13,7 +13,7 @@ from .detector import color_mask, detect_red_circle, draw_overlay, find_targets
 HSV_KEYS = ("lower1", "upper1", "lower2", "upper2")
 
 # A deliberately loose red band, used *only* to locate a marker for calibration.
-# The fire marker is guaranteed red, so no colour-agnostic circle finder is
+# The target is guaranteed red, so no colour-agnostic circle finder is
 # needed. The saturation and value floors can be this generous because the hue
 # gate is what excludes scenery: sceneries are blue-dominant in BGR by
 # construction, so a lower saturation floor does not bring a wall into range.

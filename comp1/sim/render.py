@@ -51,7 +51,7 @@ _WALL_SHADE = {(1, 0): 1.00, (0, -1): 0.93, (-1, 0): 0.86, (0, 1): 0.79}
 
 KIND_STYLE = {
     FIRE: ("circle", (0, 0, 220)),
-    # Byte-identical to a fire, on purpose: the destination sign is a red
+    # Byte-identical to a target, on purpose: the destination sign is a red
     # circle and the detector cannot tell them apart. Telling them apart is the
     # student's problem, not the renderer's.
     DESTINATION: ("circle", (0, 0, 220)),

@@ -1,4 +1,4 @@
-"""Search-and-rescue: spin until a fire appears, fly to it, mark it.
+"""Search-and-rescue: spin until a target appears, fly to it, mark it.
 
 Run it:  python -m comp1 --script examples/02_search_and_mark.py --drone sim
 
@@ -22,7 +22,7 @@ while not drone.sees_target() and looks < MAX_LOOKS:
     looks += 1
 
 if not drone.sees_target():
-    print("no fires found — landing")
+    print("no targets found - landing")
     drone.land()
     raise SystemExit  # ends the mission cleanly
 
@@ -32,8 +32,8 @@ print("found one:", drone.target())
 if drone.approach_target():  # True once it is holding at a safe distance
     print(f"in position, {drone.distance_cm():.0f} cm away")
     drone.mark_found()  # the victory signal the judges look for
-    print("fires marked:", drone.found_count)
+    print("targets marked:", drone.found_count)
 else:
-    print("lost sight of the fire on the way in")
+    print("lost sight of the target on the way in")
 
 drone.land()

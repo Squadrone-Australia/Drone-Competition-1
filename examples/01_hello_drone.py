@@ -19,7 +19,7 @@ print("height:", drone.height, "cm")
 for step in range(8):
     drone.turn_right(45)
     if drone.sees_target():
-        print(f"step {step}: I can see a fire! {drone.target()}")
+        print(f"step {step}: I can see a target! {drone.target()}")
     else:
         print(f"step {step}: nothing here")
 

@@ -717,7 +717,7 @@ def test_signalling_on_the_start_pad_credits_nothing():
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         ws.send_json({"type": "run", "program": program})
         msg = collect_where(ws, "mission", lambda m: m["signal"] is not None)
-        assert msg["signal"] == "no fire nearby"
+        assert msg["signal"] == "no target nearby"
         assert msg["found"] == 0 and msg["state"] == "flying"
 
 

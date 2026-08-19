@@ -241,7 +241,7 @@ def draw_overlay(frame_bgr: np.ndarray, det: Detection) -> np.ndarray:
     out = frame_bgr.copy()
     if det.found:
         t = det.target
-        label = f"FIRE  {t.distance_m:.2f} m  {t.bearing_deg:+.0f} deg"
+        label = f"TARGET  {t.distance_m:.2f} m  {t.bearing_deg:+.0f} deg"
         color = (0, 255, 0)
     else:
         label, color = "searching...", (0, 165, 255)

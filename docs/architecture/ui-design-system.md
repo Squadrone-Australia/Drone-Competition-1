@@ -13,14 +13,14 @@ agree). It is defined once, as `--brand` in `comp1/frontend/style.css`, and appe
   `--brand-ink` text, never white on orange
 - the active state of every toggle: view-mode chips, arena chips, code-inspector tabs
 - panel accents: block-description label, calibration step captions, slider tracks
-- the found-fires chip in the app bar
+- the found-targets chip in the app bar
 - the Mission block category (Blockly hue 32) and the drone's arms in the 3D view
 
 The logo lives at `comp1/frontend/assets/squadrone-logo.webp` (520 px wide, downscaled from the
 2560 px original so the app bar does not pull 75 kB for a 30 px lockup). It is also the favicon.
 
 **Orange is the only accent.** Green, amber and red are *semantic* and never stand in for it:
-green = connected / mission success, amber = warning, red = the fire marker, the live-camera dot
+green = connected / mission success, amber = warning, red = the target, the live-camera dot
 and EMERGENCY STOP. Cyan survives in exactly two places, both of which are annotations drawn *over
 imagery* rather than UI chrome, where orange would sit on top of a red marker: the calibration
 region-of-interest box (`calibration.js`) and the flight trail plus camera frustum in the 3D view
@@ -37,7 +37,7 @@ still inject or nothing runs at all.
 Blockly's plain-DOM chrome (toolbox rows, flyout background) cannot be themed from JS and is styled
 in `style.css` under the `.blockly*` selectors.
 
-Block category hues moved off two collisions: sensing was hue 0, the same red as a fire marker in
+Block category hues moved off two collisions: sensing was hue 0, the same red as a target in
 the camera and on the plan, and mission was purple. Mission is now the brand hue.
 
 ## Tokens

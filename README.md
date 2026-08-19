@@ -1,7 +1,7 @@
 # Drone Competition — Search & Rescue
 
 This is a program that lets students fly a small drone (a DJI Tello) and teach it to search a
-room, find red "fire" markers, and signal each one it finds — by dragging together colourful
+room, find red targets, and signal each one it finds — by dragging together colourful
 puzzle-piece blocks, like Scratch. No coding experience is needed to get started, and there's a
 built-in flight simulator so students can practice and compete without ever touching a real drone.
 
@@ -244,7 +244,7 @@ drone = Drone()
 drone.takeoff()
 while not drone.sees_target():
     drone.turn_right(20)
-print(drone.target())  # fire 204 cm away, -20 deg (left)
+print(drone.target())  # target 204 cm away, -20 deg (left)
 drone.approach_target()
 drone.mark_found()
 drone.land()

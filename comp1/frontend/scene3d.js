@@ -27,7 +27,7 @@ const COL = {
   fire: 0xdc2626, post: 0x475569, trail: 0x38bdf8, fov: 0x38bdf8,
 };
 const MARKER_COL = {
-  // `destination` is the same red as a fire on purpose — the camera cannot
+  // `destination` is the same red as a target on purpose — the camera cannot
   // tell them apart, and a 3D view that could would be teaching the wrong thing.
   fire: COL.fire, destination: COL.fire, red_square: COL.fire,
   blue_circle: 0x2563eb, green_triangle: 0x16a34a, yellow_square: 0xeab308,

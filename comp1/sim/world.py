@@ -2,7 +2,7 @@ import random
 from dataclasses import dataclass
 
 FIRE = "fire"
-# The destination sign is a red circle, exactly like a fire, and the detector
+# The destination sign is a red circle, exactly like a target, and the detector
 # cannot tell the two apart — that is the point. Distinguishing them (the
 # destination is the one at the end of the corridor) is the student's problem.
 DESTINATION = "destination"

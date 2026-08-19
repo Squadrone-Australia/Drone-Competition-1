@@ -1,9 +1,9 @@
 /**
- * Arena panel: pick a scenery, and lay out the fires by hand.
+ * Arena panel: pick a scenery, and lay out the targets by hand.
  *
  * A flat floor plan of the same room the 3D stage draws, fed by the same
  * `{"type":"scene"}` and `{"type":"pose"}` messages. Clicking empty floor adds a
- * fire, clicking one removes it; the edit goes to the server as
+ * target, clicking one removes it; the edit goes to the server as
  * `{"type":"layout"}` and the canvas is redrawn from the `scene` that comes
  * back — never from what we asked for, because the server re-checks the spacing
  * rules and may refuse a point.
@@ -34,7 +34,7 @@
   let running = false;
   let view = null;             // {x0, y0, s} — plan pixels per metre
   // The server is the judge of whether a point is legal, so a rejected click is
-  // only visible as "the scene came back with fewer fires than I asked for".
+  // only visible as "the scene came back with fewer targets than I asked for".
   let pending = null;
 
   // --- geometry ------------------------------------------------------------
@@ -197,7 +197,7 @@
   }
 
   function setMission(m) {
-    const bits = [`fires ${m.found}/${m.total}`];
+    const bits = [`targets ${m.found}/${m.total}`];
     if (m.needs_destination) bits.push(m.at_destination ? "at destination" : "→ destination");
     missionEl.textContent = m.state === "success"
       ? `🏆 mission success: ${bits.join(", ")}`
@@ -228,7 +228,7 @@
   function setEditing(on) {
     editing = on;
     editBtn.classList.toggle("on", on);
-    note(on ? "click the plan to add a fire, click a fire to remove it" : "");
+    note(on ? "click the plan to add a target, click a target to remove it" : "");
     refreshControls();
   }
 

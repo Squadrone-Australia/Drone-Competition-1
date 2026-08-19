@@ -64,6 +64,13 @@ test("plain ops carry only id and op", () => {
     assert.deepStrictEqual(run(fake(op, { id: "x" })).blocks, [{ id: "x", op }]);
 });
 
+test("student-facing block text consistently calls markers targets", () => {
+  const visibleText = blocks.flatMap((block) => [block.message0, block.tooltip])
+    .filter(Boolean).join(" ");
+  assert.doesNotMatch(visibleText, /\bfire(?:s)?\b/i);
+  assert.match(visibleText, /\btarget(?:s)?\b/i);
+});
+
 test("Python translation uses the public Drone API and keeps block ids", () => {
   const program = run(chain(
     fake("takeoff", { id: "launch" }),

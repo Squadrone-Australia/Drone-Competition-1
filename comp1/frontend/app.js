@@ -213,7 +213,7 @@ function showDroneMode(msg) {
   useTelloEl.disabled = missionRunning || droneSwitching || !droneMode;
   updateReconnect();
   if (previousMode && previousMode !== droneMode) {
-    foundEl.textContent = "Fires found: 0";
+    foundEl.textContent = "Targets found: 0";
     missionState = null;
     log(`switched to ${names[droneMode] || droneMode}`);
   }
@@ -277,7 +277,7 @@ function showBattery(msg) {
   batteryLow = low;
 }
 
-// the same numbers the "distance to fire" / "direction to fire" blocks read,
+// the same numbers the "distance to target" / "direction to target" blocks read,
 // shown live so students can see what their program is reacting to
 function showTelemetry(t) {
   const visible = document.getElementById("t-visible");
@@ -291,17 +291,17 @@ function showTelemetry(t) {
     t.visible ? `${t.bearing_deg > 0 ? "+" : ""}${t.bearing_deg}°` : "-";
 }
 
-// The simulator scores a find against where the fires actually are, so with an
+// The simulator scores a find against where the targets actually are, so with an
 // arena in play the header shows the *credited* count rather than the number of
 // times the student pressed the button.
 let missionState = null;
 function showMission(m) {
-  foundEl.textContent = `Fires found: ${m.found} / ${m.total}`;
-  if (m.signal === "no fire nearby") {
-    log("⚠ no fire close enough to that signal, it did not count");
+  foundEl.textContent = `Targets found: ${m.found} / ${m.total}`;
+  if (m.signal === "no target nearby") {
+    log("⚠ no target close enough to that signal, it did not count");
   }
   if (m.state === "success" && missionState !== "success") {
-    log("🏆 mission success: every fire found and landed at the destination");
+    log("🏆 mission success: every target found and landed at the destination");
   }
   missionState = m.state;
 }
@@ -327,7 +327,7 @@ function connect() {
     if (msg.type === "highlight") workspace.highlightBlock(msg.blockId);
     else if (msg.type === "debug_program") showDebugProgram(msg.program);
     else if (msg.type === "execution") showExecution(msg);
-    else if (msg.type === "found_count") foundEl.textContent = `Fires found: ${msg.count}`;
+    else if (msg.type === "found_count") foundEl.textContent = `Targets found: ${msg.count}`;
     else if (msg.type === "finished") {
       workspace.highlightBlock(null);
       log(`mission ${msg.reason}${msg.detail ? ": " + msg.detail : ""}`);
@@ -344,7 +344,7 @@ function connect() {
     else if (msg.type === "estopped") { log("⛔ EMERGENCY STOP"); setRunning(false); }
     else if (msg.type === "reset") {
       workspace.highlightBlock(null);
-      foundEl.textContent = "Fires found: 0";
+      foundEl.textContent = "Targets found: 0";
       missionState = null;
       // On real hardware reset() cannot move the aircraft, so say what actually
       // happened. Telling a student the drone is on its pad while it hovers

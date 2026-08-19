@@ -124,5 +124,5 @@ class DroneAdapter(ABC):
         return None
 
     def load_scenery(self, name=None, fires=None, randomise=False):
-        """Swap scenery or replace the fire layout. No-op without an arena."""
+        """Swap scenery or replace the target layout. No-op without an arena."""
         return

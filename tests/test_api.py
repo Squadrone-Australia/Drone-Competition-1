@@ -130,6 +130,7 @@ def test_sensing_reflects_the_detection():
     assert t.distance_cm == pytest.approx(250)
     assert t.bearing_deg == pytest.approx(-12.0)
     assert t.position == "left"
+    assert str(t) == "target 250 cm away, -12 deg (left)"
     assert d.distance_cm() == pytest.approx(250)
     assert d.bearing_deg() == pytest.approx(-12.0)
 
