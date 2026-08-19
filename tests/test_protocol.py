@@ -138,3 +138,61 @@ def test_loop_control_inside_nested_if_is_valid():
         )
     )
     assert program.blocks[0].body[0].body[0].op == "break"
+
+
+# --- obstacles --------------------------------------------------------------
+
+
+def test_avoid_obstacle_needs_no_parameters():
+    p = Program.model_validate(
+        {"version": 2, "blocks": [{"id": "a", "op": "avoid_obstacle"}]}
+    )
+    assert p.blocks[0].op == "avoid_obstacle"
+
+
+@pytest.mark.parametrize(
+    "sensor",
+    [
+        "obstacle_visible",
+        "obstacle_ahead",
+        "obstacle_distance_cm",
+        "obstacle_bearing_deg",
+        "obstacle_count",
+        "obstacle_position_left",
+        "obstacle_position_center",
+        "obstacle_position_right",
+    ],
+)
+def test_every_obstacle_sensor_parses(sensor):
+    p = Program.model_validate(
+        {
+            "version": 2,
+            "blocks": [
+                {
+                    "id": "a",
+                    "op": "if",
+                    "cond": {"kind": "sensor", "sensor": sensor},
+                    "body": [{"id": "b", "op": "avoid_obstacle"}],
+                }
+            ],
+        }
+    )
+    assert p.blocks[0].cond.sensor == sensor
+
+
+def test_an_unknown_obstacle_sensor_is_rejected():
+    with pytest.raises(ValidationError):
+        Program.model_validate(
+            {
+                "version": 2,
+                "blocks": [
+                    {
+                        "id": "a",
+                        "op": "if",
+                        # Sim truth, and §4 says it must never become a sensor.
+                        "cond": {"kind": "sensor", "sensor": "obstacle_x"},
+                        "body": [],
+                    }
+                ],
+            }
+        )

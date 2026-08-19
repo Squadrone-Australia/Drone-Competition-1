@@ -6,7 +6,11 @@
 // (hue 32) because those are the blocks the competition is actually about;
 // sensing moved off hue 0 so a "target seen?" block is not the same red
 // as the target itself in the camera and on the plan.
-const C = { flight: 205, sense: 185, mission: 32, flow: 120, logic: 255, math: 285, vars: 330 };
+// Obstacles get their own hue (amber, hue 20) rather than sharing the sensing
+// teal: "is a target there?" and "is something in the way?" are opposite
+// intentions, and a student scanning the workspace should be able to tell which
+// one a block is without reading it.
+const C = { flight: 205, sense: 185, obstacle: 20, mission: 32, flow: 120, logic: 255, math: 285, vars: 330 };
 
 const BLOCKS = [
   // ── flight ────────────────────────────────────────────────────────────────
@@ -61,6 +65,39 @@ const BLOCKS = [
   { type: "sense_count", message0: "targets in view", colour: C.sense,
     tooltip: "How many targets the camera can see right now.",
     output: "Number" },
+
+  // ── obstacles ─────────────────────────────────────────────────────────────
+  // An obstacle is anything printed that is NOT a red circle — a red square, a
+  // green triangle, a blue circle. There is no list to learn: if it is not a
+  // target, it is something to stay away from.
+  { type: "obstacle_ahead", message0: "obstacle in the way?", colour: C.obstacle,
+    tooltip: "True when something that is not a target is close ahead and blocking the drone. " +
+             "This is the one to test before flying forward.",
+    output: "Boolean" },
+  { type: "obstacle_visible", message0: "obstacle in sight?", colour: C.obstacle,
+    tooltip: "True while the camera can see anything that is not a target — even off to one side, " +
+             "even far away.",
+    output: "Boolean" },
+  { type: "obstacle_position_is", message0: "obstacle is %1", colour: C.obstacle,
+    args0: [{ type: "field_dropdown", name: "POS", options: [
+      ["on the left", "left"], ["in the centre", "center"], ["on the right", "right"]] }],
+    tooltip: "True when the nearest obstacle is in the selected part of the camera view.",
+    output: "Boolean" },
+  { type: "sense_obstacle_distance", message0: "distance to obstacle (cm)", colour: C.obstacle,
+    tooltip: "How far away the nearest obstacle is. Reads 9999 when nothing is in view, " +
+             "so 'keep flying until obstacle distance < 100' keeps going instead of stopping.",
+    output: "Number" },
+  { type: "sense_obstacle_bearing", message0: "direction to obstacle (°)", colour: C.obstacle,
+    tooltip: "Negative = to the left, positive = to the right. 0 when nothing is in view.",
+    output: "Number" },
+  { type: "sense_obstacle_count", message0: "obstacles in view", colour: C.obstacle,
+    tooltip: "How many non-target objects the camera can see right now.",
+    output: "Number" },
+  { type: "avoid_obstacle", message0: "step around obstacle", colour: C.obstacle,
+    tooltip: "Slides sideways, away from whatever is blocking the way, until the view ahead is clear. " +
+             "Does nothing if the way is already clear, so it is safe to use inside a loop. " +
+             "It only clears the way — flying onward is up to you.",
+    previousStatement: null, nextStatement: null },
 
   // ── mission ───────────────────────────────────────────────────────────────
   { type: "approach_marker", message0: "approach target and stop", colour: C.mission,
@@ -172,6 +209,10 @@ const TOOLBOX = { kind: "categoryToolbox", contents: [
   cat("Sensing", C.sense, [
     blk("marker_visible"), blk("marker_position_is"), blk("sense_distance"),
     blk("sense_bearing"), blk("sense_elevation"), blk("sense_count")]),
+  cat("Obstacles", C.obstacle, [
+    blk("obstacle_ahead"), blk("avoid_obstacle"), blk("obstacle_visible"),
+    blk("obstacle_position_is"), blk("sense_obstacle_distance"),
+    blk("sense_obstacle_bearing"), blk("sense_obstacle_count")]),
   cat("Mission", C.mission, [
     blk("approach_marker"), blk("mark_found"), blk("sense_found_count"),
     blk("found_count_gte"), blk("end_mission")]),
@@ -198,6 +239,11 @@ const SENSORS = {
   sense_count: "target_count",
   sense_found_count: "found_count",
   sense_battery: "battery",
+  obstacle_ahead: "obstacle_ahead",
+  obstacle_visible: "obstacle_visible",
+  sense_obstacle_distance: "obstacle_distance_cm",
+  sense_obstacle_bearing: "obstacle_bearing_deg",
+  sense_obstacle_count: "obstacle_count",
 };
 
 const num = (v) => ({ kind: "number", value: v });
@@ -249,6 +295,8 @@ function valueJson(b) {
       return num(Number(b.getFieldValue("NUM")));
     case "marker_position_is":
       return { kind: "sensor", sensor: "target_position_" + b.getFieldValue("POS") };
+    case "obstacle_position_is":
+      return { kind: "sensor", sensor: "obstacle_position_" + b.getFieldValue("POS") };
     case "found_count_gte":
       return { kind: "binop", op: ">=",
                left: { kind: "sensor", sensor: "found_count" },
@@ -269,6 +317,7 @@ function blockJson(b, loopDepth = 0) {
   const base = { id: b.id };
   switch (b.type) {
     case "takeoff": case "land": case "approach_marker":
+    case "avoid_obstacle":
     case "mark_found": case "end_mission":
       return { ...base, op: b.type };
     case "break": case "continue":
@@ -341,13 +390,21 @@ function pythonValue(value) {
         target_bearing_deg: '_target_value("bearing_deg", 0)',
         target_elevation_deg: '_target_value("elevation_deg", 0)',
         target_count: "len(drone.targets())",
+        obstacle_visible: "drone.sees_obstacle()",
+        obstacle_ahead: "drone.obstacle_ahead()",
+        obstacle_distance_cm: '_obstacle_value("distance_cm", 9999)',
+        obstacle_bearing_deg: '_obstacle_value("bearing_deg", 0)',
+        obstacle_count: "len(drone.obstacles())",
         found_count: "drone.found_count",
         battery: "drone.battery",
       };
       if (fixed[value.sensor]) return fixed[value.sensor];
       const position = value.sensor.match(/^target_position_(left|center|right)$/);
-      return position
-        ? `_target_value("position", "") == ${JSON.stringify(position[1])}`
+      if (position)
+        return `_target_value("position", "") == ${JSON.stringify(position[1])}`;
+      const obstaclePos = value.sensor.match(/^obstacle_position_(left|center|right)$/);
+      return obstaclePos
+        ? `_obstacle_value("position", "") == ${JSON.stringify(obstaclePos[1])}`
         : "0";
     }
     case "unop": {
@@ -387,6 +444,7 @@ function pythonBlocks(blocks, depth = 0) {
         break;
       case "flip": add(`drone.flip(${JSON.stringify(block.dir)})`); break;
       case "approach_marker": add("drone.approach_target()"); break;
+      case "avoid_obstacle": add("drone.avoid_obstacle()"); break;
       case "mark_found": add("drone.mark_found()"); break;
       case "end_mission":
         add("drone.land()");
@@ -449,6 +507,10 @@ function programToPython(program) {
     "def _target_value(name, default):",
     "    target = drone.target()",
     "    return getattr(target, name) if target else default",
+    "",
+    "def _obstacle_value(name, default):",
+    "    obstacle = drone.obstacle()",
+    "    return getattr(obstacle, name) if obstacle else default",
     "",
     "mission()",
     "",

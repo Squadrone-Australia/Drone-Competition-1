@@ -289,6 +289,16 @@ function showTelemetry(t) {
     t.visible ? `${t.distance_cm} cm` : "-";
   document.getElementById("t-bearing").textContent =
     t.visible ? `${t.bearing_deg > 0 ? "+" : ""}${t.bearing_deg}°` : "-";
+  // Obstacles are shown even while no target is in view — searching is exactly
+  // when the drone is most likely to fly into something.
+  const obstacle = document.getElementById("t-obstacle");
+  const seen = t.obstacle_count > 0;
+  obstacle.textContent = t.obstacle_ahead
+    ? "IN THE WAY"
+    : seen ? (t.obstacle_count > 1 ? `${t.obstacle_count} seen` : "seen") : "clear";
+  obstacle.className = t.obstacle_ahead ? "warn" : seen ? "" : "ok";
+  document.getElementById("t-obstacle-distance").textContent =
+    seen ? `${t.obstacle_distance_cm} cm` : "-";
 }
 
 // The simulator scores a find against where the targets actually are, so with an
@@ -302,6 +312,10 @@ function showMission(m) {
   }
   if (m.state === "success" && missionState !== "success") {
     log("🏆 mission success: every target found and landed at the destination");
+  }
+  if (m.state === "crashed" && missionState !== "crashed") {
+    log("💥 hit an obstacle — the attempt does not count. Use “obstacle in the way?” " +
+        "and “step around obstacle” to get past it.");
   }
   missionState = m.state;
 }

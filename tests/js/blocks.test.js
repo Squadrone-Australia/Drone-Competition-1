@@ -434,3 +434,71 @@ test("every block that can be dragged out serializes to something", () => {
       else assert.ok(out.kind, `${b.type} has no kind`);
     }
 });
+
+// ── obstacles ───────────────────────────────────────────────────────────────
+test("obstacle reporters map onto their sensors", () => {
+  const cases = {
+    obstacle_ahead: "obstacle_ahead",
+    obstacle_visible: "obstacle_visible",
+    sense_obstacle_distance: "obstacle_distance_cm",
+    sense_obstacle_bearing: "obstacle_bearing_deg",
+    sense_obstacle_count: "obstacle_count",
+  };
+  for (const [type, sensor] of Object.entries(cases))
+    assert.deepStrictEqual(valueJson(fake(type)), { kind: "sensor", sensor });
+});
+
+test("the obstacle position dropdown picks the matching sensor", () => {
+  for (const pos of ["left", "center", "right"])
+    assert.deepStrictEqual(
+      valueJson(fake("obstacle_position_is", { fields: { POS: pos } })),
+      { kind: "sensor", sensor: `obstacle_position_${pos}` });
+});
+
+test("step around obstacle carries only id and op", () => {
+  assert.deepStrictEqual(run(fake("avoid_obstacle", { id: "x" })).blocks,
+    [{ id: "x", op: "avoid_obstacle" }]);
+});
+
+test("Python translation of the obstacle blocks uses the public Drone API", () => {
+  const python = programToPython({ version: 2, blocks: [
+    { id: "loop", op: "repeat_until",
+      cond: { kind: "sensor", sensor: "obstacle_ahead" },
+      body: [{ id: "step", op: "avoid_obstacle" }] },
+    { id: "seen", op: "if",
+      cond: { kind: "sensor", sensor: "obstacle_visible" },
+      body: [{ id: "back", op: "move", dir: "back",
+               cm: { kind: "sensor", sensor: "obstacle_distance_cm" } }] },
+    { id: "side", op: "if",
+      cond: { kind: "sensor", sensor: "obstacle_position_left" }, body: [] },
+    { id: "how_many", op: "set_var", name: "seen",
+      value: { kind: "sensor", sensor: "obstacle_count" } },
+  ] });
+  assert.match(python, /drone\.obstacle_ahead\(\)/);
+  assert.match(python, /drone\.avoid_obstacle\(\)/);
+  assert.match(python, /drone\.sees_obstacle\(\)/);
+  assert.match(python, /_obstacle_value\("distance_cm", 9999\)/);
+  assert.match(python, /_obstacle_value\("position", ""\) == "left"/);
+  assert.match(python, /len\(drone\.obstacles\(\)\)/);
+  // the helper the lines above lean on has to be emitted too
+  assert.match(python, /def _obstacle_value\(name, default\):/);
+});
+
+test("obstacle blocks are a distinct colour from the target sensing blocks", () => {
+  const hue = (type) => blocks.find((b) => b.type === type).colour;
+  assert.notStrictEqual(hue("obstacle_ahead"), hue("marker_visible"));
+  for (const type of ["obstacle_visible", "obstacle_position_is", "avoid_obstacle",
+                      "sense_obstacle_distance", "sense_obstacle_bearing",
+                      "sense_obstacle_count"])
+    assert.strictEqual(hue(type), hue("obstacle_ahead"), `${type} is off-palette`);
+});
+
+test("the obstacle blocks are reachable from the toolbox", () => {
+  const cat = toolbox.contents.find((c) => c.name === "Obstacles");
+  assert.ok(cat, "no Obstacles category");
+  const types = cat.contents.map((b) => b.type);
+  for (const type of ["obstacle_ahead", "avoid_obstacle", "obstacle_visible",
+                      "obstacle_position_is", "sense_obstacle_distance",
+                      "sense_obstacle_bearing", "sense_obstacle_count"])
+    assert.ok(types.includes(type), `${type} is not in the toolbox`);
+});

@@ -21,12 +21,22 @@ forbids any "fly to a fixed coordinate" capability.
 
 import random
 
-from .world import DESTINATION, DISTRACTOR_KINDS, FIRE, Marker, World
+from .world import (
+    DEFAULT_OBSTACLE_DIAMETER_M,
+    DESTINATION,
+    DISTRACTOR_KINDS,
+    FIRE,
+    OBSTACLE_KINDS,
+    Marker,
+    World,
+)
 
 CORRIDOR_W_M = 2.5
 CORRIDOR_L_M = 10.0
 CORRIDOR_FIRES = 3
 CORRIDOR_DISTRACTORS = 2
+CORRIDOR_OBSTACLES = 2
+ARENA_OBSTACLES = 2
 
 # Placement rules for free-standing markers. A target on a wall is a different
 # exercise (you can sweep the perimeter); these stand in the open, so they need
@@ -34,6 +44,10 @@ CORRIDOR_DISTRACTORS = 2
 WALL_CLEARANCE_M = 0.5  # never flush against a wall
 MIN_FIRE_SEP_M = 1.2  # two closer than this read as one blob to the detector
 PAD_CLEARANCE_M = 1.2  # keep the start pad and its approach clear
+# Obstacles are solid, so they need more room around them than a marker does: an
+# obstacle placed one marker-width from a target makes that target unreachable,
+# which is an unfair arena rather than a hard one.
+OBSTACLE_SEP_M = 1.6
 
 _PLACE_ATTEMPTS = 2000
 
@@ -64,8 +78,38 @@ def build(name: str = "arena", seed=None) -> World:
     if name == "corridor":
         return _corridor(seed)
     if name == "arena":
-        return World.random(seed=seed)
+        return _arena(seed)
     raise ValueError(f"unknown scenery: {name}")
+
+
+def _arena(seed=None) -> World:
+    """The square room, plus a couple of solid obstacles standing in the open.
+
+    Built on top of ``World.random`` rather than inside it: the wall-mounted
+    layout is what every existing caller of ``World.random`` expects, and the
+    obstacles are a property of *this scenery*, not of a random world.
+    """
+    world = World.random(seed=seed)
+    rng = random.Random(seed)
+    markers = list(world.markers)
+    w, d, start = world.width_m, world.depth_m, world.start_xy
+    for _ in range(ARENA_OBSTACLES):
+        spot = _find_spot(rng, w, d, markers, start, sep_m=OBSTACLE_SEP_M)
+        if spot is not None:
+            markers.append(_obstacle(rng, spot))
+    return World(
+        size_m=world.size_m,
+        markers=markers,
+        length_m=world.length_m,
+        start=world.start,
+        name=world.name,
+    )
+
+
+def _obstacle(rng, spot) -> Marker:
+    return Marker(
+        spot[0], spot[1], rng.choice(OBSTACLE_KINDS), size_m=DEFAULT_OBSTACLE_DIAMETER_M
+    )
 
 
 def _corridor(seed=None) -> World:
@@ -83,30 +127,46 @@ def _corridor(seed=None) -> World:
         spot = _find_spot(rng, w, length, markers, start)
         if spot is not None:
             markers.append(Marker(spot[0], spot[1], kind))
+    # Obstacles last, so they fit around the targets rather than crowding them
+    # out — a run that cannot reach a target is a broken arena, not a hard one.
+    for _ in range(CORRIDOR_OBSTACLES):
+        spot = _find_spot(rng, w, length, markers, start, sep_m=OBSTACLE_SEP_M)
+        if spot is not None:
+            markers.append(_obstacle(rng, spot))
     return World(
         size_m=w, markers=markers, length_m=length, start=start, name="corridor"
     )
 
 
-def _find_spot(rng, w, d, markers, start_xy):
+def _find_spot(rng, w, d, markers, start_xy, sep_m=MIN_FIRE_SEP_M):
     """A legal free-standing position, or ``None`` if the room is too crowded."""
     for _ in range(_PLACE_ATTEMPTS):
         x = rng.uniform(WALL_CLEARANCE_M, w - WALL_CLEARANCE_M)
         y = rng.uniform(WALL_CLEARANCE_M, d - WALL_CLEARANCE_M)
-        if is_free(x, y, w, d, markers, start_xy):
+        if is_free(x, y, w, d, markers, start_xy, sep_m=sep_m):
             return x, y
     return None
 
 
-def is_free(x, y, w, d, markers, start_xy) -> bool:
-    """Is ``(x, y)`` a legal spot for a free-standing marker in a ``w`` x ``d`` room?"""
+def is_free(x, y, w, d, markers, start_xy, sep_m=MIN_FIRE_SEP_M) -> bool:
+    """Is ``(x, y)`` a legal spot for a free-standing marker in a ``w`` x ``d`` room?
+
+    ``sep_m`` is how far it has to sit from everything already placed. It
+    defaults to the marker separation; obstacles pass the wider
+    ``OBSTACLE_SEP_M`` because a solid thing next to a target blocks it.
+    """
     if not (WALL_CLEARANCE_M <= x <= w - WALL_CLEARANCE_M):
         return False
     if not (WALL_CLEARANCE_M <= y <= d - WALL_CLEARANCE_M):
         return False
     if (x - start_xy[0]) ** 2 + (y - start_xy[1]) ** 2 < PAD_CLEARANCE_M**2:
         return False
-    return all((m.x - x) ** 2 + (m.y - y) ** 2 >= MIN_FIRE_SEP_M**2 for m in markers)
+    # An obstacle already placed keeps its own wider bubble, whoever is asking.
+    return all(
+        (m.x - x) ** 2 + (m.y - y) ** 2
+        >= (max(sep_m, OBSTACLE_SEP_M) if m.is_obstacle else sep_m) ** 2
+        for m in markers
+    )
 
 
 def with_fires(world: World, points) -> World:

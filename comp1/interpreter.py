@@ -5,11 +5,14 @@ from .drone.base import DroneAdapter
 from .protocol import LIMITS, Block, Program
 from .vision.config import DEFAULT_CONFIG, VisionConfig
 from .vision.detector import Detection
+from .vision.obstacles import is_in_the_way
 
 MAX_EXPR_DEPTH = 32
 MAX_LOOP_ITERS = 1000
-# no target in view reads as "very far away", not 0: a student writing
-# `repeat until (distance < 120)` must keep searching, not think it has arrived
+# nothing in view reads as "very far away", not 0: a student writing
+# `repeat until (distance < 120)` must keep searching, not think it has arrived.
+# The same convention covers obstacle range, for the same reason — 0 would read
+# as "touching it" and stop a search loop the moment the way was clear.
 NO_TARGET_DISTANCE_CM = 9999.0
 
 
@@ -120,6 +123,27 @@ class Interpreter:
                 | "target_position_right"
             ):
                 return det.found and det.position == s.removeprefix("target_position_")
+            case "obstacle_visible":
+                return det.obstacle is not None
+            case "obstacle_ahead":
+                return is_in_the_way(det.obstacle, self._cfg)
+            case "obstacle_distance_cm":
+                o = det.obstacle
+                return o.distance_m * 100 if o else NO_TARGET_DISTANCE_CM
+            case "obstacle_bearing_deg":
+                o = det.obstacle
+                return o.bearing_deg if o else 0.0
+            case "obstacle_count":
+                return float(det.obstacle_count)
+            case (
+                "obstacle_position_left"
+                | "obstacle_position_center"
+                | "obstacle_position_right"
+            ):
+                o = det.obstacle
+                return o is not None and o.position == s.removeprefix(
+                    "obstacle_position_"
+                )
             case "found_count":
                 return float(self.found_count)
             case "battery":
@@ -295,6 +319,35 @@ class Interpreter:
                 await self._run_blocks(b.body if self._cond(b.cond) else b.else_body)
             case "approach_marker":
                 await self._approach()
+            case "avoid_obstacle":
+                await self._avoid()
+
+    async def _avoid(self):
+        """Sidestep whatever is blocking the way, then stop.
+
+        Deliberately not a "go around and continue" manoeuvre: it only clears the
+        centre of the view and hands control straight back, so the student's own
+        program decides what to do next. A block that also flew onward would be
+        doing the navigating for them, and would make the drone's path depend on
+        a hidden step nobody wrote.
+
+        A no-op when the way is already clear, so it is safe to put inside a loop.
+        """
+        cfg = self._cfg
+        for _ in range(cfg.avoid_max_steps):
+            if self._stop.is_set():
+                raise _Stopped()
+            obstacle = self._detect().obstacle
+            if not is_in_the_way(obstacle, cfg):
+                return  # nothing blocking — done
+            # Step away from where it is. A dead-centre obstacle has no better
+            # side, so it always goes right: an arbitrary but *consistent* choice
+            # is what makes a student's run repeatable enough to reason about.
+            side = "left" if obstacle.bearing_deg >= 0 else "right"
+            cm = _clamp(cfg.avoid_sidestep_cm, *LIMITS["cm"])
+            await self._call_drone("move", side, cm)
+            await asyncio.sleep(0.2)  # let video catch up
+        self._warn("could not get clear of the obstacle")
 
     async def _approach(self):
         """Turn toward the target, then close on it, using metric bearing and range.

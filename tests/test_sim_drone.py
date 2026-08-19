@@ -184,7 +184,7 @@ def test_pose_reports_what_the_third_person_view_needs():
     d.takeoff()
     d.rotate("cw", 45)
     p = d.pose()
-    assert set(p) == {"x", "y", "z", "heading", "roll", "pitch", "flying"}
+    assert set(p) == {"x", "y", "z", "heading", "roll", "pitch", "flying", "crashed"}
     assert p["flying"] and p["heading"] == 45.0 and p["z"] == 1.0
 
 
@@ -248,3 +248,73 @@ def test_adapters_without_an_arena_expose_no_pose():
     from comp1.drone.mock import MockDrone
 
     assert MockDrone().pose() is None and MockDrone().scene() is None
+
+
+# --- obstacles are solid ----------------------------------------------------
+
+
+def obstacle_world():
+    """A 4 m room with one solid obstacle 2 m due north of the start pad."""
+    return World(
+        size_m=4.0,
+        markers=[Marker(2.0, 4.0, FIRE), Marker(2.0, 3.0, "obstacle_red_square", 0.4)],
+    )
+
+
+def flying_at(world, z=1.0):
+    d = SimDrone(world=world, delay=0)
+    d.takeoff()
+    d.z = z
+    return d
+
+
+def test_flying_into_an_obstacle_stops_short_and_records_the_crash():
+    d = flying_at(obstacle_world())
+    d.move("forward", 200)  # straight at it, from (2, 2)
+    assert d.crashed
+    # Stopped before reaching it rather than sliding past or through.
+    assert d.y < 3.0 - 0.4 / 2
+
+
+def test_a_blocked_move_does_not_resume_on_the_far_side():
+    """The far end of this move is clear, and that must not rescue it.
+
+    Without the latch the drone stops at the obstacle, then the next animation
+    step finds open air beyond it and teleports the drone through.
+    """
+    d = flying_at(obstacle_world())
+    d.move("forward", 180)  # would end at y=3.8, past the obstacle at y=3.0
+    assert d.crashed and d.y < 3.0
+
+
+def test_flying_over_an_obstacle_is_a_legitimate_way_past():
+    # Obstacles are modelled as short cylinders, not floor-to-ceiling columns,
+    # precisely so that climbing over one stays an option worth discovering.
+    d = flying_at(obstacle_world(), z=2.0)
+    d.move("forward", 150)
+    assert not d.crashed
+    assert d.y > 3.0
+
+
+def test_an_empty_room_never_crashes():
+    d = flying_at(World(size_m=4.0, markers=[]))
+    d.move("forward", 150)
+    d.move("right", 100)
+    assert not d.crashed
+
+
+def test_a_wall_distractor_is_not_solid():
+    # Wall decorations are seen by the detector but flown past: only the
+    # obstacle_* kinds collide.
+    d = flying_at(World(size_m=4.0, markers=[Marker(2.0, 3.0, "red_square")]))
+    d.move("forward", 150)
+    assert not d.crashed
+
+
+def test_reset_clears_the_crash():
+    d = flying_at(obstacle_world())
+    d.move("forward", 200)
+    assert d.crashed
+    d.reset()
+    assert not d.crashed
+    assert d.pose()["crashed"] is False

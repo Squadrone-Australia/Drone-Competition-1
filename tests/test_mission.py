@@ -112,6 +112,7 @@ def test_all_three_together_is_a_mission_success(scorer):
         "total": 2,
         "at_destination": True,
         "needs_destination": True,
+        "crashed": False,
         "state": "success",
     }
 
@@ -147,3 +148,34 @@ def test_a_scorer_survives_a_pose_it_never_gets(scorer):
     assert scorer.signal(None) is False
     assert scorer.at_destination(None) is False
     assert scorer.state(None)["state"] == "flying"
+
+
+# --- hitting something ends the attempt -------------------------------------
+
+
+def _crashed_pose(x, y, flying=True):
+    return {**_pose(x, y, flying), "crashed": True}
+
+
+def test_a_clean_run_is_not_crashed(scorer):
+    assert scorer.state(_pose(1.25, 1.0))["crashed"] is False
+
+
+def test_hitting_an_obstacle_fails_an_otherwise_perfect_run(scorer):
+    scorer.signal(_pose(1.0, 3.0))
+    scorer.signal(_pose(1.5, 6.0))
+    state = scorer.state(_crashed_pose(1.25, 9.4, flying=False))
+    assert state["state"] == "crashed"
+    assert state["found"] == 2 and state["at_destination"]
+
+
+def test_the_crash_is_latched_once_it_has_happened(scorer):
+    scorer.state(_crashed_pose(1.25, 5.0))
+    # Flown clear afterwards — but the mission still hit something.
+    assert scorer.state(_pose(1.25, 9.4, flying=False))["state"] == "crashed"
+
+
+def test_a_crash_fails_a_destination_free_arena():
+    s = MissionScorer(_scene([Marker(1.0, 1.0, FIRE)], size_m=4.0))
+    s.signal(_pose(1.0, 1.0))
+    assert s.state(_crashed_pose(1.0, 1.0, flying=False))["state"] == "crashed"

@@ -15,7 +15,7 @@ from comp1.sim.world import FIRE, Marker, World
 from comp1.vision.config import DEFAULT_CONFIG
 from comp1.vision.detector import Detection, TargetTracker
 
-from .helpers import lost, seen
+from .helpers import blocked, clear, lost, seen
 from .test_server import collect_until
 
 
@@ -462,3 +462,65 @@ def test_estop_over_the_websocket_stops_a_running_script(tmp_path):
         fin = collect_until(ws, "finished", limit=400)
         assert fin["reason"] == "stopped"
     assert ("emergency",) in adapter.log
+
+
+# --- obstacles, Python pathway ----------------------------------------------
+
+
+def obstacle_drone(detection):
+    session, adapter = mock_session(detection=detection)
+    d = Drone()
+    d._s, d._d = session, adapter
+    return d, adapter
+
+
+def test_obstacle_sensing_reflects_the_detection():
+    d, _ = obstacle_drone(blocked(distance_m=0.8, bearing_deg=-12.0, color="red",
+                                  shape="square"))
+    assert d.sees_obstacle()
+    o = d.obstacle()
+    assert o.distance_cm == pytest.approx(80)
+    assert o.bearing_deg == pytest.approx(-12.0)
+    assert o.position == "left"
+    assert (o.color, o.shape) == ("red", "square")
+    assert str(o) == "red square 80 cm away, -12 deg (left)"
+    assert d.obstacle_distance_cm() == pytest.approx(80)
+
+
+def test_obstacle_sensing_when_the_way_is_clear():
+    d, _ = obstacle_drone(clear())
+    assert not d.sees_obstacle()
+    assert d.obstacle() is None
+    assert d.obstacles() == []
+    assert d.obstacle_distance_cm() is None
+    assert not d.obstacle_ahead()
+
+
+def test_obstacle_ahead_needs_close_and_central():
+    near_centre, _ = obstacle_drone(blocked(distance_m=0.6, bearing_deg=2.0))
+    assert near_centre.obstacle_ahead()
+    off_side, _ = obstacle_drone(blocked(distance_m=0.6, bearing_deg=-30.0))
+    assert not off_side.obstacle_ahead()
+    far, _ = obstacle_drone(blocked(distance_m=5.0, bearing_deg=0.0))
+    assert not far.obstacle_ahead()
+
+
+def test_avoid_obstacle_does_nothing_when_the_way_is_clear():
+    d, adapter = obstacle_drone(clear())
+    assert d.avoid_obstacle() is True
+    assert [x for x in adapter.log if x[0] == "move"] == []
+
+
+def test_avoid_obstacle_steps_away_and_reports_giving_up():
+    # The obstacle never clears, so the loop runs out — and says so rather than
+    # raising, exactly like the block pathway.
+    session, adapter = mock_session(
+        detection=blocked(distance_m=0.5, bearing_deg=3.0),
+        cfg=replace(DEFAULT_CONFIG, avoid_max_steps=2),
+    )
+    d = Drone()
+    d._s, d._d = session, adapter
+    assert d.avoid_obstacle() is False
+    assert [x for x in adapter.log if x[0] == "move"] == [
+        ("move", "left", DEFAULT_CONFIG.avoid_sidestep_cm)
+    ] * 2

@@ -58,3 +58,52 @@ approach_lost_timeout_s = 2.5
 # between two similarly sized red circles
 lock_max_bearing_jump_deg = 25.0
 lock_lost_frames = 5
+
+# --- obstacles: everything that is NOT an accepted red circle ---
+# Obstacle detection is defined negatively. It finds every colourful blob in the
+# frame and removes the ones the marker detector accepted; whatever is left is
+# something to stay away from. There is no list of obstacle shapes or colours,
+# and there must not be — a shape nobody anticipated still has to be avoided.
+#
+# These drive a SECOND mask, separate from the red bands above. Re-tuning the red
+# bands does not affect them and vice versa.
+
+# The obstacle mask thresholds on saturation and value only, never hue: one mask
+# has to catch a red square, a green triangle, a blue circle and a yellow square,
+# and the only thing they share is being colourful.
+#
+# ** This is the key on-site tuning knob. ** What keeps the room out of the mask
+# is that walls and floor are washed-out and cool-toned. A warm-lit wall, a
+# painted line, a sponsor banner or a bright floor mat can all clear this floor
+# and be reported as an obstacle. Raise obstacle_sat_min until the arena reads
+# clear with nothing in front of the drone; if you have to raise it past ~120 the
+# obstacles themselves start dropping out, and the room needs re-lighting rather
+# than more tuning.
+obstacle_sat_min = 80
+obstacle_val_min = 50
+
+# Smallest blob that counts. Higher than min_area_ratio on purpose: an obstacle
+# only matters close in, and a tighter floor keeps distant clutter out of the
+# student's way. 0.004 gives roughly 2.8 m of range at the default printed size.
+obstacle_min_area_ratio = 0.004
+# Deliberately generous — unlike a marker, an obstacle really can fill the view.
+# This only rejects a frame-wide colour wash.
+obstacle_max_area_ratio = 0.9
+
+# Range is derived from apparent size, so it needs an assumed printed size. Set
+# this to whatever the obstacles are actually printed at. An obstacle printed
+# LARGER than this reads as nearer than it is, which errs in the safe direction;
+# one printed smaller reads as further away, which does not — so if the arena
+# mixes sizes, set this to the SMALLEST of them.
+obstacle_diameter_m = 0.25
+
+# Closer than this, and centred in the view, is what the "obstacle in the way?"
+# block reports and what "step around obstacle" acts on. Raise it to make the
+# drone commit to going around earlier.
+obstacle_clear_distance_m = 1.0
+
+# --- obstacle avoidance ---
+# One sideways step, repeated until the way ahead is clear. Must stay at or above
+# the Tello's 20 cm translation floor or the aircraft silently ignores the move.
+avoid_sidestep_cm = 60
+avoid_max_steps = 6

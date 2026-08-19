@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from .config import DEFAULT_CONFIG, VisionConfig
+from .obstacles import find_obstacles, is_in_the_way
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,9 @@ class Detection:
     found: bool = False
     targets: list = field(default_factory=list)  # all candidates, nearest first
     target: Target | None = None  # the locked/primary one
+    # Everything in the frame that is not an accepted marker, nearest first.
+    # `found` stays a statement about targets only — an obstacle is not a find.
+    obstacles: list = field(default_factory=list)
 
     # --- back-compatible scalar view of the primary target ---
     @property
@@ -57,14 +61,30 @@ class Detection:
     def count(self) -> int:
         return len(self.targets)
 
+    # --- obstacles ---
+    @property
+    def obstacle(self):
+        """The nearest thing in the way, or None."""
+        return self.obstacles[0] if self.obstacles else None
+
+    @property
+    def obstacle_count(self) -> int:
+        return len(self.obstacles)
+
     @classmethod
-    def of(cls, target: Target | None, targets: list | None = None) -> "Detection":
+    def of(
+        cls,
+        target: Target | None,
+        targets: list | None = None,
+        obstacles: list | None = None,
+    ) -> "Detection":
         if target is None:
-            return cls(found=False, targets=targets or [])
+            return cls(found=False, targets=targets or [], obstacles=obstacles or [])
         return cls(
             found=True,
             targets=targets if targets is not None else [target],
             target=target,
+            obstacles=obstacles or [],
         )
 
 
@@ -176,7 +196,8 @@ def detect_red_circle(
     Stateless — for a run, prefer :class:`TargetTracker`, which holds a lock.
     """
     targets = find_targets(frame_bgr, cfg)
-    return Detection.of(targets[0] if targets else None, targets)
+    obstacles = find_obstacles(frame_bgr, cfg, targets)
+    return Detection.of(targets[0] if targets else None, targets, obstacles)
 
 
 class TargetTracker:
@@ -207,19 +228,22 @@ class TargetTracker:
         self.reset()
         targets = detection.targets
         if not targets:
-            return Detection(found=False)
+            return Detection(found=False, obstacles=detection.obstacles)
         self._locked = targets[0]
-        return Detection.of(self._locked, targets)
+        return Detection.of(self._locked, targets, detection.obstacles)
 
     def update(self, frame_bgr: np.ndarray | None) -> Detection:
         if frame_bgr is None:
-            return self._miss([])
+            return self._miss([], [])
         targets = find_targets(frame_bgr, self._cfg)
+        # Detected on every frame, including the ones with no target in them:
+        # searching is exactly when the drone is flying blind into things.
+        obstacles = find_obstacles(frame_bgr, self._cfg, targets)
         if not targets:
-            return self._miss(targets)
+            return self._miss(targets, obstacles)
         self._lost = 0
         self._locked = self._pick(targets)
-        return Detection.of(self._locked, targets)
+        return Detection.of(self._locked, targets, obstacles)
 
     def _pick(self, targets: list) -> Target:
         if self._locked is None:
@@ -230,11 +254,11 @@ class TargetTracker:
             return near
         return targets[0]  # lock broke — re-acquire nearest
 
-    def _miss(self, targets: list) -> Detection:
+    def _miss(self, targets: list, obstacles: list) -> Detection:
         self._lost += 1
         if self._lost >= self._cfg.lock_lost_frames:
             self._locked = None
-        return Detection(found=False, targets=targets)
+        return Detection(found=False, targets=targets, obstacles=obstacles)
 
 
 def draw_overlay(frame_bgr: np.ndarray, det: Detection) -> np.ndarray:
@@ -265,4 +289,31 @@ def draw_overlay(frame_bgr: np.ndarray, det: Detection) -> np.ndarray:
         )
         if primary:
             cv2.line(out, (int(t.cx * w), 0), (int(t.cx * w), h), c, 1)
+    # Obstacles get a box, not a circle, so the two families never look alike in
+    # a screenshot. Amber for anything seen, red for whatever is in the way.
+    for o in det.obstacles:
+        blocking = is_in_the_way(o)
+        c = (0, 0, 255) if blocking else (0, 180, 255)
+        r = max(int(o.radius_norm * w), 2)
+        px, py = int(o.cx * w), int(o.cy * h)
+        cv2.rectangle(out, (px - r, py - r), (px + r, py + r), c, 2)
+        cv2.putText(
+            out,
+            f"{o.color} {o.shape} {o.distance_m:.1f}m",
+            (px - r, py - r - 6),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.4,
+            c,
+            1,
+        )
+    if det.obstacle is not None and is_in_the_way(det.obstacle):
+        cv2.putText(
+            out,
+            "OBSTACLE AHEAD",
+            (10, h - 12),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 0, 255),
+            2,
+        )
     return out

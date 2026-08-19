@@ -832,3 +832,70 @@ def test_auto_calibration_is_refused_during_a_mission():
         ws.send_json({"type": "vision_auto"})
         error = collect_until(ws, "vision_error", limit=200)
     assert "stop the mission" in error["message"]
+
+
+# --- obstacles reach the browser --------------------------------------------
+
+
+def _obstacle_arena():
+    from comp1.sim.drone import SimDrone
+    from comp1.sim.world import FIRE, Marker, World
+
+    return SimDrone(
+        world=World(
+            size_m=4.0,
+            markers=[Marker(2.0, 3.9, FIRE), Marker(2.0, 3.0, "obstacle_red_square")],
+        ),
+        delay=0,
+    )
+
+
+def test_telemetry_reports_obstacles():
+    with TestClient(create_app(drone=_obstacle_arena())) as c:
+        with c.websocket_connect("/ws") as ws:
+            t = collect_until(ws, "telemetry", limit=200)
+            # Present whether or not anything is in view — the browser reads them
+            # every frame, so a missing key is a broken panel, not a blank one.
+            for key in (
+                "obstacle_count",
+                "obstacle_distance_cm",
+                "obstacle_bearing_deg",
+                "obstacle_ahead",
+            ):
+                assert key in t
+
+
+def test_flying_into_an_obstacle_is_reported_as_a_crashed_mission():
+    drone = _obstacle_arena()
+    with TestClient(create_app(drone=drone)) as c:
+        with c.websocket_connect("/ws") as ws:
+            ws.send_text(
+                json.dumps(
+                    {
+                        "type": "run",
+                        "program": {
+                            "version": 2,
+                            "blocks": [
+                                {"id": "t", "op": "takeoff"},
+                                {"id": "f", "op": "move", "dir": "forward", "cm": 150},
+                                {"id": "e", "op": "land"},
+                            ],
+                        },
+                    }
+                )
+            )
+            states = []
+            for _ in range(900):
+                msg = ws.receive()
+                if not msg.get("text"):
+                    continue
+                data = json.loads(msg["text"])
+                if data["type"] == "mission":
+                    states.append(data["state"])
+                    if data["state"] == "crashed":
+                        break
+            assert drone.crashed
+            # Arrives on the pose loop's cadence, which can be *after* "finished"
+            # — the same way arrival and landing are noticed. Reading only up to
+            # the finished message can miss it.
+            assert states[-1] == "crashed"

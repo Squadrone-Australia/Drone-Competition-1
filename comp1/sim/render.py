@@ -59,6 +59,15 @@ KIND_STYLE = {
     "blue_circle": ("circle", (220, 60, 0)),
     "green_triangle": ("triangle", (60, 180, 0)),
     "yellow_square": ("square", (0, 210, 230)),
+    # Free-standing obstacles. Same shapes and same colours as the wall
+    # distractors -- an obstacle is not visually a special class of thing, it is
+    # just one of these standing where the drone wants to fly. A kind missing
+    # from this table is a hard KeyError below, which is the intent: a new kind
+    # must be given a look, not silently drawn as a triangle.
+    "obstacle_red_square": ("square", (0, 0, 220)),
+    "obstacle_green_triangle": ("triangle", (60, 180, 0)),
+    "obstacle_blue_circle": ("circle", (220, 60, 0)),
+    "obstacle_yellow_square": ("square", (0, 210, 230)),
 }
 
 
@@ -269,6 +278,11 @@ def draw_minimap(img, world, x, y, heading, size=140, pad=10):
         if m.kind == DESTINATION:
             px, py = to_px(m.x, m.y)
             cv2.rectangle(out, (px - 4, py - 4), (px + 4, py + 4), (0, 140, 0), -1)
+            continue
+        if m.is_obstacle:
+            # Amber ring, not a filled dot: on the plan a teacher needs to see at
+            # a glance which markers are solid and which are just decoration.
+            cv2.circle(out, to_px(m.x, m.y), 5, (0, 165, 255), 2)
             continue
         color = (0, 0, 220) if m.kind == FIRE else (140, 140, 140)
         cv2.circle(out, to_px(m.x, m.y), 4, color, -1)

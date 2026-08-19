@@ -67,6 +67,12 @@ def test_scenery_alone_is_never_a_fire():
                     assert not det.found, (
                         f"scenery detected at {x},{y},{z} hdg {heading}"
                     )
+                    # The obstacle detector runs off the same room. It keys on
+                    # saturation, so it is the palette rule's second dependant:
+                    # warm up a wall and it starts calling the room an obstacle.
+                    assert not det.obstacles, (
+                        f"scenery read as an obstacle at {x},{y},{z} hdg {heading}"
+                    )
 
 
 def empty_corridor():
@@ -97,6 +103,12 @@ def test_corridor_scenery_alone_is_never_a_fire():
                     det = detect_red_circle(render(world, x, y, z, heading))
                     assert not det.found, (
                         f"scenery detected at {x},{y},{z} hdg {heading}"
+                    )
+                    # The obstacle detector runs off the same room. It keys on
+                    # saturation, so it is the palette rule's second dependant:
+                    # warm up a wall and it starts calling the room an obstacle.
+                    assert not det.obstacles, (
+                        f"scenery read as an obstacle at {x},{y},{z} hdg {heading}"
                     )
 
 

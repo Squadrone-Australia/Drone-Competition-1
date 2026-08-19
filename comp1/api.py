@@ -40,6 +40,7 @@ from pathlib import Path
 from .drone.base import DroneAdapter
 from .vision.config import DEFAULT_CONFIG, VisionConfig
 from .vision.detector import Detection, Target, TargetTracker
+from .vision.obstacles import is_in_the_way
 
 MIN_MOVE_CM, MAX_MOVE_CM = 20, 500  # Tello firmware limits, not preferences
 MIN_TURN_DEG, MAX_TURN_DEG = 1, 360
@@ -130,6 +131,44 @@ def _view(t: Target | None) -> TargetView | None:
         bearing_deg=t.bearing_deg,
         elevation_deg=t.elevation_deg,
         position=t.position,
+    )
+
+
+@dataclass(frozen=True)
+class ObstacleView:
+    """Something in the way, in the units a student thinks in.
+
+    ``shape`` and ``colour`` are there to be read and printed, not to be acted
+    on: everything that is not an accepted marker has to be avoided regardless of
+    what it turns out to be.
+    """
+
+    distance_m: float
+    distance_cm: float
+    bearing_deg: float  # + = to the right of the drone's nose
+    elevation_deg: float  # + = above the camera
+    position: str  # "left" | "center" | "right"
+    shape: str  # "circle" | "square" | "triangle" | "blob"
+    color: str  # "red" | "green" | "blue" | "yellow" | "other"
+
+    def __str__(self):
+        return (
+            f"{self.color} {self.shape} {self.distance_cm:.0f} cm away, "
+            f"{self.bearing_deg:+.0f} deg ({self.position})"
+        )
+
+
+def _obstacle_view(o) -> ObstacleView | None:
+    if o is None:
+        return None
+    return ObstacleView(
+        distance_m=o.distance_m,
+        distance_cm=o.distance_m * 100,
+        bearing_deg=o.bearing_deg,
+        elevation_deg=o.elevation_deg,
+        position=o.position,
+        shape=o.shape,
+        color=o.color,
     )
 
 
@@ -313,6 +352,41 @@ class Drone:
         t = self.target()
         return t.elevation_deg if t else None
 
+    # --------------------------------------------------------------- obstacles
+
+    def sees_obstacle(self) -> bool:
+        """True if anything that is not a target is in view.
+
+        Obstacles are whatever the marker detector rejected — a red square, a
+        green triangle, a blue circle. There is no list of them: anything that is
+        not a red circle counts.
+        """
+        self._check()
+        return self._s.get_detection().obstacle is not None
+
+    def obstacle(self) -> ObstacleView | None:
+        """The nearest obstacle, or None if the view is clear."""
+        self._check()
+        return _obstacle_view(self._s.get_detection().obstacle)
+
+    def obstacles(self) -> list[ObstacleView]:
+        """Every obstacle in view, nearest first."""
+        self._check()
+        return [_obstacle_view(o) for o in self._s.get_detection().obstacles]
+
+    def obstacle_distance_cm(self) -> float | None:
+        """How far away the nearest obstacle is, or None if none is visible."""
+        o = self.obstacle()
+        return o.distance_cm if o else None
+
+    def obstacle_ahead(self) -> bool:
+        """True when an obstacle is close enough and central enough to block us.
+
+        The same test ``avoid_obstacle`` uses, so the two can never disagree.
+        """
+        self._check()
+        return is_in_the_way(self._s.get_detection().obstacle, self._s.cfg)
+
     # ---------------------------------------------------------------- missions
 
     def approach_target(self, stop_distance_cm: float | None = None) -> bool:
@@ -368,6 +442,29 @@ class Drone:
                 )
             else:
                 return True
+            self.wait(self._s.settle_s)
+        return False
+
+    def avoid_obstacle(self) -> bool:
+        """Sidestep whatever is blocking the way. True once the view is clear.
+
+        Only clears the centre of the view and then hands control straight back —
+        it does not fly on past the obstacle. Deciding what to do once the way is
+        clear is your program's job, not this call's.
+
+        Does nothing at all if there is no obstacle in the way, so it is safe to
+        call every time round a loop.
+        """
+        cfg = self._s.cfg
+        for _ in range(cfg.avoid_max_steps):
+            self._check()
+            obstacle = self._s.get_detection().obstacle
+            if not is_in_the_way(obstacle, cfg):
+                return True
+            # A dead-centre obstacle always goes right: arbitrary, but consistent
+            # enough that a run can be reasoned about.
+            side = "left" if obstacle.bearing_deg >= 0 else "right"
+            self._act(self._d.move, side, _clamp(cfg.avoid_sidestep_cm, MIN_MOVE_CM, MAX_MOVE_CM))
             self.wait(self._s.settle_s)
         return False
 

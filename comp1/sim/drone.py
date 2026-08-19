@@ -10,6 +10,9 @@ ANIM_FPS = 60  # pose updates per second while a command is in flight
 MAX_ALT_M = 2.5
 MIN_ALT_M = 0.3
 LEAN_DEG = 12.0  # how far the airframe tips into a translation
+# How close the drone's centre may come to an obstacle before it has hit it.
+# Roughly the Tello's half-span plus its prop guards.
+DRONE_CLEARANCE_M = 0.2
 FLIP_DRIFT_M = 0.3  # how far a flip throws the airframe before it recovers
 
 # Which attitude angle a flip drives, and which way round.
@@ -82,6 +85,11 @@ class SimDrone(DroneAdapter):
         # detector, only by the browser's third-person view
         self.roll = 0.0
         self.pitch = 0.0
+        # Set the moment the drone touches an obstacle, and never cleared except
+        # by a reset: a mission that hit something did hit something, and flying
+        # on afterwards does not undo it. Sim truth only -- MissionScorer reads
+        # it off the pose, and no block or sensor may ever expose it (§4).
+        self.crashed = False
         self._abort = False
 
     # --- animation ---------------------------------------------------------
@@ -176,10 +184,29 @@ class SimDrone(DroneAdapter):
         x_lo, x_hi = margin, self.world.width_m - margin
         y_lo, y_hi = margin, self.world.depth_m - margin
 
+        def at(t):
+            return (
+                min(max(x0 + dx * t, x_lo), x_hi),
+                min(max(y0 + dy * t, y_lo), y_hi),
+                z0 + dz * t,
+            )
+
+        # How far along this move the drone gets before it hits something --
+        # resolved up front, over the whole swept path, not per animation frame.
+        # Testing only the frames would tunnel straight through an obstacle
+        # whenever the frames are far apart, and with delay=0 there is exactly
+        # one frame: the end point. That is every test in the suite.
+        limit_t = self._first_contact(at, math.hypot(dx, dy) + abs(dz))
+        if limit_t is not None:
+            # Stop dead rather than sliding around it. A drone that scrapes past
+            # teaches that ignoring an obstacle mostly works, which is the
+            # opposite of the lesson.
+            self.crashed = True
+
         def step(t):
-            self.x = min(max(x0 + dx * t, x_lo), x_hi)
-            self.y = min(max(y0 + dy * t, y_lo), y_hi)
-            self.z = z0 + dz * t
+            if limit_t is not None:
+                t = min(t, limit_t)
+            self.x, self.y, self.z = at(t)
             # tip into the move and level out again — a quadcopter that translates
             # perfectly flat looks like a lift, not a drone
             tilt = math.sin(math.pi * t)
@@ -187,6 +214,38 @@ class SimDrone(DroneAdapter):
 
         self._animate(step, self._move_duration(abs(dist)))
         self.pitch = self.roll = 0.0
+
+    def _first_contact(self, at, length_m, resolution_m=0.02):
+        """The furthest ``t`` along ``at(t)`` that is still clear, or None.
+
+        None means the whole move is clear. Sampling rather than solving: the
+        obstacle test is a cheap couple of comparisons, and a sampled sweep
+        handles the vertical extent and the room-box clamp without either
+        needing a closed form.
+        """
+        if not self.world.obstacles:
+            return None  # the common case, and it costs nothing
+        steps = max(1, math.ceil(length_m / resolution_m))
+        for i in range(1, steps + 1):
+            t = i / steps
+            if self._hits_obstacle(*at(t)):
+                return (i - 1) / steps  # the last sample that was still clear
+        return None
+
+    def _hits_obstacle(self, x, y, z) -> bool:
+        """Would the drone be inside an obstacle at this position?
+
+        Each obstacle is a short cylinder centred on its sign, not a column from
+        floor to ceiling: climbing over one is a legitimate way past it, and
+        modelling it as a column would quietly remove that option.
+        """
+        for m in self.world.obstacles:
+            reach = m.radius_m + DRONE_CLEARANCE_M
+            if abs(z - m.height_m) >= reach:
+                continue
+            if (m.x - x) ** 2 + (m.y - y) ** 2 < reach**2:
+                return True
+        return False
 
     def rotate(self, direction, deg):
         self._require_flying()
@@ -270,6 +329,7 @@ class SimDrone(DroneAdapter):
             "roll": round(self.roll, 2),
             "pitch": round(self.pitch, 2),
             "flying": self.flying,
+            "crashed": self.crashed,
         }
 
     def scene(self):

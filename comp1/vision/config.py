@@ -51,6 +51,38 @@ class VisionConfig:
     # Cluttered arenas drop frames in bursts, and a burst is not a lost target.
     approach_lost_timeout_s: float = 2.5
 
+    # --- obstacles: everything that is NOT an accepted red circle (§ obstacles) ---
+    # These drive a *second, separate* mask from the red bands above, so they do
+    # not participate in the calibration.py _PRIOR_BANDS invariant — that rule is
+    # about the red locator only. Nothing here needs checking against it.
+    #
+    # The obstacle mask thresholds on saturation and value alone, never hue: one
+    # mask has to catch a red square, a green triangle, a blue circle and a
+    # yellow square, and the only thing they share is that they are *colourful*.
+    # What keeps walls and floor out is the scenery palette rule (see
+    # comp1/sim/render.py) — every scenery colour is blue-dominant and
+    # low-saturation, so it falls under this floor. On real hardware a warm-lit
+    # wall or a saturated banner will not, which is exactly why this is a tunable
+    # key and belongs in the on-site re-tune pass alongside the HSV bands.
+    obstacle_sat_min: int = 80
+    obstacle_val_min: int = 50
+    # Higher floor than min_area_ratio: an obstacle only matters close in, and a
+    # tighter floor keeps distant clutter out of the student's way. ~2.8 m range.
+    obstacle_min_area_ratio: float = 0.004
+    # Deliberately generous — unlike a marker, an obstacle really can fill the
+    # view. This only rejects a frame-wide colour wash.
+    obstacle_max_area_ratio: float = 0.9
+    # Range comes from apparent size, so it needs an assumed printed size. The
+    # arena kit prints obstacles at the same size as the markers; an obstacle
+    # printed larger reads as nearer, which errs in the safe direction.
+    obstacle_diameter_m: float = 0.25
+    # Closer than this, and centred, counts as "in the way".
+    obstacle_clear_distance_m: float = 1.0
+
+    # --- obstacle avoidance ---
+    avoid_sidestep_cm: int = 60  # one lateral step; above the Tello's 20 cm floor
+    avoid_max_steps: int = 6
+
     # --- multi-target locking ---
     # once locked, prefer the candidate nearest the last known bearing rather than
     # whichever happens to be biggest this frame; stops the drone ping-ponging
@@ -61,6 +93,10 @@ class VisionConfig:
     @property
     def marker_radius_m(self) -> float:
         return self.marker_diameter_m / 2
+
+    @property
+    def obstacle_radius_m(self) -> float:
+        return self.obstacle_diameter_m / 2
 
     @property
     def max_detect_range_m(self) -> float:

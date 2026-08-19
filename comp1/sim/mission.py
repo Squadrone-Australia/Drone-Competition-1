@@ -29,6 +29,9 @@ class MissionScorer:
         dest = next((m for m in markers if m["kind"] == "destination"), None)
         self.destination = (dest["x"], dest["y"]) if dest else None
         self.credited: set[int] = set()
+        # Latched, not read live: the drone can be pushed clear of an obstacle by
+        # a later command, but the mission still hit it.
+        self.crashed = False
 
     @property
     def total(self) -> int:
@@ -58,6 +61,11 @@ class MissionScorer:
         self.credited.add(best)
         return True
 
+    def note_pose(self, pose) -> None:
+        """Take in whatever the pose says about things that already happened."""
+        if pose and pose.get("crashed"):
+            self.crashed = True
+
     def at_destination(self, pose) -> bool:
         if pose is None or self.destination is None:
             return False
@@ -73,6 +81,7 @@ class MissionScorer:
         targets alone — otherwise the original search mission could never be
         won once scoring existed.
         """
+        self.note_pose(pose)
         arrived = self.at_destination(pose)
         landed = bool(pose) and not pose["flying"]
         all_found = self.found == self.total
@@ -84,10 +93,16 @@ class MissionScorer:
             # A corridor cleared of targets is a teacher setting up a pure
             # A-to-B lesson, and getting there is the whole of it.
             success = all_found and arrived and landed
+        # Hitting something ends the attempt as a failure however much of the
+        # rest went right -- a drone that reached the destination through an
+        # obstacle did not solve the problem it was set.
+        if self.crashed:
+            success = False
         return {
             "found": self.found,
             "total": self.total,
             "at_destination": arrived,
             "needs_destination": self.destination is not None,
-            "state": "success" if success else "flying",
+            "crashed": self.crashed,
+            "state": "crashed" if self.crashed else ("success" if success else "flying"),
         }

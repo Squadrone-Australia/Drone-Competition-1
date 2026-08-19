@@ -22,6 +22,17 @@ SENSORS = Literal[
     "target_position_right",
     "found_count",
     "battery",
+    # Obstacles: anything the marker detector rejected. These are camera
+    # measurements relative to the drone, so they are legal sensors under §4 —
+    # unlike anything that would hand out an arena coordinate.
+    "obstacle_visible",
+    "obstacle_ahead",
+    "obstacle_distance_cm",
+    "obstacle_bearing_deg",
+    "obstacle_count",
+    "obstacle_position_left",
+    "obstacle_position_center",
+    "obstacle_position_right",
 ]
 BIN_OPS = Literal["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "!=", "and", "or"]
 UN_OPS = Literal["not", "neg", "abs"]
@@ -106,6 +117,7 @@ class Block(BaseModel):
         "rotate",
         "flip",
         "approach_marker",
+        "avoid_obstacle",
         "mark_found",
         "end_mission",
         "repeat_n",

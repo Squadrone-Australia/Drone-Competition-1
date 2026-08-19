@@ -69,6 +69,11 @@ highlighting, instant e-stop, and no arbitrary-code surface. **Do not add `exec(
 
 Add it to [comp1/api.py](comp1/api.py) too if students should reach it from the Python pathway.
 
+`avoid_obstacle` is the example of a capability that needs **none** of step 3: it is a controller
+built out of `move`, living in `Interpreter._avoid` and `Drone.avoid_obstacle`, so all three
+adapters are untouched. Reach for a new adapter primitive only when the aircraft has to do
+something `move`/`rotate`/`flip` cannot.
+
 Adding a *value* (reporter) block is a different path: the `SENSORS` Literal in `protocol.py`, a
 `_sensor` arm in `interpreter.py`, a block with `output:` plus a `valueJson` case in `blocks.js`, and
 a reader on `api.Drone`.
@@ -245,6 +250,26 @@ repair it. `MORPH_CLOSE` first fills the notch; `OPEN` then drops the specks. Ke
 `CLOSE` dilates before eroding, so a large one fuses adjacent markers into a single blob that then
 fails the shape gates, losing *both*.
 
+**Obstacle detection is defined negatively, and that is the whole design.**
+[comp1/vision/obstacles.py](comp1/vision/obstacles.py) does not look for red squares or green
+triangles — it finds every colourful blob (`saturated_mask`, thresholded on saturation and value
+*only*, never hue) and removes the ones `find_targets` accepted. Whatever is left is an obstacle.
+That is what makes "anything other than a red circle is an obstacle" true by construction rather
+than by a list somebody has to keep current. **The only exemption is a blob centred inside an
+accepted target's `minEnclosingCircle`** — do not add others. `Obstacle.shape`/`.color` are labels
+for the overlay and the telemetry panel; nothing gates on them, and no sensor reads them.
+
+Two consequences to preserve. A *partially occluded* marker fails the target shape gates and
+therefore reports as an obstacle — deliberate, tested, and the safe direction: the drone gives a
+half-seen thing a wide berth instead of flying at it. And `saturated_mask` is the second dependant
+of the blue-dominant/low-saturation scenery palette rule below: warm up a wall and the detector
+starts calling the room an obstacle. Both empty-scenery pose sweeps assert `det.obstacles == []`
+now, not just `not det.found`.
+
+`obstacle_diameter_m` (vision) and `DEFAULT_OBSTACLE_DIAMETER_M` (sim) are the same number on
+purpose — range comes from apparent size, so drawing an obstacle at a size the detector does not
+assume makes the simulator disagree with the arena. Change one, change the other.
+
 **The simulator cannot validate any of the above.** [comp1/sim/render.py](comp1/sim/render.py) draws
 flawless, evenly-lit discs — there is no shadow, glare or compression artifact for these gates to
 prove themselves against. The damaged-mask cases in `tests/test_detector.py` are hand-built stand-ins
@@ -308,6 +333,13 @@ scores every find through it: a signal credits the nearest un-credited fire with
 within `ARRIVAL_RADIUS_M` of the destination. A scenery with no destination succeeds on fires
 alone; a corridor cleared of fires succeeds on arrival alone.
 
+An attempt that touches an obstacle is failed outright: `SimDrone.move` resolves collision over the
+whole **swept path** before animating, not per animation frame — with `delay=0` there is exactly one
+frame (the end point), so a per-frame test tunnels straight through every obstacle in the suite.
+`MissionScorer` latches `crashed` and reports `state == "crashed"`, because a drone that reached the
+destination through an obstacle did not solve the problem it was set. Obstacles are short cylinders,
+not floor-to-ceiling columns, so climbing over one stays a legitimate strategy.
+
 **Crediting is synchronous, broadcasting is not.** `server._score` runs inside the `emit` callback,
 before the task that broadcasts. With `delay=0` a whole program finishes before a scheduled task
 gets a turn, and scoring against `drone.pose()` at that point credits nothing.
@@ -356,12 +388,18 @@ The cracks in that wall are all one-way and all live in `server.py` plus `comp1/
   view and the plan panel can draw the room.
 - **Authoring** — `DroneAdapter.scenery_catalog()`/`.load_scenery()` let the browser's arena panel
   pick a scenery and write fire coordinates back, so a teacher can lay a problem out by hand.
-- **Scoring** — `MissionScorer` reads both to decide whether a find counted.
+- **Scoring** — `MissionScorer` reads both to decide whether a find counted, and reads `crashed`
+  off the pose to fail an attempt that hit an obstacle.
 
 Nothing in `comp1/interpreter.py` or `comp1/api.py` may call any of them, and **none of them may
 ever gain a block or a sensor**: no "fly to the destination" block, no `at_destination` sensor, no
-`fires_remaining` sensor. The drone finds the destination the way it finds a fire — by looking
-at it.
+`fires_remaining` sensor, and no `crashed` sensor. The drone finds the destination the way it finds
+a fire — by looking at it, and it discovers an obstacle the same way.
+
+Obstacle *sensing* is on the right side of this line: bearing and range to something the camera can
+see are measurements, exactly like the target sensors. Obstacle *collision* is on the wrong side —
+`SimDrone.crashed` is sim truth, reaches the browser through `pose()` for display and
+`MissionScorer` for scoring, and stops there.
 
 **The frontend must work fully offline.** Blockly and three.js are vendored under
 `comp1/frontend/vendor/`; `tests/test_offline_assets.py` fails the build on any external URL in

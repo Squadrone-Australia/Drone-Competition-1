@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 
 import pytest
 
@@ -213,3 +214,51 @@ def test_mock_and_tello_have_no_arena_to_author():
 
     assert MockDrone().scenery_catalog() is None
     assert MockDrone().load_scenery("corridor") is None
+
+
+# --- obstacles --------------------------------------------------------------
+
+
+def test_both_sceneries_stand_obstacles_in_the_open():
+    for name in scenery.names():
+        world = scenery.build(name, seed=7)
+        assert world.obstacles, f"{name} has nothing to fly around"
+        assert all(m.is_obstacle for m in world.obstacles)
+
+
+def test_an_obstacle_never_crowds_a_target_out_of_reach():
+    for name in scenery.names():
+        world = scenery.build(name, seed=3)
+        for o in world.obstacles:
+            for m in world.markers:
+                if m is o:
+                    continue
+                gap = math.hypot(m.x - o.x, m.y - o.y)
+                assert gap >= scenery.OBSTACLE_SEP_M - 1e-9, f"{name}: {gap:.2f} m"
+
+
+def test_obstacles_are_repeatable_under_a_seed():
+    a = scenery.build("corridor", seed=11).obstacles
+    b = scenery.build("corridor", seed=11).obstacles
+    assert [(m.x, m.y, m.kind) for m in a] == [(m.x, m.y, m.kind) for m in b]
+
+
+def test_editing_the_targets_leaves_the_obstacles_alone():
+    world = scenery.build("corridor", seed=5)
+    before = [(m.x, m.y, m.kind) for m in world.obstacles]
+    edited = scenery.with_fires(world, [{"x": 1.25, "y": 5.0}])
+    assert [(m.x, m.y, m.kind) for m in edited.obstacles] == before
+
+
+def test_every_obstacle_kind_has_a_look_in_both_views():
+    from comp1.sim.render import KIND_STYLE
+    from comp1.sim.world import OBSTACLE_KINDS
+
+    # A kind missing here is a hard KeyError when the camera frame is drawn.
+    for kind in OBSTACLE_KINDS:
+        assert kind in KIND_STYLE
+    colours = (Path(__file__).parent.parent / "comp1/frontend/scene3d.js").read_text(
+        encoding="utf-8"
+    )
+    for kind in OBSTACLE_KINDS:
+        assert kind in colours, f"{kind} has no colour in scene3d.js"

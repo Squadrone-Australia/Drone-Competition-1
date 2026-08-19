@@ -131,11 +131,6 @@ whoever is running the session to load one for you).
 
 ## Troubleshooting
 
-**"start.bat" flashes and closes immediately.**
-Right-click `start.bat`, choose **Edit**, and check the file matches the version in this repo —
-or open a command prompt in the project folder and run `start.bat` from there so any error message
-stays on screen instead of disappearing.
-
 **It says Python isn't recognized / isn't found.**
 Python isn't on your PATH. Reinstall Python from
 [python.org/downloads](https://www.python.org/downloads/) and make sure to tick **"Add python.exe
@@ -150,7 +145,7 @@ Make sure the computer is connected to the Tello's own Wi-Fi network (not your n
 Wi-Fi) — the Tello doesn't use the internet at all, it creates its own local network.
 
 **I want to start fresh.**
-Delete the `venv` folder inside the project folder and double-click `start.bat` again — it will
+Delete the `.venv` folder inside the project folder and double-click `start.bat` again — it will
 rebuild everything from scratch.
 
 ---
