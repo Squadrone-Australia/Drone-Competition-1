@@ -1,11 +1,11 @@
-# Drone Competition — Search & Rescue
+# Drone Competition
 
 This is a program that lets students fly a small drone (a DJI Tello) and teach it to search a
-room, find red targets, and signal each one it finds — by dragging together colourful
+room, find red targets, and signal each one it finds - by dragging together colourful
 puzzle-piece blocks, like Scratch. No coding experience is needed to get started, and there's a
 built-in flight simulator so students can practice and compete without ever touching a real drone.
 
-This page is written for anyone setting the program up for the first time — teachers, students,
+This page is written for anyone setting the program up for the first time - teachers, students,
 or helpers — with no assumption you've used a terminal or installed developer tools before.
 
 ---
