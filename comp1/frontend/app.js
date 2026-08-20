@@ -48,8 +48,13 @@ const debugPythonEl = document.getElementById("debug-python");
 const debugProgramEl = document.getElementById("debug-program");
 const debugTraceEl = document.getElementById("debug-trace");
 const debugViewButtons = document.querySelectorAll("[data-debug-view]");
+const quitEl = document.getElementById("quit");
+const closedOverlayEl = document.getElementById("closed-overlay");
 let ws, lastUrl;
 let missionRunning = false;
+// Latched when the server tells us it is going away, so the socket's own close
+// is understood as "it did what I asked" rather than a fault to retry.
+let quitting = false;
 let droneMode = null;
 let droneSwitching = false;
 let droneLinkOk = true;
@@ -325,6 +330,11 @@ function connect() {
   ws.binaryType = "blob";
   ws.onopen = () => { statusEl.textContent = "connected"; statusEl.className = "status ok"; };
   ws.onclose = () => {
+    if (quitting) {
+      statusEl.textContent = "closed"; statusEl.className = "status";
+      closedOverlayEl.hidden = false;
+      return;                          // asked for — do not reconnect
+    }
     statusEl.textContent = "disconnected, retrying"; statusEl.className = "status bad";
     setTimeout(connect, 1000);
   };
@@ -354,6 +364,14 @@ function connect() {
     else if (msg.type === "battery") showBattery(msg);
     else if (msg.type === "drone_mode") showDroneMode(msg);
     else if (msg.type === "drone_link") showDroneLink(msg);
+    else if (msg.type === "settings") {
+      // Only offered when the server can actually act on it.
+      quitEl.hidden = msg.can_quit === false;
+    }
+    else if (msg.type === "quitting") {
+      quitting = true;
+      log("closing Drone Coder…");
+    }
     else if (msg.type === "error") log("⚠ " + msg.message);
     else if (msg.type === "estopped") { log("⛔ EMERGENCY STOP"); setRunning(false); }
     else if (msg.type === "reset") {
@@ -401,3 +419,12 @@ if (reconnectEl) {
   };
 }
 document.getElementById("estop").onclick = () => ws.send(JSON.stringify({ type: "estop" }));
+quitEl.onclick = () => {
+  // Spelled out because there is nothing else to close: no console window, no
+  // icon by the clock. Once this is done the page is just a page.
+  const confirmed = window.confirm(
+    "Close Drone Coder?\n\n" +
+    "The program will stop completely. Land the real drone first if one is flying.\n" +
+    "To use it again, open Drone Coder from the Start Menu.");
+  if (confirmed) window.COMP1_SEND({ type: "quit" });
+};

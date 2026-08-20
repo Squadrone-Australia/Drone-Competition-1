@@ -11,9 +11,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from . import __version__, settings as settings_store, update as updater
 from .api import ScriptRun
 from .drone.base import DroneAdapter
 from .interpreter import Interpreter
+from .paths import is_frozen
 from .protocol import Program
 from .sim.mission import MissionScorer
 from .vision.calibration import (
@@ -45,6 +47,19 @@ LINK_CHECK_INTERVAL = 2.0
 #: the reading moves by one point every few minutes, and each poll is a datagram
 #: that has to be paired with its reply.
 BATTERY_INTERVAL = 5.0
+#: How long the startup update check is allowed to hold anything up: nothing at
+#: all. It runs on a thread and reports itself whenever it finishes, which at a
+#: venue with no route to the internet is "never, quietly".
+UPDATE_CHECK_DELAY = 2.0
+#: How often the idle watch looks at whether anybody is still watching.
+IDLE_CHECK_INTERVAL = 1.0
+#: How long every browser window must stay shut before the program closes
+#: itself. The packaged build has no window of its own, so a tab closed and
+#: never reopened would otherwise leave an invisible process running until the
+#: laptop is rebooted — still holding the aircraft's video port. Generous enough
+#: that a page refresh (which reconnects in well under a second) and a laptop
+#: waking from sleep are never mistaken for "the student has finished".
+DEFAULT_IDLE_TIMEOUT = 30.0
 
 
 def _new_tello() -> DroneAdapter:
@@ -69,7 +84,31 @@ def create_app(
     script_delay: float = 1.5,
     tello_factory: Callable[[], DroneAdapter] = _new_tello,
     simulator_factory: Callable[[], DroneAdapter] = _new_simulator,
+    settings_path: Path | None = None,
+    update_check: Callable[[], "updater.Release | None"] | None = None,
+    shutdown: Callable[[], None] | None = None,
+    idle_timeout: float | None = None,
 ) -> FastAPI:
+    """Build the application.
+
+    ``settings_path`` is opt-in on purpose: with no path the server never writes
+    to the user's profile, which is what keeps the test suite (and a developer
+    run) from leaving preferences behind. ``comp1.__main__`` passes the real
+    one. ``update_check`` is likewise injected rather than imported, so no test
+    can reach the network.
+
+    ``shutdown`` is how the program stops itself. The packaged build is windowed
+    — there is no console to close and no tray icon — so the browser page *is*
+    the window, and it needs both a way to say "close the program" and a way for
+    the program to notice that every window has gone. Without it there is no
+    quit at all short of Task Manager. ``comp1.__main__`` passes a hook that
+    ends the uvicorn server; tests leave it unset, and the browser then hides
+    the Quit button rather than offering one that does nothing.
+
+    ``idle_timeout`` arms the same shutdown after every browser window has been
+    closed for that long. Left unset (tests, ``--no-browser``, a developer run
+    that owns its own terminal) the program simply keeps running.
+    """
     # Each app gets an independent runtime config. In particular, a calibration
     # session must never mutate DEFAULT_CONFIG or leak into a later test/server.
     cfg = replace(cfg)
@@ -104,6 +143,13 @@ def create_app(
         # which is what a client sees before the first poll and after a switch.
         app.state.battery = None
         app.state.clients = set()
+        # "Has a browser ever connected?" — the idle watch must not close the
+        # program during the second or two between the server coming up and the
+        # browser it launched arriving.
+        app.state.seen_client = False
+        # Latched once the program is on its way out, so the idle watch stops
+        # counting and a second quit cannot race the first.
+        app.state.quitting = False
         # ground truth for the mission panel; None whenever the adapter has no
         # arena to score against (mock, real Tello)
         app.state.scorer = _new_scorer(app)
@@ -112,6 +158,18 @@ def create_app(
         # request_stop(), so stop/e-stop routing below is pathway-agnostic, and a
         # block program cannot start while a script is running.
         app.state.interp = None
+        # The newest release, once the check has come back with one. None means
+        # "no newer version, or we could not tell" — the browser cannot and
+        # should not distinguish the two.
+        app.state.update = None
+        app.state.update_task = (
+            asyncio.create_task(_update_loop(app)) if update_check else None
+        )
+        app.state.idle_task = (
+            asyncio.create_task(_idle_loop(app))
+            if idle_timeout and shutdown
+            else None
+        )
         app.state.video_task = asyncio.create_task(_video_loop(app))
         app.state.pose_task = asyncio.create_task(_pose_loop(app))
         app.state.link_task = asyncio.create_task(_link_loop(app))
@@ -120,6 +178,10 @@ def create_app(
             asyncio.create_task(_script_loop(app)) if script else None
         )
         yield
+        if app.state.update_task:
+            app.state.update_task.cancel()
+        if app.state.idle_task:
+            app.state.idle_task.cancel()
         app.state.video_task.cancel()
         app.state.pose_task.cancel()
         app.state.link_task.cancel()
@@ -254,6 +316,150 @@ def create_app(
                     app.state.battery = level
                     await _broadcast_json(app, _battery_message(app))
             await asyncio.sleep(BATTERY_INTERVAL)
+
+    async def _update_loop(app: FastAPI):
+        """Ask GitHub once, well after the app is usable, and stay quiet.
+
+        Deliberately a single shot rather than a poll: the check exists so a
+        classroom laptop drifts back into date between sessions, not so it can
+        interrupt one. Runs on a thread because ``urllib`` blocks, and the event
+        loop is carrying video and pose while this waits on a socket that, at a
+        venue, is going nowhere.
+        """
+        await asyncio.sleep(UPDATE_CHECK_DELAY)
+        try:
+            release = await asyncio.to_thread(update_check)
+        except Exception:
+            return  # check() swallows its own failures; this covers the rest
+        if release is None:
+            return
+        app.state.update = release
+        await _broadcast_json(app, _update_message(app))
+
+    async def _idle_loop(app: FastAPI):
+        """Close the program once every browser window has gone.
+
+        The packaged build has no window of its own, so "the student closed the
+        tab" is the only signal that they are finished — and before this loop
+        existed it was a signal nothing acted on: the process stayed alive,
+        invisible, holding the aircraft's video port, until the laptop was
+        rebooted or somebody found it in Task Manager.
+
+        Deliberately a countdown rather than an immediate exit. A page refresh,
+        a laptop waking up, and a student dragging the tab into another window
+        all disconnect briefly, and none of them means "quit".
+        """
+        idle = 0.0
+        # Never coarser than the timeout itself, so a short one (a test, a
+        # deliberately impatient setting) is honoured rather than rounded up.
+        interval = min(IDLE_CHECK_INTERVAL, idle_timeout)
+        while True:
+            await asyncio.sleep(interval)
+            if app.state.quitting:
+                return
+            busy = (
+                app.state.clients
+                or app.state.interp is not None
+                or app.state.drone_switching
+                # Never before the first browser arrives: the server comes up a
+                # second or so ahead of the window it launched.
+                or not app.state.seen_client
+            )
+            if busy:
+                idle = 0.0
+                continue
+            idle += interval
+            if idle >= idle_timeout:
+                await _quit(app)
+                return
+
+    async def _quit(app: FastAPI):
+        """Stop the program. The drone is released by the lifespan shutdown."""
+        if app.state.quitting:
+            return
+        app.state.quitting = True
+        # Told before the socket dies, so any other tab can say what happened
+        # instead of sitting on "disconnected, retrying" forever.
+        await _broadcast_json(app, {"type": "quitting"})
+        shutdown()
+
+    async def _install_update(app: FastAPI, release):
+        """Download, verify, hand over to the installer, and step aside.
+
+        The download is a few hundred megabytes of OpenCV and NumPy, so it runs
+        on a thread with the progress said out loud — a browser that sits mute
+        for two minutes after a click reads as broken.
+        """
+        await _broadcast_json(
+            app,
+            {
+                "type": "update_progress",
+                "state": "downloading",
+                "version": release.version,
+            },
+        )
+        try:
+            installer = await asyncio.to_thread(updater.download, release)
+        except Exception as exc:
+            # The deliberate half, unlike the check: the operator asked for
+            # this and is owed the reason it did not happen.
+            await _broadcast_json(
+                app,
+                {"type": "update_progress", "state": "failed", "message": str(exc)},
+            )
+            return
+        await _broadcast_json(
+            app,
+            {
+                "type": "update_progress",
+                "state": "installing",
+                "version": release.version,
+            },
+        )
+        # Let go of the aircraft and its video port *before* handing over: the
+        # installer terminates this process (see INSTALLER_ARGS), so anything
+        # left until afterwards never happens. close() never flies the drone.
+        await _close_drone(app.state.drone)
+        try:
+            updater.launch_installer(installer)
+        except Exception as exc:
+            await _broadcast_json(
+                app,
+                {"type": "update_progress", "state": "failed", "message": str(exc)},
+            )
+
+    def _update_message(app: FastAPI) -> dict:
+        release = app.state.update
+        return {
+            "type": "update_available",
+            "current": __version__,
+            **(release.to_json() if release else {"version": None, "notes": ""}),
+        }
+
+    def _settings_message() -> dict:
+        return {
+            "type": "settings",
+            "version": __version__,
+            # The browser hides anything that only makes sense for an installed
+            # copy — there is no installer to run against a source checkout.
+            "installed": is_frozen(),
+            "persisted": settings_path is not None,
+            # Without a shutdown hook the browser must not offer a Quit button:
+            # a run from a terminal is quit with Ctrl+C, and a button that did
+            # nothing would be worse than no button.
+            "can_quit": shutdown is not None,
+            "settings": settings_store.load(settings_path).to_json(),
+        }
+
+    def _remember(changes: dict) -> None:
+        """Persist preferences, if this server was given somewhere to put them.
+
+        Takes a plain dict rather than keyword arguments because the browser's
+        half of this arrives as untrusted JSON — unknown fields are dropped by
+        ``settings._clean``, and none of them can collide with a parameter name.
+        """
+        if settings_path is not None and isinstance(changes, dict):
+            settings_store.update(settings_path, **changes)
 
     def _battery_message(app: FastAPI) -> dict:
         return {"type": "battery", "percent": app.state.battery}
@@ -544,6 +750,7 @@ def create_app(
     async def ws_endpoint(ws: WebSocket):
         await ws.accept()
         app.state.clients.add(ws)
+        app.state.seen_client = True
         loop = asyncio.get_running_loop()
 
         def emit(ev):
@@ -594,6 +801,12 @@ def create_app(
         )
         await ws.send_text(json.dumps(_battery_message(app)))
         await ws.send_text(json.dumps(_vision_message("vision_config", cfg)))
+        await ws.send_text(json.dumps(_settings_message()))
+        # The check may well have finished before this client connected — a
+        # browser opened late, or reloaded — so replay the result rather than
+        # letting the banner depend on the timing of a page refresh.
+        if app.state.update is not None:
+            await ws.send_text(json.dumps(_update_message(app)))
 
         try:
             while True:
@@ -773,11 +986,18 @@ def create_app(
                                 await ws.send_text(json.dumps(response))
                             elif msg["type"] == "vision_apply":
                                 _apply_hsv(msg.get("config") or {})
+                                # A venue re-tune (§3.1) has to outlive the
+                                # session that made it: an operator who
+                                # calibrated the gym at 9am should not have to
+                                # do it again after lunch because someone
+                                # closed the program.
+                                _remember({"hsv": hsv_values(cfg)})
                                 await _broadcast_json(
                                     app, _vision_message("vision_config", cfg)
                                 )
                             else:
                                 _apply_hsv(initial_hsv)
+                                _remember({"hsv": {}})
                                 await _broadcast_json(
                                     app, _vision_message("vision_config", cfg)
                                 )
@@ -870,6 +1090,67 @@ def create_app(
                         await _switch_to_tello(app)
                     else:
                         await _switch_to_simulator(app)
+                elif msg["type"] == "quit":
+                    if shutdown is None:
+                        await _broadcast_json(
+                            app,
+                            {
+                                "type": "error",
+                                "message": "this copy is run from a terminal — "
+                                "press Ctrl+C there to close it",
+                            },
+                        )
+                    elif app.state.interp is not None:
+                        # Same family as the calibration and update guards, and
+                        # the same reason as the update one: closing the program
+                        # underneath a flying drone leaves it in the air with
+                        # nothing controlling it.
+                        await _broadcast_json(
+                            app,
+                            {
+                                "type": "error",
+                                "message": "stop the mission before closing",
+                            },
+                        )
+                    else:
+                        await _quit(app)
+                elif msg["type"] == "save_settings":
+                    # Preferences only — what the program should default to next
+                    # launch. Nothing here takes effect on the running drone;
+                    # switching drone or scenery has its own message, and
+                    # conflating the two would let a settings panel silently
+                    # reconnect hardware mid-session.
+                    _remember(msg.get("settings") or {})
+                    await _broadcast_json(app, _settings_message())
+                elif msg["type"] == "install_update":
+                    release = app.state.update
+                    if release is None:
+                        await _broadcast_json(
+                            app,
+                            {"type": "error", "message": "no update is available"},
+                        )
+                    elif app.state.interp is not None:
+                        # Same guard as calibration and the drone switch, for a
+                        # much better reason: the installer's first act is to
+                        # close this process, and doing that to a drone in the
+                        # air would leave it hovering with nothing flying it.
+                        await _broadcast_json(
+                            app,
+                            {
+                                "type": "error",
+                                "message": "stop the mission before updating",
+                            },
+                        )
+                    elif app.state.drone_switching:
+                        await _broadcast_json(
+                            app,
+                            {
+                                "type": "error",
+                                "message": "wait for the drone connection",
+                            },
+                        )
+                    else:
+                        await _install_update(app, release)
         except WebSocketDisconnect:
             pass
         finally:

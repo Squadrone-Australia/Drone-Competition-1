@@ -1,6 +1,8 @@
 [project]
 name = "comp1"
-version = "0.1.0"
+# Read from comp1/__init__.py so the package, the packaged exe and the
+# installer can never disagree about what version this is.
+dynamic = ["version"]
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.140",
@@ -17,6 +19,9 @@ dev = ["pytest>=9", "pytest-asyncio>=1.4", "httpx>=0.28", "pyinstaller>=6.21"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.setuptools.dynamic]
+version = {attr = "comp1.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["comp1*"]

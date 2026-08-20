@@ -30,6 +30,7 @@ Run it standalone (no window, no e-stop button — testing only)::
 
 import asyncio
 import runpy
+import sys
 import threading
 import time
 import traceback
@@ -237,7 +238,11 @@ class Drone:
         self._check()  # a command that finished after STOP ends the script here
 
     def _warn(self, message: str):
-        print(f"! {message}")  # the terminal they launched from
+        # The terminal they launched from — when there is one. The packaged
+        # build is windowed, so ``sys.stdout`` is None there and a bare print
+        # would raise inside a student's flight loop.
+        if sys.stdout is not None:
+            print(f"! {message}")
         self._s.emit({"type": "warning", "message": message})
 
     def _cm(self, name: str, cm) -> int:

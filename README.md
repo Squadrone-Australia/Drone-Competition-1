@@ -26,60 +26,52 @@ and nobody outside the room can see or reach it.
 
 ## Before you start
 
-You need two things on the computer:
-
-1. **Windows** (10 or 11). This guide is written for Windows; see the bottom of this page if
-   you're on Mac or Linux.
-2. **Python**, version 3.11 or newer. This is free software that the program runs on top of.
-
-### Do you already have Python?
-
-Open the **Start Menu**, type `cmd`, press Enter to open a black command-prompt window, then
-type:
-
-```text
-python --version
-```
-
-- If you see something like `Python 3.12.4`, you're set — skip to [Setting up the
-  program](#setting-up-the-program).
-- If you see an error, or a version older than `3.11`, you need to install it (next step).
-
-### Installing Python
-
-1. Go to [python.org/downloads](https://www.python.org/downloads/) and download the latest
-   version for Windows.
-2. Run the installer. **Important:** on the very first screen, tick the box that says **"Add
-   python.exe to PATH"** before clicking Install. If you miss this, the rest of this guide won't
-   work and you'll need to reinstall.
-3. Once it finishes, close and reopen the command-prompt window and run `python --version` again
-   to confirm it worked.
+**Windows 10 or 11.** That is the whole list — the installer brings everything else with it. You
+do not need Python, and you do not need a terminal. (On Mac or Linux, see the bottom of this
+page.)
 
 ---
 
-## Setting up the program
+## Installing the program
 
-You only need to do this once per computer.
+1. Download **`comp1-Setup-<version>.exe`** from the
+   [latest release](https://github.com/Squadrone-Australia/Drone-Competition-1/releases/latest).
+2. Double-click it. Windows may show a blue **"Windows protected your PC"** box, because the
+   installer is not signed by a paid certificate authority. Click **More info**, then **Run
+   anyway**. (If you want to check the download first, the release page publishes a
+   `SHA256SUMS.txt` you can compare against `Get-FileHash comp1-Setup-<version>.exe`.)
+3. Follow the prompts. It installs for the current user only, so it does **not** ask for an
+   administrator password.
+4. Start it from the **Start Menu** entry (or the desktop shortcut, if you asked for one). Your
+   web browser opens on the block-coding screen.
 
-1. Download this project onto the computer. If you were sent a `.zip` file, right-click it and
-   choose **Extract All...**, then open the folder it creates. (If you're comfortable with `git`,
-   `git clone` works too.)
-2. Open that folder in File Explorer.
-3. Double-click **`start.bat`**.
+There is no black terminal window and nothing else to install. To remove it later, use
+**Settings → Apps** in Windows as you would for any other program.
 
-A black window will pop up and do some work automatically — this is normal, and the first time
-can take a few minutes while it downloads what it needs. You'll see it:
+### Closing the program
 
-- create a private Python environment just for this program (so it doesn't affect anything else
-  on the computer),
-- install everything the program depends on,
-- then start the program itself and open your web browser to the block-coding screen.
+Drone Coder has no window of its own — the web page **is** the program's window. So there are two
+ways to finish:
 
-**That's it — setup is done.** From now on, double-clicking `start.bat` again starts the program
-in seconds (it skips the download step once everything's already installed).
+- Click **Close program** at the top of the page. That stops it immediately, and the page says so.
+- Or just close the browser tab. About half a minute after the last Drone Coder tab is gone, the
+  program notices nobody is watching and closes itself.
 
-> Leave the black window open while you use the program — closing it shuts the program down.
-> When you're finished, just close that window.
+Refreshing the page, or having two tabs open, doesn't close anything — and it will never close
+itself in the middle of a flight.
+
+If you click the Start Menu shortcut while it's already running, it tells you so rather than
+starting a second copy.
+
+### Keeping it up to date
+
+When the computer has internet, the program quietly checks for a newer version as it starts. If
+there is one, a bar appears across the top of the page: click **Update and restart** and it
+downloads, installs and reopens itself. Nothing is downloaded until you click.
+
+At a competition the laptop is usually joined to the drone's own Wi-Fi, which reaches nothing
+else — the check simply finds nothing and says nothing. You can also turn it off entirely under
+**Settings** in the app.
 
 ---
 
@@ -105,7 +97,8 @@ Room lighting changes how red looks to a camera. Before using a real drone in a 
 **Tune colour** above the drone-camera picture. Capture a frame, drag a box inside the red marker,
 and the program will suggest suitable settings. The preview should highlight the marker while the
 floor, walls, and other objects stay dark. Click **Apply to detector** only after checking the
-preview.
+preview. What you apply is remembered, so a venue tuned in the morning is still tuned after
+lunch — **Restore startup settings** in the same panel forgets it again.
 
 You do not need to understand OpenCV or choose numbers by hand. If you want to adjust the sliders,
 the panel includes a plain-language explanation. The full [colour-calibration guide](docs/vision-calibration.md)
@@ -131,22 +124,34 @@ whoever is running the session to load one for you).
 
 ## Troubleshooting
 
-**It says Python isn't recognized / isn't found.**
-Python isn't on your PATH. Reinstall Python from
-[python.org/downloads](https://www.python.org/downloads/) and make sure to tick **"Add python.exe
-to PATH"** during install.
+**Windows says "Windows protected your PC" and won't run the installer.**
+Click **More info**, then **Run anyway**. The warning is about the installer being unsigned, not
+about anything it found. If the button isn't there at all, the computer is managed by the school
+and someone with admin rights has to allow it.
 
 **Nothing opens in the browser.**
-Give it a few extra seconds the first time. If it still doesn't open, manually go to
-`http://localhost:8765` in your browser while the black window is still open.
+Give it a few extra seconds the first time. If it still doesn't open, go to
+`http://localhost:8765` in your browser while the program is running.
+
+**It says Drone Coder is already running.**
+It is — one copy serves the page, and a second would only fight it for the same address. Open
+`http://localhost:8765`, or close the running one first (**Close program** at the top of the page).
+
+**I closed the tab but the program is still running.**
+Give it about half a minute: with the last tab gone it closes itself. Use **Close program** if you
+want it gone immediately.
+
+**It won't start and I can't see any error.**
+The program writes what happened to `%LOCALAPPDATA%\comp1\logs\comp1.log` — paste that path
+into File Explorer's address bar. Send that file to whoever is supporting you.
 
 **The browser can't reach the real Tello / video is choppy.**
 Make sure the computer is connected to the Tello's own Wi-Fi network (not your normal home/school
 Wi-Fi) — the Tello doesn't use the internet at all, it creates its own local network.
 
 **I want to start fresh.**
-Delete the `.venv` folder inside the project folder and double-click `start.bat` again — it will
-rebuild everything from scratch.
+Close the program and delete the folder `%LOCALAPPDATA%\comp1` — that holds the saved settings
+and the venue colour calibration, nothing else. The program rebuilds it on the next start.
 
 ---
 
@@ -185,12 +190,30 @@ venv\Scripts\python -m comp1 --drone sim        # explicit simulator
 venv\Scripts\python -m comp1 --drone tello      # real Tello (join its WiFi first)
 venv\Scripts\python -m comp1 --script examples\02_search_and_mark.py --drone sim   # Python pathway
 venv\Scripts\pyinstaller comp1.spec --noconfirm # -> dist\comp1\comp1.exe
+.\build.ps1                                     # tests + exe + installer + SHA256SUMS.txt
 node --test tests\js\blocks.test.js             # frontend serializer tests
 ```
 
 `--drone sim` flags: `--seed N` (repeatable arena), `--noise 0.05` (movement drift),
 `--scenery {arena,corridor}` (also switchable in the browser). Server flags: `--port`,
-`--no-browser`. Default port `8765`.
+`--no-browser`, `--no-check-updates`, `--idle-timeout N` (seconds after the last browser window
+closes before the program stops itself; `0` never stops). Default port `8765`. Anything not passed falls back to what
+the browser's Settings panel last saved, then to the code default.
+
+### Releasing
+
+`build.ps1` is the shipping path: it refuses to build from a tree whose tests fail, stamps the
+version from `comp1/__init__.py`, and produces `dist\comp1-Setup-<version>.exe` plus
+`dist\SHA256SUMS.txt`. Publish **both** on a GitHub release tagged `v<version>` — the in-app
+updater looks the installer up by name inside `SHA256SUMS.txt` and refuses to run one whose
+digest does not match, so a release missing that file is a release nobody can update to. The
+installer step needs [Inno Setup](https://jrsoftware.org/isdl.php) 6 or newer (7 is what this was
+built and tested with); without it the script still leaves a working `dist\comp1\comp1.exe` and
+says so. Expect roughly a 70 MB installer and a 250 MB install.
+
+The installer is unsigned, which is what produces the SmartScreen warning in the install
+instructions above. A code-signing certificate is the only real fix; until there is one, the
+published checksum is what a cautious teacher can check instead.
 
 ### Manual setup (Linux / macOS)
 
@@ -217,7 +240,8 @@ containers.
 
 ### Requirements recap
 
-- **Python 3.11+** — the only hard runtime requirement.
+- **Python 3.11+** — the only hard requirement for running from source. The packaged installer
+  brings its own interpreter, so an installed copy needs nothing.
 - **Windows** with PowerShell is the primary target; Linux/macOS work with the POSIX commands
   above.
 - **No Node.js/npm needed to run the app** — Blockly and three.js are vendored under
@@ -261,6 +285,8 @@ annotated starting points.
   why the platform is a custom Blockly web frontend + local Python service (FastAPI + djitellopy +
   OpenCV) packaged with PyInstaller, which alternatives were rejected, and the open items still to
   confirm (Chromebook support, safe-distance judging threshold).
+- [Windows installer and in-app updates (2026-08-20)](docs/plans/2026-08-20-windows-installer-and-updates.md):
+  how the packaged build, the settings store and the update check fit together.
 - [Architecture planning notes (2026-07-28)](docs/plans/2026-07-28-platform-architecture.md)
 - [Implementation plan (2026-07-28)](docs/plans/2026-07-28-implementation-plan.md)
 - [Simulator design (2026-07-28)](docs/specs/2026-07-28-simulator-design.md) — the hardware-free
