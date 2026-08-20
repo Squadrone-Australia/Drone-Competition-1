@@ -5,3 +5,8 @@ build/
 dist/
 *.egg-info/
 /node_modules
+# Agent tooling (kept local)
+.agents/
+.claude/
+CLAUDE.md
+AGENTS.md

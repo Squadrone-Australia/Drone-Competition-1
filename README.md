@@ -280,5 +280,3 @@ annotated starting points.
 - [Runtime drone switching (2026-08-03)](docs/specs/2026-08-03-drone-mode-switching.md): the
   reversible Simulator/Tello UI, WebSocket messages, retained simulator state, and safety rules.
 
-`CLAUDE.md` holds the working notes for AI coding assistants (architecture invariants, the
-four-places rule for adding a block, and the project constraints that are easy to violate).
