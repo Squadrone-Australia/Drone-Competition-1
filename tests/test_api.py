@@ -18,6 +18,9 @@ from comp1.vision.detector import Detection, TargetTracker
 from .helpers import blocked, clear, lost, seen
 from .test_server import collect_until
 
+#: See tests/test_approach.py — the fixtures track the tuned stop distance.
+STOP = DEFAULT_CONFIG.approach_stop_distance_m
+
 
 def mock_session(detection=None, **kw):
     adapter = MockDrone()
@@ -202,8 +205,8 @@ def test_approach_rides_out_a_dropout_and_resumes():
             lost(),
             lost(),
             lost(),
-            seen(distance_m=1.5, bearing_deg=0.0),
-            seen(distance_m=1.0, bearing_deg=0.0),
+            seen(distance_m=STOP + 0.5, bearing_deg=0.0),
+            seen(distance_m=STOP, bearing_deg=0.0),
         ]
     )
     last = [lost()]
@@ -224,7 +227,7 @@ def test_approach_rides_out_a_dropout_and_resumes():
 def test_approach_requests_the_nearest_target_before_moving():
     selected = []
     session, adapter = mock_session(
-        seen(distance_m=1.0), select_nearest_target=lambda: selected.append(True)
+        seen(distance_m=STOP), select_nearest_target=lambda: selected.append(True)
     )
     d = Drone()
     d._s, d._d = session, adapter

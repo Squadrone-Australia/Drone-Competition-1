@@ -23,10 +23,15 @@ def test_blocks_serializer_js():
         pytest.skip("node is not on PATH")
     tests = sorted(JS_DIR.glob("*.test.js"))
     assert tests, "no node tests found in tests/js"
+    # node's reporter emits UTF-8 (including box-drawing characters), so the
+    # decoding is pinned rather than left to the console codepage — on a
+    # non-UTF-8 Windows locale the default decode raises inside subprocess's
+    # reader thread and `proc.stdout` comes back as None.
     proc = subprocess.run(
         [node, "--test", *[str(t) for t in tests]],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=str(ROOT),
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -75,7 +80,11 @@ def test_display_python_is_valid_python_syntax():
         f"process.stdout.write(c.programToPython({json.dumps(program)}));"
     )
     proc = subprocess.run(
-        [node, "-e", script], capture_output=True, text=True, cwd=str(ROOT)
+        [node, "-e", script],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=str(ROOT),
     )
     assert proc.returncode == 0, proc.stderr
     ast.parse(proc.stdout)

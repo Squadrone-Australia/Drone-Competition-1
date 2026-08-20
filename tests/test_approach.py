@@ -7,6 +7,11 @@ from comp1.vision.config import DEFAULT_CONFIG
 
 from .helpers import lost, seen
 
+#: The controller stops here, and it is a tuned number (§3.2, still
+#: unconfirmed by the organisers). Anchoring the fixtures to it means a re-tune
+#: moves the tests with it instead of silently invalidating them.
+STOP = DEFAULT_CONFIG.approach_stop_distance_m
+
 
 def prog():
     return Program.model_validate(
@@ -46,7 +51,7 @@ async def test_turns_toward_left_marker_then_advances_and_stops():
         [
             seen(distance_m=3.0, bearing_deg=-30.0),  # well off to the left
             seen(distance_m=3.0, bearing_deg=0.0),  # lined up, 2 m to close
-            seen(distance_m=1.0, bearing_deg=0.0),  # at the stop distance
+            seen(distance_m=STOP, bearing_deg=0.0),  # at the stop distance
         ]
     )
     assert ("rotate", "ccw", 30) in drone.log  # turn sized from the bearing
@@ -57,34 +62,37 @@ async def test_turns_toward_left_marker_then_advances_and_stops():
 
 async def test_turn_is_proportional_to_bearing_error():
     drone = await run_seq(
-        [seen(distance_m=3.0, bearing_deg=15.0), seen(distance_m=1.0, bearing_deg=0.0)]
+        [seen(distance_m=3.0, bearing_deg=15.0), seen(distance_m=STOP, bearing_deg=0.0)]
     )
     assert ("rotate", "cw", 15) in drone.log  # not a fixed 15° regardless of error
 
 
 async def test_large_bearing_error_is_clamped_to_max_turn():
     drone = await run_seq(
-        [seen(distance_m=3.0, bearing_deg=-80.0), seen(distance_m=1.0, bearing_deg=0.0)]
+        [seen(distance_m=3.0, bearing_deg=-80.0), seen(distance_m=STOP, bearing_deg=0.0)]
     )
     assert ("rotate", "ccw", DEFAULT_CONFIG.approach_max_turn_deg) in drone.log
 
 
 async def test_step_is_proportional_to_remaining_distance():
     drone = await run_seq(
-        [seen(distance_m=1.5, bearing_deg=0.0), seen(distance_m=1.0, bearing_deg=0.0)]
+        [
+            seen(distance_m=STOP + 0.5, bearing_deg=0.0),
+            seen(distance_m=STOP, bearing_deg=0.0),
+        ]
     )
-    assert ("move", "forward", 50) in drone.log  # (1.5 - 1.0) m of remaining range
+    assert ("move", "forward", 50) in drone.log  # the 0.5 m of remaining range
 
 
 async def test_small_bearing_error_inside_deadband_is_ignored():
     # 5° is inside the deadband and below the Tello's usable rotation floor
-    drone = await run_seq([seen(distance_m=1.05, bearing_deg=5.0)])
+    drone = await run_seq([seen(distance_m=STOP + 0.05, bearing_deg=5.0)])
     assert all(x[0] != "rotate" for x in drone.log)
 
 
 async def test_stops_without_overshooting_below_the_minimum_step():
     # 15 cm of range left is less than the 20 cm the Tello will fly — stop, don't lurch
-    drone = await run_seq([seen(distance_m=1.15, bearing_deg=0.0)])
+    drone = await run_seq([seen(distance_m=STOP + 0.15, bearing_deg=0.0)])
     assert all(x[0] != "move" for x in drone.log)
 
 
@@ -105,8 +113,8 @@ async def test_rides_out_a_dropout_and_resumes_the_approach():
             lost(),
             lost(),
             lost(),
-            seen(distance_m=1.5, bearing_deg=0.0),  # back in view, 0.5 m to close
-            seen(distance_m=1.0, bearing_deg=0.0),
+            seen(distance_m=STOP + 0.5, bearing_deg=0.0),  # back in view, 0.5 m to close
+            seen(distance_m=STOP, bearing_deg=0.0),
         ]
     )
     assert ("move", "forward", 50) in drone.log  # resumed after the dropout
@@ -132,7 +140,7 @@ async def test_reacquires_the_nearest_target_when_approach_starts():
         readings.extend(
             [
                 seen(distance_m=3.0, bearing_deg=30.0),
-                seen(distance_m=1.0, bearing_deg=0.0),
+                seen(distance_m=STOP, bearing_deg=0.0),
             ]
         )
 
