@@ -341,7 +341,8 @@ class SimDrone(DroneAdapter):
             "width_m": self.world.width_m,
             "depth_m": self.world.depth_m,
             "start": list(self.world.start_xy),
-            "wall_height_m": WALL_HEIGHT_M,
+            "wall_height_m": self.world.room_height_m,
+            "return_to_start": self.world.return_to_start,
             "markers": [
                 {
                     "x": m.x,

@@ -58,6 +58,9 @@ KIND_STYLE = {
     "red_square": ("square", (0, 0, 220)),
     "blue_circle": ("circle", (220, 60, 0)),
     "green_triangle": ("triangle", (60, 180, 0)),
+    "green_circle": ("circle", (60, 180, 0)),
+    "black_square": ("square", (20, 20, 20)),
+    "black_triangle": ("triangle", (20, 20, 20)),
     "yellow_square": ("square", (0, 210, 230)),
     # Free-standing obstacles. Same shapes and same colours as the wall
     # distractors -- an obstacle is not visually a special class of thing, it is
@@ -81,7 +84,7 @@ def render(world, x, y, z, heading, w=640, h=480):
     cam = Camera.at(INTRINSICS, x, y, z, heading, w, h)
     img = np.empty((h, w, 3), np.uint8)
     img[:] = CEILING_BGR  # backdrop for any gap at the seams
-    _draw_room(img, cam, world.width_m, world.depth_m)
+    _draw_room(img, cam, world.width_m, world.depth_m, world.room_height_m)
     _draw_markers(img, cam, world, x, y, z, heading, w, h)
     return img
 
@@ -89,15 +92,15 @@ def render(world, x, y, z, heading, w=640, h=480):
 # --- room -----------------------------------------------------------------
 
 
-def _draw_room(img, cam, width, depth):
+def _draw_room(img, cam, width, depth, room_height_m=WALL_HEIGHT_M):
     """The box: floor, ceiling and four walls of a ``width`` x ``depth`` room."""
-    a, b, top = width, depth, WALL_HEIGHT_M
+    a, b, top = width, depth, room_height_m
     fill_quad(img, cam, [(0, 0, 0), (a, 0, 0), (a, b, 0), (0, b, 0)], FLOOR_BGR)
     _draw_floor_grid(img, cam, a, b)
     fill_quad(
         img, cam, [(0, 0, top), (a, 0, top), (a, b, top), (0, b, top)], CEILING_BGR
     )
-    _draw_ceiling_panels(img, cam, a, b)
+    _draw_ceiling_panels(img, cam, a, b, top)
 
     # Walls furthest-first: they never overlap each other from inside the room,
     # but the trim lines are drawn per wall and would otherwise cross a nearer face.
@@ -114,15 +117,15 @@ def _draw_room(img, cam, width, depth):
         (0, 1): (a / 2, 0, top / 2),
     }
     for normal, corners in sorted(walls, key=lambda wl: -cam.depth_of(centre[wl[0]])):
-        _draw_wall(img, cam, corners, _WALL_SHADE[normal])
+        _draw_wall(img, cam, corners, _WALL_SHADE[normal], top)
 
 
-def _draw_wall(img, cam, corners, lighting):
+def _draw_wall(img, cam, corners, lighting, top=WALL_HEIGHT_M):
     fill_quad(img, cam, corners, shade(WALL_BGR, lighting))
     a, b = np.array(corners[0], float), np.array(corners[1], float)
     for height, color, thickness in (
         (0.10, SKIRTING_BGR, 3),
-        (WALL_HEIGHT_M - 0.25, WALL_TRIM_BGR, 2),
+        (top - 0.25, WALL_TRIM_BGR, 2),
     ):
         rise = np.array([0.0, 0.0, height])
         draw_line(img, cam, a + rise, b + rise, shade(color, lighting), thickness)
@@ -132,7 +135,7 @@ def _draw_wall(img, cam, corners, lighting):
             img,
             cam,
             base,
-            base + [0, 0, WALL_HEIGHT_M],
+            base + [0, 0, top],
             shade(WALL_TRIM_BGR, lighting),
             1,
         )
@@ -152,7 +155,7 @@ def _draw_floor_grid(img, cam, width, depth):
 PANEL_PITCH_M = 3.0  # how often a strip light repeats down a long room
 
 
-def _draw_ceiling_panels(img, cam, width, depth):
+def _draw_ceiling_panels(img, cam, width, depth, room_height_m=WALL_HEIGHT_M):
     """Strip lights. Pure parallax furniture — without them the ceiling is a flat
     colour and forward motion is invisible when no marker is in view.
 
@@ -160,7 +163,7 @@ def _draw_ceiling_panels(img, cam, width, depth):
     down a corridor gives no parallax at all, which is the case that needs it
     most.
     """
-    top = WALL_HEIGHT_M - 0.01
+    top = room_height_m - 0.01
     rows = max(1, int(round(depth / PANEL_PITCH_M)))
     for cx in (width / 3, 2 * width / 3):
         for j in range(rows):

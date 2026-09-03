@@ -30,7 +30,8 @@ const MARKER_COL = {
   // `destination` is the same red as a target on purpose — the camera cannot
   // tell them apart, and a 3D view that could would be teaching the wrong thing.
   fire: COL.fire, destination: COL.fire, red_square: COL.fire,
-  blue_circle: 0x2563eb, green_triangle: 0x16a34a, yellow_square: 0xeab308,
+  blue_circle: 0x2563eb, green_triangle: 0x16a34a, green_circle: 0x16a34a,
+  black_square: 0x111827, black_triangle: 0x111827, yellow_square: 0xeab308,
   // Solid obstacles carry the same colours as the wall decorations of the same
   // name — they look identical to the camera, and the 3D view must not give
   // away which ones are solid any more than it gives away the destination.

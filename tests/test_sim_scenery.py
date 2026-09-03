@@ -5,7 +5,7 @@ import pytest
 
 from comp1.sim import scenery
 from comp1.sim.drone import SimDrone
-from comp1.sim.world import DESTINATION, FIRE, Marker
+from comp1.sim.world import FIRE, Marker
 
 
 def _dist(a, b):
@@ -34,36 +34,48 @@ def test_unknown_scenery_is_an_error_not_a_silent_square_room():
         scenery.build("hangar")
 
 
-def test_corridor_is_long_and_narrow():
+def test_corridor_has_the_competition_dimensions():
     w = scenery.build("corridor", seed=1)
     assert (w.width_m, w.depth_m) == (scenery.CORRIDOR_W_M, scenery.CORRIDOR_L_M)
-    assert w.depth_m > w.width_m * 3
+    assert (w.width_m, w.depth_m, w.room_height_m) == (6.0, 4.0, 3.0)
     assert w.name == "corridor"
 
 
-def test_corridor_starts_at_one_end_and_finishes_at_the_other():
+def test_corridor_starts_at_the_specified_takeoff_position():
     w = scenery.build("corridor", seed=2)
-    sx, sy = w.start_xy
-    dest = w.destination
-    assert dest is not None
-    # both on the centre line, at opposite ends
-    assert sx == pytest.approx(w.width_m / 2) and dest.x == pytest.approx(w.width_m / 2)
-    assert sy < w.depth_m * 0.2 < w.depth_m * 0.8 < dest.y
+    assert w.start_xy == (3.0, 3.0)
+    assert w.destination is None
+    assert w.return_to_start is True
 
 
-def test_destination_looks_exactly_like_a_fire_to_the_camera():
-    """§3.1: it is a red circle. The detector cannot tell them apart, on purpose."""
+def test_competition_decoys_have_the_specified_shapes_and_colours():
     from comp1.sim.render import KIND_STYLE
 
-    assert KIND_STYLE[DESTINATION] == KIND_STYLE[FIRE]
+    assert KIND_STYLE["green_triangle"][0] == "triangle"
+    assert KIND_STYLE["green_circle"][0] == "circle"
+    assert KIND_STYLE["black_square"][0] == "square"
+    assert KIND_STYLE["black_triangle"][0] == "triangle"
 
 
 def test_corridor_fires_stand_free_in_the_room():
     w = scenery.build("corridor", seed=3)
     assert len(w.fires) == scenery.CORRIDOR_FIRES
+    assert [(m.x, m.y) for m in w.fires] == [(0.75, 3.25), (5.25, 3.25), (3.0, 0.5)]
     for m in w.fires:
+        assert m.height_m == 2.0
         assert scenery.WALL_CLEARANCE_M <= m.x <= w.width_m - scenery.WALL_CLEARANCE_M
         assert scenery.WALL_CLEARANCE_M <= m.y <= w.depth_m - scenery.WALL_CLEARANCE_M
+
+
+def test_corridor_has_the_four_fixed_decoys():
+    w = scenery.build("corridor")
+    decoys = [(m.x, m.y, m.kind, m.height_m) for m in w.markers if m.kind != FIRE]
+    assert decoys == [
+        (0.75, 1.50, "green_triangle", 2.0),
+        (5.25, 1.50, "black_square", 2.0),
+        (1.75, 0.50, "green_circle", 2.0),
+        (4.25, 0.50, "black_triangle", 2.0),
+    ]
 
 
 def test_corridor_markers_are_far_enough_apart_to_be_told_apart():
@@ -89,11 +101,10 @@ def test_same_seed_is_the_same_corridor():
     )
 
 
-def test_randomising_moves_the_fires_but_never_the_destination():
+def test_seed_does_not_change_the_fixed_competition_layout():
     a = scenery.build("corridor", seed=1)
     b = scenery.build("corridor", seed=2)
-    assert a.fires != b.fires
-    assert a.destination == b.destination
+    assert a.markers == b.markers
 
 
 # --- hand-editing ---------------------------------------------------------
@@ -104,7 +115,7 @@ def test_with_fires_replaces_only_the_fires():
     others = [m for m in w.markers if m.kind != FIRE]
     x, y = _free_spot(w)
     edited = scenery.with_fires(w, [{"x": x, "y": y}])
-    assert edited.fires == [Marker(x, y, FIRE)]
+    assert edited.fires == [Marker(x, y, FIRE, height_m=2.0)]
     assert [m for m in edited.markers if m.kind != FIRE] == others
     assert (edited.width_m, edited.depth_m, edited.start_xy) == (
         w.width_m,
@@ -117,7 +128,7 @@ def test_a_fire_may_stand_in_the_middle_of_the_corridor_not_just_on_a_wall():
     base = scenery.build("corridor", seed=5)
     x, y = _free_spot(base)
     w = scenery.with_fires(base, [(x, y)])
-    assert w.fires == [Marker(x, y, FIRE)]
+    assert w.fires == [Marker(x, y, FIRE, height_m=2.0)]
     # nowhere near a wall — that is the whole point of the corridor scenery
     assert min(x, w.width_m - x) >= scenery.WALL_CLEARANCE_M
 
@@ -125,10 +136,10 @@ def test_a_fire_may_stand_in_the_middle_of_the_corridor_not_just_on_a_wall():
 @pytest.mark.parametrize(
     "point",
     [
-        (0.1, 5.0),  # flush against the west wall
-        (2.4, 5.0),  # flush against the east wall
-        (1.25, 9.9),  # through the far wall
-        (1.25, 0.6),  # on top of the start pad
+        (0.1, 2.0),  # flush against the west wall
+        (5.9, 2.0),  # flush against the east wall
+        (3.0, 3.9),  # through the north clearance
+        (3.0, 3.0),  # on top of the start pad
     ],
 )
 def test_illegal_placements_are_dropped_not_clamped(point):
@@ -136,16 +147,17 @@ def test_illegal_placements_are_dropped_not_clamped(point):
     assert w.fires == []
 
 
-def test_a_fire_cannot_be_stacked_on_the_destination():
+def test_a_fire_cannot_be_stacked_on_a_decoy():
     base = scenery.build("corridor", seed=5)
-    dest = base.destination
-    w = scenery.with_fires(base, [(dest.x, dest.y)])
+    decoy = next(m for m in base.markers if m.kind != FIRE)
+    w = scenery.with_fires(base, [(decoy.x, decoy.y)])
     assert w.fires == []
 
 
-def test_clearing_leaves_a_corridor_with_only_its_destination():
+def test_clearing_leaves_the_four_competition_decoys():
     w = scenery.with_fires(scenery.build("corridor", seed=5), [])
-    assert w.fires == [] and w.destination is not None
+    assert w.fires == []
+    assert len(w.markers) == scenery.CORRIDOR_DISTRACTORS
 
 
 # --- the adapter ----------------------------------------------------------
@@ -153,8 +165,7 @@ def test_clearing_leaves_a_corridor_with_only_its_destination():
 
 def test_sim_drone_starts_on_the_corridor_pad_not_mid_room():
     d = SimDrone(scenery_name="corridor", seed=4, delay=0)
-    assert (d.x, d.y) == d.world.start_xy
-    assert d.y < d.world.depth_m / 4
+    assert (d.x, d.y) == (3.0, 3.0)
 
 
 def test_corridor_walls_stop_the_drone_at_the_far_end():
@@ -162,8 +173,7 @@ def test_corridor_walls_stop_the_drone_at_the_far_end():
     d.takeoff()
     for _ in range(20):
         d.move("forward", 100)
-    assert d.y <= d.world.depth_m
-    assert d.y > d.world.width_m  # it really did fly down the long axis
+    assert d.y == pytest.approx(d.world.depth_m - 0.2)
 
 
 def test_scene_describes_a_rectangle_and_keeps_size_m_for_square_callers():
@@ -171,9 +181,11 @@ def test_scene_describes_a_rectangle_and_keeps_size_m_for_square_callers():
     assert s["width_m"] == scenery.CORRIDOR_W_M
     assert s["depth_m"] == scenery.CORRIDOR_L_M
     assert s["size_m"] == s["width_m"]
-    assert s["start"] == [scenery.CORRIDOR_W_M / 2, 0.6]
+    assert s["start"] == [3.0, 3.0]
+    assert s["wall_height_m"] == 3.0
+    assert s["return_to_start"] is True
     assert s["name"] == "corridor"
-    assert any(m["kind"] == DESTINATION for m in s["markers"])
+    assert len(s["markers"]) == 7
 
 
 def test_load_scenery_swaps_the_room_and_moves_the_drone_to_its_pad():
@@ -190,14 +202,11 @@ def test_load_scenery_keeps_a_seeded_session_repeatable():
     assert a.world.markers == b.world.markers
 
 
-def test_randomise_gives_a_new_layout_even_with_a_fixed_seed():
+def test_randomise_keeps_the_official_layout_fixed():
     d = SimDrone(scenery_name="corridor", seed=4, delay=0)
-    before = list(d.world.fires)
-    for _ in range(5):
-        d.load_scenery(randomise=True)
-        if d.world.fires != before:
-            return
-    raise AssertionError("randomise never produced a different layout")
+    before = list(d.world.markers)
+    d.load_scenery(randomise=True)
+    assert d.world.markers == before
 
 
 def test_editing_fires_does_not_change_scenery():
@@ -205,8 +214,8 @@ def test_editing_fires_does_not_change_scenery():
     x, y = _free_spot(d.world)
     d.load_scenery(fires=[{"x": x, "y": y}])
     assert d.world.name == "corridor"
-    assert d.world.fires == [Marker(x, y, FIRE)]
-    assert d.world.destination is not None
+    assert d.world.fires == [Marker(x, y, FIRE, height_m=2.0)]
+    assert d.world.return_to_start is True
 
 
 def test_mock_and_tello_have_no_arena_to_author():
@@ -219,11 +228,9 @@ def test_mock_and_tello_have_no_arena_to_author():
 # --- obstacles --------------------------------------------------------------
 
 
-def test_both_sceneries_stand_obstacles_in_the_open():
-    for name in scenery.names():
-        world = scenery.build(name, seed=7)
-        assert world.obstacles, f"{name} has nothing to fly around"
-        assert all(m.is_obstacle for m in world.obstacles)
+def test_only_the_legacy_arena_has_extra_obstacles():
+    assert scenery.build("arena", seed=7).obstacles
+    assert scenery.build("corridor", seed=7).obstacles == []
 
 
 def test_an_obstacle_never_crowds_a_target_out_of_reach():

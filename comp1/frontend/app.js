@@ -316,7 +316,8 @@ function showMission(m) {
     log("⚠ no target close enough to that signal, it did not count");
   }
   if (m.state === "success" && missionState !== "success") {
-    log("🏆 mission success: every target found and landed at the destination");
+    const goal = m.goal === "start" ? "the take-off point" : "the destination";
+    log(`🏆 mission success: every target found and landed at ${goal}`);
   }
   if (m.state === "crashed" && missionState !== "crashed") {
     log("💥 hit an obstacle — the attempt does not count. Use “obstacle in the way?” " +

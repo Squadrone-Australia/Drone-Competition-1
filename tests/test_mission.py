@@ -112,9 +112,29 @@ def test_all_three_together_is_a_mission_success(scorer):
         "total": 2,
         "at_destination": True,
         "needs_destination": True,
+        "goal": "destination",
         "crashed": False,
         "state": "success",
     }
+
+
+def test_competition_layout_requires_returning_to_takeoff_and_landing():
+    scorer = MissionScorer(
+        _scene(
+            [Marker(0.75, 3.25, FIRE)],
+            size_m=6.0,
+            length_m=4.0,
+            start=(3.0, 3.0),
+            name="corridor",
+            return_to_start=True,
+        )
+    )
+    assert scorer.destination == (3.0, 3.0)
+    assert scorer.goal == "start"
+    scorer.signal(_pose(0.75, 3.25))
+    assert scorer.state(_pose(3.0, 3.0, flying=True))["state"] == "flying"
+    assert scorer.state(_pose(1.0, 1.0, flying=False))["state"] == "flying"
+    assert scorer.state(_pose(3.0, 3.0, flying=False))["state"] == "success"
 
 
 def test_an_arena_with_no_destination_succeeds_on_the_fires_alone():

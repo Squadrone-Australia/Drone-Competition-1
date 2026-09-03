@@ -198,7 +198,10 @@
 
   function setMission(m) {
     const bits = [`targets ${m.found}/${m.total}`];
-    if (m.needs_destination) bits.push(m.at_destination ? "at destination" : "→ destination");
+    if (m.needs_destination) {
+      const place = m.goal === "start" ? "start" : "destination";
+      bits.push(m.at_destination ? `at ${place}` : `→ ${place}`);
+    }
     missionEl.textContent = m.state === "success"
       ? `🏆 mission success: ${bits.join(", ")}`
       : bits.join(" · ");
