@@ -52,6 +52,9 @@ async def test_debug_events_show_blocks_and_exact_adapter_calls():
     assert calls == [
         ("MockDrone", "takeoff", []),
         ("MockDrone", "move", ["forward", 50]),
+        # the flip signal reads the charge first, because a Tello refuses to
+        # flip on a low battery (see tests/test_find_signal.py)
+        ("MockDrone", "battery", []),
         ("MockDrone", "flip", ["back"]),
     ]
 

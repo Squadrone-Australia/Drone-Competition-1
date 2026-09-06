@@ -253,7 +253,9 @@ function showDroneLink(msg) {
 // Aircraft charge. `null` is "not known", which is honest for a drone that is
 // not answering — a stale number beside a dead link reads as a healthy battery.
 // The 50% line is where a real Tello starts refusing flips, so a student sees
-// the reading turn amber before their find signal stops working.
+// the reading turn amber before the flip stops being available. The find itself
+// is still signalled below it — "signal target found" spins instead (see
+// drone.config.choose_signal) — so this is a heads-up, not a failure.
 let batteryLow = null;
 function showBattery(msg) {
   const fill = batteryEl.querySelector(".battery-fill");
@@ -271,13 +273,13 @@ function showBattery(msg) {
   const state = level <= 15 ? " critical" : level < 50 ? " low" : "";
   batteryEl.className = "battery" + state;
   batteryEl.title = level < 50
-    ? "Battery below 50%: the drone will refuse to flip, so the find signal fails"
+    ? "Battery below 50%: the drone will refuse to flip, so a find is signalled by spinning instead"
     : "Drone battery charge";
   fill.style.width = `${level}%`;
   text.textContent = `${level}%`;
   const low = level < 50;
   if (low && batteryLow === false) {
-    log("⚠ battery below 50% — the drone will refuse to flip, so a find cannot be signalled");
+    log("⚠ battery below 50% — the drone will refuse to flip; 'signal target found' will spin instead");
   }
   batteryLow = low;
 }

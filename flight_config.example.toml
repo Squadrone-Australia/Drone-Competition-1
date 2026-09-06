@@ -29,3 +29,17 @@ flip_recover_cm = 30
 # Raise it if a congested hall makes the stream stutter for seconds at a time
 # and you see needless reconnects; lower it to notice a lost drone sooner.
 link_timeout_s = 6.0
+
+# --- find-signal battery floor ---
+# Below roughly 50% charge a Tello refuses `flip` outright. It answers with an
+# error and keeps hovering, so the find signal the judges are watching for
+# (requirements §2.1) is the one thing that silently does not happen while the
+# program counts the find and flies on. "signal target found" therefore reads
+# the battery first and turns a doomed flip into a 360-degree spin, which the
+# aircraft will always do.
+#
+# This is the charge it switches over at, in percent. The margin above 50
+# covers the level sagging between the reading and the manoeuvre — raise it if
+# a tired battery still refuses flips near the line. 0 disables the fallback
+# and always flips, which is only sensible on a bench with a full pack.
+flip_min_battery_pct = 55

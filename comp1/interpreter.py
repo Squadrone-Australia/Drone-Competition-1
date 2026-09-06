@@ -2,6 +2,11 @@ import asyncio
 from collections.abc import Callable
 
 from .drone.base import DroneAdapter
+from .drone.config import (
+    SIGNAL_FLIP_DIR,
+    SIGNAL_SPIN_DEG,
+    choose_signal,
+)
 from .protocol import LIMITS, Block, Program
 from .vision.config import DEFAULT_CONFIG, VisionConfig
 from .vision.detector import Detection
@@ -272,9 +277,7 @@ class Interpreter:
             case "flip":
                 await self._call_drone("flip", b.dir)
             case "mark_found":
-                await self._call_drone(
-                    "flip", "back"
-                )  # victory signal (requirements §2.1)
+                await self._signal_found(b.signal or "flip")
                 self.found_count += 1
                 self._emit({"type": "found_count", "count": self.found_count})
             case "end_mission":
@@ -348,6 +351,30 @@ class Interpreter:
             await self._call_drone("move", side, cm)
             await asyncio.sleep(0.2)  # let video catch up
         self._warn("could not get clear of the obstacle")
+
+    async def _signal_found(self, kind: str):
+        """Perform the find signal required by §2.1, downgrading a doomed flip.
+
+        A controller built out of ``flip`` and ``rotate``, like :meth:`_avoid`,
+        so no adapter gains a primitive for it. The battery is only read when a
+        flip was actually asked for — on a real Tello that is an SDK round trip,
+        and the spin never needs it. A reading that fails counts as unknown,
+        which :func:`choose_signal` treats as too risky to flip on.
+        """
+        battery = None
+        if kind == "flip":
+            try:
+                battery = int(await self._call_drone("battery"))
+            except Exception:
+                battery = None  # unknown, not fatal — choose_signal spins
+        flight = getattr(self._drone, "flight", None)
+        kind, warning = choose_signal(kind, battery, flight)
+        if warning:
+            self._warn(warning)
+        if kind == "flip":
+            await self._call_drone("flip", SIGNAL_FLIP_DIR)
+        else:
+            await self._call_drone("rotate", "cw", SIGNAL_SPIN_DEG)
 
     async def _approach(self):
         """Turn toward the target, then close on it, using metric bearing and range.

@@ -39,6 +39,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .drone.base import DroneAdapter
+from .drone.config import (
+    SIGNAL_FLIP_DIR,
+    SIGNAL_SPIN_DEG,
+    choose_signal,
+)
+from .protocol import SIGNAL_KINDS
 from .vision.config import DEFAULT_CONFIG, VisionConfig
 from .vision.detector import Detection, Target, TargetTracker
 from .vision.obstacles import is_in_the_way
@@ -473,9 +479,39 @@ class Drone:
             self.wait(self._s.settle_s)
         return False
 
-    def mark_found(self):
-        """Signal that you have found a target (requirements §2.1) and count it."""
-        self._act(self._d.flip, "back")
+    def mark_found(self, signal: str = "flip"):
+        """Signal that you have found a target (requirements §2.1) and count it.
+
+        ``signal`` picks the visible action: ``"flip"`` (a back-flip, the
+        default) or ``"spin"`` (a full turn on the spot). A flip is refused by
+        the aircraft below ``flip_min_battery_pct`` and would leave the find
+        unsignalled while your program carried on regardless, so a flip asked
+        for on a low — or unreadable — battery is downgraded to a spin and
+        warns. Both end where they started; neither is a way to travel.
+        """
+        if signal not in SIGNAL_KINDS:
+            self._warn(
+                f"mark_found({signal!r}) is not one of "
+                f"{', '.join(map(repr, SIGNAL_KINDS))}; using 'flip'"
+            )
+            signal = "flip"
+        battery = None
+        if signal == "flip":
+            try:
+                battery = int(self.battery)
+            except EmergencyStop:
+                raise
+            except Exception:
+                battery = None  # unknown, not fatal — choose_signal spins
+        signal, warning = choose_signal(
+            signal, battery, getattr(self._d, "flight", None)
+        )
+        if warning:
+            self._warn(warning)
+        if signal == "flip":
+            self._act(self._d.flip, SIGNAL_FLIP_DIR)
+        else:
+            self._act(self._d.rotate, "cw", SIGNAL_SPIN_DEG)
         self._s.found_count += 1
         self._s.emit({"type": "found_count", "count": self._s.found_count})
 

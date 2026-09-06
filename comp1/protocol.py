@@ -7,6 +7,12 @@ from pydantic import BaseModel, BeforeValidator, Field, model_validator
 MOVE_DIRS = {"forward", "back", "left", "right", "up", "down"}
 ROTATE_DIRS = {"cw", "ccw"}
 FLIP_DIRS = {"forward", "back", "left", "right"}
+# How "signal target found" performs the find signal required by §2.1. Both are
+# a visible drone action; the spin is also what a flip is downgraded to when the
+# battery is too low for the aircraft to accept one (see drone.config.
+# choose_signal). Absent on a program saved before the choice existed, which
+# means "flip".
+SIGNAL_KINDS = {"flip", "spin"}
 
 # runtime ranges for the value-carrying fields; the interpreter clamps to these
 LIMITS = {"cm": (20, 500), "deg": (1, 360), "n": (0, 50), "seconds": (0, 10)}
@@ -134,6 +140,7 @@ class Block(BaseModel):
     deg: Value | None = None
     n: Value | None = None
     seconds: Value | None = None
+    signal: str | None = None  # mark_found
     name: str | None = None  # set_var
     value: Value | None = None  # set_var
     cond: Value | None = None
@@ -146,6 +153,7 @@ class Block(BaseModel):
             "move": self.dir in MOVE_DIRS and self.cm is not None,
             "rotate": self.dir in ROTATE_DIRS and self.deg is not None,
             "flip": self.dir in FLIP_DIRS,
+            "mark_found": self.signal is None or self.signal in SIGNAL_KINDS,
             "repeat_n": self.n is not None,
             "repeat_until": self.cond is not None,
             "while": self.cond is not None,

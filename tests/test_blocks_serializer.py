@@ -54,7 +54,9 @@ def test_display_python_is_valid_python_syntax():
                         "id": "if",
                         "op": "if",
                         "cond": {"kind": "sensor", "sensor": "target_visible"},
-                        "body": [{"id": "found", "op": "mark_found"}],
+                        "body": [
+                            {"id": "found", "op": "mark_found", "signal": "flip"}
+                        ],
                         "else_body": [
                             {"id": "turn", "op": "rotate", "dir": "cw", "deg": 30}
                         ],
