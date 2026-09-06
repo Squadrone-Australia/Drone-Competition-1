@@ -26,7 +26,13 @@ function squadroneTheme() {
   }
 }
 
+// `media` is not cosmetic: left unset, Blockly fetches its trashcan/zoom
+// sprite sheet, its drag cursors and its click sounds from
+// blockly-demo.appspot.com, which at a venue on the TELLO-xxxx Wi-Fi resolves
+// to nothing. The vendored copy must match vendor/blockly.min.js - 12.5.1 wants
+// sprites.png, where later releases renamed it sprites.svg.
 const workspace = Blockly.inject("blockly", {
+  media: "vendor/blockly-media/",
   toolbox: COMP1.toolbox, trashcan: true, zoom: { controls: true },
   theme: squadroneTheme(),
   grid: { spacing: 26, length: 2, colour: "#1a2330", snap: false },

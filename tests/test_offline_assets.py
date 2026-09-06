@@ -26,6 +26,31 @@ def test_three_js_is_vendored():
         assert (FRONTEND / "vendor" / name).stat().st_size > 10_000, name
 
 
+def test_blockly_media_is_vendored_and_injected():
+    # Blockly's default pathToMedia is blockly-demo.appspot.com. Left unset, the
+    # trashcan/zoom sprite sheet, the drag cursors and the click sounds are all
+    # network fetches, which is nothing at all on a venue's TELLO-xxxx Wi-Fi.
+    app_js = (FRONTEND / "app.js").read_text(encoding="utf-8")
+    assert 'media: "vendor/blockly-media/"' in app_js
+    assert (FRONTEND / "vendor" / "blockly-media" / "sprites.png").exists()
+
+
+def test_every_media_file_blockly_asks_for_is_vendored():
+    # Derived from the bundle rather than hardcoded, so a Blockly upgrade that
+    # renames an asset (12.x wants sprites.png, later releases sprites.svg) or
+    # adds one fails here instead of silently going back to the network.
+    bundle = (FRONTEND / "vendor" / "blockly.min.js").read_bytes().decode(
+        "utf-8", "replace"
+    )
+    wanted = set(re.findall(r"<<<PATH>>>/([\w.-]+\.\w+)", bundle))
+    wanted |= set(re.findall(r"\$\{a\}([\w.-]+\.\w+)", bundle))
+    wanted |= set(re.findall(r'url:\s*"([\w.-]+\.\w+)"', bundle))
+    assert wanted, "no media references found - did the bundle format change?"
+    media = FRONTEND / "vendor" / "blockly-media"
+    missing = sorted(n for n in wanted if not (media / n).exists())
+    assert not missing, f"Blockly media not vendored (breaks offline use): {missing}"
+
+
 def test_the_import_map_points_at_the_vendored_three():
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     assert '"three": "./vendor/three.module.min.js"' in html
