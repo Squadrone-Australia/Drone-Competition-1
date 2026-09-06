@@ -269,10 +269,12 @@ class SimDrone(DroneAdapter):
         # a back-flip as a barrel roll and made three of the four identical.
         #
         # It also sags in the flip's own direction and comes back. A real Tello
-        # translates through a flip; TelloDrone undoes that with a compensating
-        # move afterwards (see FlightConfig.flip_recover_cm), and showing the sag
-        # here is what makes the two views agree about a lurch the aircraft
-        # genuinely performs. sin(pi*t) peaks mid-flip and returns to zero, so
+        # translates through a flip, and showing the sag here is what makes the
+        # two views agree about a lurch the aircraft genuinely performs. The sim
+        # always nets to zero: on hardware the compensating move is opt-in (see
+        # FlightConfig.flip_recover_cm, 0 by default, because it spends altitude
+        # the flip already cost), but the signal must not move the mission in
+        # the view students learn from. sin(pi*t) peaks mid-flip and returns to zero, so
         # the end pose is exactly the start pose — the flip is the *signal*
         # (requirements §2.1), never a way to travel.
         key = _flip_key(direction)

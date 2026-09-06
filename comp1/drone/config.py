@@ -17,10 +17,12 @@ class FlightConfig:
 
     #: How far a real Tello translates through a flip, in centimetres. The flip
     #: is a *signal* (requirements §2.1), not a way to travel, so the adapter
-    #: flies this distance back the other way afterwards and the drone resumes
-    #: the mission where it signalled. Measure it on the floor and put it here;
-    #: 0 disables the recovery move entirely.
-    flip_recover_cm: int = 30
+    #: can fly this distance back the other way afterwards and resume the
+    #: mission where it signalled. **Off by default (0):** the compensating
+    #: move costs altitude the aircraft has already lost through the flip, and
+    #: on the arena that mattered more than the displacement it corrects. Set
+    #: it (measured on the floor) to turn the recovery back on.
+    flip_recover_cm: int = 0
 
     #: How long the video stream may go without a new decoded frame before the
     #: adapter calls the link dead, in seconds. A rebooted or out-of-range Tello

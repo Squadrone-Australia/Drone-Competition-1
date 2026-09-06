@@ -141,9 +141,9 @@ def test_a_back_flip_tumbles_nose_over_tail_and_a_side_flip_rolls():
 
 
 def test_a_flip_sags_along_its_own_direction_and_recovers():
-    """A real Tello throws itself through a flip and TelloDrone flies it back
-    (FlightConfig.flip_recover_cm). The sim shows the same lurch so the two views
-    agree, but nets to zero — the flip is the signal, not a way to travel."""
+    """A real Tello throws itself through a flip. The sim shows the same lurch
+    so the two views agree, but nets to zero — the flip is the signal, not a way
+    to travel (see FlightConfig.flip_recover_cm, off by default)."""
     d = animated()
     d.takeoff()
     d.rotate("cw", 90)  # facing +x, so back is -x

@@ -193,11 +193,11 @@ class TelloDrone(DroneAdapter):
 
     def flip(self, direction):
         self._cmd("flip", _FLIP_CODE[direction])
-        # The aircraft throws itself along the flip direction and stays there,
-        # so without this a "signal target found" back-flip leaves the drone
-        # short of the target it just found and every following move starts from
-        # the wrong place. Tune flip_recover_cm on-site; below the 20 cm floor
-        # the Tello would refuse the move, so skip it instead of erroring.
+        # The aircraft throws itself along the flip direction and stays there.
+        # An opposite move undoes that, but it also costs altitude the flip has
+        # already taken, so flip_recover_cm defaults to 0 and the recovery is
+        # opt-in. Below the 20 cm floor the Tello would refuse the move, so
+        # skip it instead of erroring — which is also how 0 disables it.
         if self.flight.flip_recover_cm >= TELLO_MIN_MOVE_CM:
             self.move(_OPPOSITE[direction], self.flight.flip_recover_cm)
 

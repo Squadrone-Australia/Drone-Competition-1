@@ -12,14 +12,14 @@ def write(tmp_path, text):
 def test_code_defaults_stand_on_their_own():
     """Importing the module must never read a file: the dataclass is the default
     everywhere that does not thread a config through."""
-    assert FlightConfig().flip_recover_cm == 30
+    assert FlightConfig().flip_recover_cm == 0
     assert DEFAULT_FLIGHT_CONFIG == FlightConfig()
 
 
 def test_a_file_overrides_only_the_keys_it_names(tmp_path):
     cfg = FlightConfig.load_file(write(tmp_path, "flip_recover_cm = 45\n"))
     assert cfg.flip_recover_cm == 45
-    assert DEFAULT_FLIGHT_CONFIG.flip_recover_cm == 30, "load_file mutated the default"
+    assert DEFAULT_FLIGHT_CONFIG.flip_recover_cm == 0, "load_file mutated the default"
 
 
 def test_an_empty_file_keeps_every_default(tmp_path):

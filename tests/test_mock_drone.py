@@ -81,14 +81,18 @@ def test_tello_adapter_maps_commands(fake_tello):
     assert d.battery() == 87
 
 
-def test_flip_flies_back_to_where_it_started(fake_tello):
-    """A Tello translates through a flip and stays displaced, so a fire signal
-    would leave the drone short of the fire it just found."""
+def test_a_flip_is_just_a_flip_by_default(fake_tello):
+    """The compensating move costs altitude the flip has already taken, so
+    flip_recover_cm defaults to 0 and nothing follows the flip."""
     calls, TelloDrone = fake_tello
     TelloDrone().flip("back")
-    assert calls == ["flip b", "move_forward 30"]
+    assert calls == ["flip b"]
 
-    calls.clear()
+
+def test_flip_recovery_flies_back_when_it_is_configured(fake_tello):
+    """A Tello translates through a flip and stays displaced; an operator who
+    would rather correct that than keep the altitude can still ask for it."""
+    calls, TelloDrone = fake_tello
     TelloDrone(FlightConfig(flip_recover_cm=45)).flip("left")
     assert calls == ["flip l", "move_right 45"]
 
