@@ -1,3 +1,6 @@
+import threading
+import time
+
 import numpy as np
 import pytest
 
@@ -112,22 +115,70 @@ def test_flip_recovery_is_skipped_below_the_tello_move_floor(fake_tello):
 # tests hold the three halves of the cure — notice, release, reconnect.
 
 
+class FakeFrame:
+    def __init__(self, seq):
+        self.seq = seq
+
+    def to_ndarray(self, format=None):
+        frame = np.zeros((480, 640, 3), np.uint8)
+        frame[0, 0, 0] = self.seq % 256
+        return frame
+
+
 class FakeContainer:
-    def __init__(self):
+    """A video stream that behaves the way PyAV's really does.
+
+    It hands out ``frames`` pictures and then stalls — and a stall is
+    terminal: once av has raised past its read timeout the container never
+    yields another frame, so the reader must reopen rather than retry. Every
+    close records the thread that made it, which is what the crash regression
+    below actually checks.
+    """
+
+    def __init__(self, frames=1):
         self.closed = False
+        self.closed_by = None
+        self._frames = frames
+        self.exhausted = threading.Event()
+        self.release = threading.Event()
+
+    def decode(self, video=0):
+        for i in range(self._frames):
+            yield FakeFrame(i)
+        self.exhausted.set()
+        self.release.wait(2.0)  # a read in flight, bounded like a real timeout
+        raise RuntimeError("Immediate exit requested")  # what av.error.ExitError is
 
     def close(self):
         self.closed = True
+        self.closed_by = threading.current_thread()
 
 
-class FakeReader:
-    def __init__(self):
-        self.container = FakeContainer()
-        self.stopped = False
-        self.frame = np.zeros((480, 640, 3), np.uint8)
+class FakeStream:
+    """Stands in for the ``av`` layer: records every container it opens."""
 
-    def stop(self):
-        self.stopped = True
+    def __init__(self, frames=1):
+        self.containers = []
+        self._frames = frames
+
+    def open(self, address, open_timeout=None):
+        container = FakeContainer(self._frames)
+        self.containers.append(container)
+        return container
+
+    def latest(self):
+        return self.containers[-1]
+
+
+def _wait_for_frame(drone, timeout=2.0):
+    """Block until the decoder thread has delivered its first picture."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        frame = drone.get_frame()
+        if frame is not None:
+            return frame
+        time.sleep(0.01)
+    raise AssertionError("no frame arrived")
 
 
 @pytest.fixture
@@ -139,6 +190,8 @@ def reconnectable_tello(monkeypatch):
     # djitellopy keys its response queue by aircraft IP, so every Tello object
     # pointed at the same drone reads the same one
     queue = {"responses": [], "state": {}}
+    stream = FakeStream()
+    monkeypatch.setattr(t, "_open_container", stream.open)
 
     class FakeTello:
         def __init__(self):
@@ -147,7 +200,6 @@ def reconnectable_tello(monkeypatch):
             self.stream_on = False
             self.background_frame_read = None
             self.address = ("192.168.10.1", 8889)
-            self.reader = FakeReader()
             self.queue = queue
             self.queued_at_connect = None
             instances.append(self)
@@ -167,8 +219,8 @@ def reconnectable_tello(monkeypatch):
         def land(self):
             self.log.append("land")
 
-        def get_frame_read(self):
-            return self.reader
+        def get_udp_video_address(self):
+            return "udp://@0.0.0.0:11111"
 
         def send_command_without_return(self, command):
             self.log.append(command)
@@ -177,26 +229,68 @@ def reconnectable_tello(monkeypatch):
             return self.queue
 
     monkeypatch.setattr(t, "Tello", FakeTello)
-    return instances, t.TelloDrone
+    return instances, t.TelloDrone, stream
 
 
 def test_closing_releases_the_video_port(reconnectable_tello):
-    """stop() alone only sets a flag the decode thread checks after the *next*
-    frame — which never arrives from a drone that is gone, so the port would be
-    held for the life of the process and no later stream could open."""
-    instances, TelloDrone = reconnectable_tello
+    """A flag alone would not do it: djitellopy's decode thread only reads one
+    after the *next* frame arrives, which never happens once the drone is gone,
+    so the port would be held for the life of the process."""
+    instances, TelloDrone, stream = reconnectable_tello
     drone = TelloDrone()
     drone.connect()
-    reader = instances[-1].reader
+    reader = drone._reader
+    stream.latest().release.set()  # let the stalled read give up
 
-    drone.close()
-    assert reader.stopped and reader.container.closed
+    assert drone.close() is None
+    assert not reader.alive
+    assert all(c.closed for c in stream.containers)
     assert "streamoff" in instances[-1].log
+
+
+def test_the_container_is_only_ever_closed_by_its_own_decode_thread(
+    reconnectable_tello,
+):
+    """The crash regression. Freeing an AVFormatContext while another thread
+    sits inside av_read_frame() is a use-after-free: the process dies with
+    SIGSEGV in avio_read_partial and no Python traceback at all. Only the
+    decoder thread may close what it reads."""
+    instances, TelloDrone, stream = reconnectable_tello
+    drone = TelloDrone()
+    drone.connect()
+    _wait_for_frame(drone)
+    assert stream.latest().exhausted.wait(2.0)  # parked in a read, as on a dead link
+
+    drone.close()  # would have closed the container from *this* thread before
+
+    assert stream.containers, "the reader never opened a stream"
+    for container in stream.containers:
+        assert container.closed
+        assert container.closed_by is not threading.current_thread()
+
+
+def test_a_stalled_stream_is_reopened_rather_than_retried(reconnectable_tello):
+    """av poisons a container once its read timeout has fired — it never yields
+    another frame — so recovery means opening a new one."""
+    instances, TelloDrone, stream = reconnectable_tello
+    drone = TelloDrone()
+    drone.connect()
+    first = stream.latest()
+    assert first.exhausted.wait(2.0)
+    first.release.set()  # the read gives up
+
+    deadline = time.monotonic() + 2.0
+    while len(stream.containers) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert len(stream.containers) >= 2, "the reader gave up instead of reopening"
+    assert first.closed
+    drone.close()
 
 
 def test_closing_never_flies_the_aircraft(reconnectable_tello):
     """Letting go of an object must not be a flight command."""
-    instances, TelloDrone = reconnectable_tello
+    instances, TelloDrone, stream = reconnectable_tello
     drone = TelloDrone()
     drone.connect()
     drone.takeoff()
@@ -210,7 +304,7 @@ def test_closing_never_flies_the_aircraft(reconnectable_tello):
 def test_reconnect_starts_a_whole_new_session(reconnectable_tello):
     """The old session died with the reboot; its queued responses are answers
     to commands from before it."""
-    instances, TelloDrone = reconnectable_tello
+    instances, TelloDrone, stream = reconnectable_tello
     drone = TelloDrone()
     drone.connect()
     first = instances[-1]
@@ -227,30 +321,34 @@ def test_reconnect_starts_a_whole_new_session(reconnectable_tello):
 def test_a_silent_camera_is_a_lost_link(reconnectable_tello):
     """A dead stream is silence, not an error: the decoder hands back the last
     frame it managed to decode, forever."""
-    instances, TelloDrone = reconnectable_tello
+    instances, TelloDrone, stream = reconnectable_tello
     drone = TelloDrone(FlightConfig(link_timeout_s=0))
     drone.connect()
 
-    assert drone.get_frame() is not None  # the first frame is genuinely new
+    assert _wait_for_frame(drone) is not None  # the first frame is genuinely new
     assert drone.get_frame() is None  # the same frame again, past the timeout
     assert drone.link_ok is False
+    drone.close()
 
 
 def test_a_freshly_decoded_frame_is_not_a_lost_link(reconnectable_tello):
-    instances, TelloDrone = reconnectable_tello
+    instances, TelloDrone, stream = reconnectable_tello
     drone = TelloDrone(FlightConfig(link_timeout_s=0))
     drone.connect()
 
-    for _ in range(3):
-        instances[-1].reader.frame = np.zeros((480, 640, 3), np.uint8)
+    _wait_for_frame(drone)
+    for seq in range(3):
+        # a genuinely new picture, the way the decoder thread publishes one
+        drone._reader._frame = np.full((480, 640, 3), seq, np.uint8)
         assert drone.get_frame() is not None
     assert drone.link_ok
+    drone.close()
 
 
 def test_a_command_failure_marks_the_link_down(reconnectable_tello):
     """The interpreter turns this into a finished-with-error mission; the flag
     is what lets the server reconnect once it has stopped."""
-    instances, TelloDrone = reconnectable_tello
+    instances, TelloDrone, stream = reconnectable_tello
     drone = TelloDrone()
     drone.connect()
 
@@ -274,7 +372,7 @@ def test_a_reconnect_starts_with_an_empty_response_queue(
     import comp1.drone.tello as tello_module
 
     monkeypatch.setattr(tello_module, "_STALE_RESPONSE_SETTLE_S", 0)
-    instances, TelloDrone = reconnectable_tello
+    instances, TelloDrone, stream = reconnectable_tello
     drone = TelloDrone()
     drone.connect()
 
