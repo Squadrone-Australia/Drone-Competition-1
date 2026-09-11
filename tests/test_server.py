@@ -581,13 +581,17 @@ def test_switching_scenery_rebuilds_the_arena_and_re_sends_it():
     the old one."""
     from comp1.sim.drone import SimDrone
 
+    from comp1.sim import scenery
+
     drone = SimDrone(seed=1, delay=0)
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         collect_until(ws, "sceneries")
         ws.send_json({"type": "scenery", "name": "corridor"})
         scene = collect_where(ws, "scene", lambda m: m["scene"]["name"] == "corridor")
-        assert scene["scene"]["depth_m"] > scene["scene"]["width_m"] * 3
+        # corridor is the fixed competition layout now, not a long hall
+        assert scene["scene"]["width_m"] == scenery.CORRIDOR_W_M
+        assert scene["scene"]["depth_m"] == scenery.CORRIDOR_L_M
     assert drone.world.name == "corridor"
     assert (drone.x, drone.y) == drone.world.start_xy
 
@@ -608,12 +612,14 @@ def test_editing_the_layout_re_sends_the_arena():
         )
         fires = [k for k in scene["scene"]["markers"] if k["kind"] == "fire"]
         assert len(fires) <= 1
-        # whatever survived validation, the destination is untouched
-        assert any(k["kind"] == "destination" for k in scene["scene"]["markers"])
+        # whatever survived validation, the fixed decoys are untouched
+        decoys = [k for k in scene["scene"]["markers"] if k["kind"] != "fire"]
+        assert len(decoys) == scenery.CORRIDOR_DISTRACTORS
     assert scenery.MIN_FIRE_SEP_M > 0
 
 
-def test_clearing_the_layout_leaves_the_destination_alone():
+def test_clearing_the_layout_leaves_the_decoys_alone():
+    from comp1.sim import scenery
     from comp1.sim.drone import SimDrone
 
     drone = SimDrone(scenery_name="corridor", seed=1, delay=0)
@@ -627,7 +633,10 @@ def test_clearing_the_layout_leaves_the_destination_alone():
             lambda m: not [k for k in m["scene"]["markers"] if k["kind"] == "fire"],
         )
     assert drone.world.fires == []
-    assert drone.world.destination is not None
+    # corridor has no destination marker any more — it returns to the start pad
+    assert drone.world.destination is None
+    assert drone.world.return_to_start is True
+    assert len(drone.world.markers) == scenery.CORRIDOR_DISTRACTORS
 
 
 def test_arena_edits_are_refused_while_a_mission_is_running():
