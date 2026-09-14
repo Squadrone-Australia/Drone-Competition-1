@@ -207,6 +207,9 @@ def create_app(
         # "no newer version, or we could not tell" — the browser cannot and
         # should not distinguish the two.
         app.state.update = None
+        # Latched while an installer download/handover is in flight, so a second
+        # click cannot start it twice.
+        app.state.installing = False
         app.state.update_task = (
             asyncio.create_task(_update_loop(app)) if update_check else None
         )
@@ -498,6 +501,7 @@ def create_app(
                 app,
                 {"type": "update_progress", "state": "failed", "message": str(exc)},
             )
+            app.state.installing = False
             return
         await _broadcast_json(
             app,
@@ -518,6 +522,7 @@ def create_app(
                 app,
                 {"type": "update_progress", "state": "failed", "message": str(exc)},
             )
+            app.state.installing = False
 
     def _update_message(app: FastAPI) -> dict:
         release = app.state.update
@@ -1314,8 +1319,17 @@ def create_app(
                                     "message": "wait for the drone connection",
                                 },
                             )
+                        elif app.state.installing:
+                            await _reply_error(ws, "the update is already installing")
                         else:
-                            await _install_update(app, release)
+                            # Detached on purpose. Awaited inline, this ran as
+                            # part of the socket's receive loop -- so a student
+                            # closing the tab mid-update cancelled the install
+                            # *after* the drone had been released but *before*
+                            # the installer was handed over, and the update
+                            # simply never happened.
+                            app.state.installing = True
+                            _spawn(_install_update(app, release))
                     else:
                         # An unknown type used to be dropped in silence, which
                         # makes a version mismatch look like a feature that

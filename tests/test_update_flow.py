@@ -6,6 +6,7 @@ own profile or opening a socket.
 """
 
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -181,6 +182,15 @@ def test_installing_downloads_verifies_and_launches(monkeypatch, tmp_path):
         ws.send_json({"type": "install_update"})
         assert collect_until(ws, "update_progress")["state"] == "downloading"
         assert collect_until(ws, "update_progress")["state"] == "installing"
+        # "installing" is announced *before* the drone is released and the
+        # installer handed over -- deliberately, since the installer kills this
+        # process and anything left until afterwards never runs. So the launch
+        # lands a few event-loop turns after the message. Wait for it *inside*
+        # the websocket block: leaving it first tears the app down, which is
+        # exactly the cancellation this flow now has to survive.
+        deadline = time.monotonic() + 5.0
+        while not launched and time.monotonic() < deadline:
+            time.sleep(0.01)
     assert launched == [installer]
 
 
