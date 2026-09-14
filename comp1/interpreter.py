@@ -93,6 +93,13 @@ class Interpreter:
 
     async def _run_blocks(self, blocks: list[Block]):
         for b in blocks:
+            # Hand the event loop a turn before every block. Blocks that command
+            # the aircraft await a thread and yield anyway, but a loop whose body
+            # is pure arithmetic never suspends — and then video, telemetry, and
+            # the websocket message carrying Stop or EMERGENCY STOP all sit in a
+            # queue that cannot be drained until the program ends. `sleep(0)` is
+            # the cheapest possible yield and costs nothing a student can see.
+            await asyncio.sleep(0)
             if self._stop.is_set():
                 raise _Stopped()
             self._block_id, self._block_op = b.id, b.op
@@ -322,6 +329,10 @@ class Interpreter:
                 # repeat_until stops when the condition goes true, while when it goes false
                 stop_when = b.op == "repeat_until"
                 for _ in range(MAX_LOOP_ITERS):  # hard safety bound
+                    # also here: a loop with an empty body never reaches the
+                    # yield in _run_blocks, and spinning 1000 times on the
+                    # condition alone would starve the loop just as effectively
+                    await asyncio.sleep(0)
                     if self._stop.is_set():
                         raise _Stopped()
                     self._block_id, self._block_op = b.id, b.op
