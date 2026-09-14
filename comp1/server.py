@@ -65,6 +65,25 @@ IDLE_CHECK_INTERVAL = 1.0
 DEFAULT_IDLE_TIMEOUT = 30.0
 
 
+def _plain_validation_error(exc: ValidationError) -> str:
+    """A sentence a ten-year-old can act on, out of a pydantic ValidationError.
+
+    The raw string is four lines of ``[type=value_error, input_value={...}]`` and
+    a link to pydantic's docs. That is the right amount of detail for a log and
+    entirely the wrong amount for the console a student is reading, where it
+    buries the one clause that says what to change.
+    """
+    parts = []
+    for err in exc.errors():
+        message = err.get("msg", "")
+        # pydantic prefixes messages raised from a validator; the useful half is
+        # what our own code wrote.
+        message = message.removeprefix("Value error, ").strip()
+        if message and message not in parts:
+            parts.append(message)
+    return "; ".join(parts) or "the blocks did not make a valid plan"
+
+
 def _new_tello() -> DroneAdapter:
     # Keep this lazy: a simulator launch must not touch the hardware pathway.
     # The adapter is constructed only after a deliberate click in the browser.
@@ -915,9 +934,16 @@ def create_app(
                             continue
                         try:
                             program = Program.model_validate(msg["program"])
+                        except KeyError:
+                            await _reply_error(ws, "that run had no program in it")
+                            continue
                         except ValidationError as e:
                             await _broadcast_json(
-                                app, {"type": "error", "message": f"invalid program: {e}"}
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": f"this plan cannot run: {_plain_validation_error(e)}",
+                                },
                             )
                             continue
                         # This is the canonical program the interpreter will run,
