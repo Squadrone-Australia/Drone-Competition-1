@@ -10,3 +10,8 @@ dist/
 .claude/
 CLAUDE.md
 AGENTS.md
+
+# A stale nested checkout of this same project lives here on some machines.
+# It is not part of the build (see [tool.setuptools.packages.find]) and must
+# never be committed into this repo.
+src/
