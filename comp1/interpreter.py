@@ -69,8 +69,20 @@ class Interpreter:
         self.vars: dict[str, float | bool] = {}
         self._block_id = ""  # whose fault a warning is, for events
         self._block_op = ""
+        # Set when the stop came from the EMERGENCY STOP button: the aircraft is
+        # being cut, so this interpreter must not also try to land it.
+        self._emergency = False
 
-    def request_stop(self):
+    def request_stop(self, emergency: bool = False):
+        """Ask the mission to stop at the next block boundary.
+
+        ``emergency`` suppresses the automatic ``land`` in :meth:`run`. An
+        emergency stop cuts the motors itself, and a ``land`` racing that from
+        this side is at best redundant and at worst a flight command sent to an
+        aircraft that is already falling.
+        """
+        if emergency:
+            self._emergency = True
         self._stop.set()
 
     async def run(self, program: Program):
@@ -84,7 +96,7 @@ class Interpreter:
             pass
         except Exception as exc:
             reason, detail = "error", str(exc)
-        if reason != "done":
+        if reason != "done" and not self._emergency:
             try:
                 await self._call_drone("land", block_op="automatic_land")
             except Exception:

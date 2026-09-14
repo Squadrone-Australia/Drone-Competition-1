@@ -185,6 +185,11 @@ def create_app(
             app.state.update_task.cancel()
         if app.state.idle_task:
             app.state.idle_task.cancel()
+        # Detached work (an emergency stop still waiting on a silent aircraft,
+        # an update handover) — cancelled here so shutdown does not leave
+        # "Task was destroyed but it is pending" behind it.
+        for task in list(background_tasks):
+            task.cancel()
         app.state.video_task.cancel()
         app.state.pose_task.cancel()
         app.state.link_task.cancel()
@@ -580,6 +585,49 @@ def create_app(
                 await ws.send_text(json.dumps(data))
             except Exception:
                 app.state.clients.discard(ws)
+
+    #: Strong references to fire-and-forget tasks. Without this the only
+    #: reference is the event loop's own weak one, and a task can be collected
+    #: mid-flight — the documented failure mode of bare ``create_task``.
+    background_tasks: set = set()
+
+    def _spawn(coro):
+        """Run ``coro`` detached, keeping it alive and logging what it raises."""
+        task = asyncio.ensure_future(coro)
+        background_tasks.add(task)
+        task.add_done_callback(background_tasks.discard)
+        return task
+
+    async def _emergency_stop(app: FastAPI):
+        """Cut the motors, then say honestly whether it worked.
+
+        Runs off the websocket receive loop so that an aircraft which has
+        stopped answering cannot take the rest of the page's controls with it.
+        """
+        drone = app.state.drone
+        timeout = getattr(drone, "command_timeout_s", None)
+        try:
+            await asyncio.wait_for(asyncio.to_thread(drone.emergency), timeout)
+        except Exception as exc:
+            detail = (
+                f"no answer within {timeout:g}s"
+                if isinstance(exc, TimeoutError)
+                else str(exc)
+            )
+            drone.link_ok = False
+            # Never claim a stop that did not happen: the old code broadcast
+            # `estopped` unconditionally, so the last and loudest line a student
+            # saw was "EMERGENCY STOP" even when the motors were still turning.
+            await _broadcast_json(
+                app,
+                {
+                    "type": "estopped",
+                    "ok": False,
+                    "message": f"EMERGENCY STOP could not reach the drone: {detail}",
+                },
+            )
+            return
+        await _broadcast_json(app, {"type": "estopped", "ok": True})
 
     async def _reply_error(ws, message: str):
         """Tell one client something went wrong, without killing its socket."""
@@ -1036,21 +1084,15 @@ def create_app(
                                 )
                     elif msg["type"] == "estop":
                         if app.state.interp:
-                            app.state.interp.request_stop()
-                        try:
-                            await asyncio.to_thread(app.state.drone.emergency)
-                        except Exception as exc:
-                            # The stop button must survive an unreachable aircraft:
-                            # the program stop above already happened, and killing
-                            # this socket would take the button away entirely.
-                            await _broadcast_json(
-                                app,
-                                {
-                                    "type": "error",
-                                    "message": f"emergency stop could not reach the drone: {exc}",
-                                },
-                            )
-                        await _broadcast_json(app, {"type": "estopped"})
+                            app.state.interp.request_stop(emergency=True)
+                        # Deliberately NOT awaited here. This is the socket's receive
+                        # loop: an aircraft that has stopped answering parks a
+                        # command for tens of seconds, and awaiting it inline would
+                        # stall every later message from this browser — a second
+                        # press of EMERGENCY STOP, Stop, Run, all of it — while the
+                        # page still showed "connected". The aircraft is commanded
+                        # on its own task and the outcome is broadcast when known.
+                        _spawn(_emergency_stop(app))
                     elif msg["type"] == "reconnect_drone":
                         # The manual twin of the watchdog: an operator who has just
                         # power-cycled the aircraft should not have to wait for the
