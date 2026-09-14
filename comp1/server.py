@@ -6,6 +6,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import cv2
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -70,6 +71,21 @@ UNATTENDED_STOP_S = 10.0
 #: that a page refresh (which reconnects in well under a second) and a laptop
 #: waking from sleep are never mistaken for "the student has finished".
 DEFAULT_IDLE_TIMEOUT = 30.0
+
+
+def _origin_allowed(ws: WebSocket) -> bool:
+    """Whether this socket may be opened.
+
+    A browser always sends ``Origin``; it must match the ``Host`` the page was
+    served from. Anything without an ``Origin`` is not a browser — the test
+    suite, a student's own Python, a diagnostic script — and same-origin policy
+    was never protecting those anyway, so they are left alone.
+    """
+    origin = ws.headers.get("origin")
+    if origin is None:
+        return True
+    host = ws.headers.get("host")
+    return bool(host) and urlsplit(origin).netloc == host
 
 
 def _plain_validation_error(exc: ValidationError) -> str:
@@ -873,6 +889,12 @@ def create_app(
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):
+        if not _origin_allowed(ws):
+            # WebSockets are not covered by the same-origin policy, so without
+            # this any page the student happens to visit while the program is
+            # running could open this socket and fly the drone.
+            await ws.close(code=1008)
+            return
         await ws.accept()
         app.state.clients.add(ws)
         app.state.seen_client = True
