@@ -195,6 +195,7 @@ class TelloDrone(DroneAdapter):
         self._t = Tello()
         self._reader = None
         self.flight = flight
+        self.command_timeout_s = flight.command_timeout_s
         self.link_ok = False
         #: whether a session has actually been opened on the aircraft — a
         #: teardown only has replies to outrun if there was one

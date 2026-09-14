@@ -41,6 +41,14 @@ class DroneAdapter(ABC):
     #: they left it is how a drone gets flown into a wall.
     can_reset: bool = False
 
+    #: How long one command on this adapter may block before the interpreter
+    #: abandons it, in seconds. The simulated adapters answer immediately and
+    #: will never reach it; :class:`~comp1.drone.tello.TelloDrone` overrides it
+    #: from its :class:`~comp1.drone.config.FlightConfig`. It exists because a
+    #: command that never returns is a mission that can never be stopped — the
+    #: stop flag is only read between blocks.
+    command_timeout_s: float = 45.0
+
     #: Whether the adapter currently believes it can still reach its aircraft.
     #: Only hardware can lose a link, so the simulated adapters leave this True
     #: forever; :class:`~comp1.drone.tello.TelloDrone` clears it when the

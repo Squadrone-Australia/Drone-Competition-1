@@ -29,6 +29,10 @@ class _MissionEnd(Exception):
     pass
 
 
+class DroneTimeout(Exception):
+    """An aircraft command that never came back inside its budget."""
+
+
 class _LoopBreak(Exception):
     pass
 
@@ -259,7 +263,20 @@ class Interpreter:
                 "args": list(args),
             }
         )
-        return await asyncio.to_thread(getattr(self._drone, method), *args)
+        # Bounded on purpose. `to_thread` cannot be cancelled, so a command the
+        # aircraft never answers would otherwise park this coroutine for good:
+        # the mission would never finish, `app.state.interp` would never clear,
+        # and because the stop flag is only read between blocks, neither Stop
+        # nor EMERGENCY STOP could end it. Giving up abandons the worker thread
+        # — which is the lesser evil against a mission that cannot be stopped.
+        timeout = getattr(self._drone, "command_timeout_s", None)
+        call = asyncio.to_thread(getattr(self._drone, method), *args)
+        try:
+            return await asyncio.wait_for(call, timeout=timeout)
+        except TimeoutError:
+            raise DroneTimeout(
+                f"the drone did not answer '{method}' within {timeout:g}s"
+            ) from None
 
     async def _exec(self, b: Block):
         self._block_id, self._block_op = b.id, b.op
