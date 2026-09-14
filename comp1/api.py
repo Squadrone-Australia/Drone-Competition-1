@@ -583,6 +583,8 @@ class ScriptRun:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: int | None = None
         self._fut: asyncio.Future | None = None
+        # Set when the stop came from EMERGENCY STOP; suppresses the auto-land.
+        self._emergency = False
         self._watchdog = None
 
     def _emit(self, ev: dict):
@@ -592,8 +594,16 @@ class ScriptRun:
         else:
             loop.call_soon_threadsafe(self._raw_emit, ev)  # worker thread -> loop
 
-    def request_stop(self):
-        """Ask the script to stop. Called from the server's e-stop/stop handlers."""
+    def request_stop(self, emergency: bool = False):
+        """Ask the script to stop. Called from the server's e-stop/stop handlers.
+
+        ``emergency`` suppresses the automatic ``land`` below, for the same
+        reason it does in :class:`~comp1.interpreter.Interpreter`: the motors
+        are being cut, and landing an aircraft that is already falling is not a
+        recovery.
+        """
+        if emergency:
+            self._emergency = True
         self.session.stop.set()
         if self._loop is not None:
             self._loop.call_soon_threadsafe(self._arm_watchdog)
@@ -634,10 +644,11 @@ class ScriptRun:
             self._watchdog.cancel()
         if reason != "done":
             clear_session(self.session)  # no-op unless the thread is abandoned
-            try:
-                await asyncio.to_thread(self._drone.land)
-            except Exception:
-                pass
+            if not self._emergency:
+                try:
+                    await asyncio.to_thread(self._drone.land)
+                except Exception:
+                    pass
         self._emit({"type": "script", "state": reason, "detail": detail})
         self._emit({"type": "finished", "reason": reason, "detail": detail})
         return reason, detail

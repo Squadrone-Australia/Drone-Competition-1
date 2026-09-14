@@ -41,6 +41,17 @@ class FlightConfig:
     #: refuses; 0 disables the fallback and always flips.
     flip_min_battery_pct: int = 55
 
+    #: How long a single aircraft command may block before the interpreter gives
+    #: up on it, in seconds. djitellopy retries a control command
+    #: ``RETRY_COUNT`` times at ``RESPONSE_TIMEOUT`` each, so an aircraft that
+    #: has stopped answering already parks a caller for ~21 s (longer for
+    #: takeoff) — and until that returns, nothing can stop the mission, because
+    #: the stop flag is only read between blocks. This is the backstop for the
+    #: case djitellopy does *not* bound: a transport that swallows the datagram
+    #: and never answers at all. Generous enough that a slow-but-alive aircraft
+    #: is never cut off mid-manoeuvre.
+    command_timeout_s: float = 45.0
+
     @classmethod
     def load_file(cls, path: str | Path) -> "FlightConfig":
         """Build a config from a TOML file.

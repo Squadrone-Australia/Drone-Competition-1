@@ -29,6 +29,10 @@ class _MissionEnd(Exception):
     pass
 
 
+class DroneTimeout(Exception):
+    """An aircraft command that never came back inside its budget."""
+
+
 class _LoopBreak(Exception):
     pass
 
@@ -65,8 +69,20 @@ class Interpreter:
         self.vars: dict[str, float | bool] = {}
         self._block_id = ""  # whose fault a warning is, for events
         self._block_op = ""
+        # Set when the stop came from the EMERGENCY STOP button: the aircraft is
+        # being cut, so this interpreter must not also try to land it.
+        self._emergency = False
 
-    def request_stop(self):
+    def request_stop(self, emergency: bool = False):
+        """Ask the mission to stop at the next block boundary.
+
+        ``emergency`` suppresses the automatic ``land`` in :meth:`run`. An
+        emergency stop cuts the motors itself, and a ``land`` racing that from
+        this side is at best redundant and at worst a flight command sent to an
+        aircraft that is already falling.
+        """
+        if emergency:
+            self._emergency = True
         self._stop.set()
 
     async def run(self, program: Program):
@@ -80,7 +96,7 @@ class Interpreter:
             pass
         except Exception as exc:
             reason, detail = "error", str(exc)
-        if reason != "done":
+        if reason != "done" and not self._emergency:
             try:
                 await self._call_drone("land", block_op="automatic_land")
             except Exception:
@@ -89,6 +105,13 @@ class Interpreter:
 
     async def _run_blocks(self, blocks: list[Block]):
         for b in blocks:
+            # Hand the event loop a turn before every block. Blocks that command
+            # the aircraft await a thread and yield anyway, but a loop whose body
+            # is pure arithmetic never suspends — and then video, telemetry, and
+            # the websocket message carrying Stop or EMERGENCY STOP all sit in a
+            # queue that cannot be drained until the program ends. `sleep(0)` is
+            # the cheapest possible yield and costs nothing a student can see.
+            await asyncio.sleep(0)
             if self._stop.is_set():
                 raise _Stopped()
             self._block_id, self._block_op = b.id, b.op
@@ -259,7 +282,20 @@ class Interpreter:
                 "args": list(args),
             }
         )
-        return await asyncio.to_thread(getattr(self._drone, method), *args)
+        # Bounded on purpose. `to_thread` cannot be cancelled, so a command the
+        # aircraft never answers would otherwise park this coroutine for good:
+        # the mission would never finish, `app.state.interp` would never clear,
+        # and because the stop flag is only read between blocks, neither Stop
+        # nor EMERGENCY STOP could end it. Giving up abandons the worker thread
+        # — which is the lesser evil against a mission that cannot be stopped.
+        timeout = getattr(self._drone, "command_timeout_s", None)
+        call = asyncio.to_thread(getattr(self._drone, method), *args)
+        try:
+            return await asyncio.wait_for(call, timeout=timeout)
+        except TimeoutError:
+            raise DroneTimeout(
+                f"the drone did not answer '{method}' within {timeout:g}s"
+            ) from None
 
     async def _exec(self, b: Block):
         self._block_id, self._block_op = b.id, b.op
@@ -305,6 +341,10 @@ class Interpreter:
                 # repeat_until stops when the condition goes true, while when it goes false
                 stop_when = b.op == "repeat_until"
                 for _ in range(MAX_LOOP_ITERS):  # hard safety bound
+                    # also here: a loop with an empty body never reaches the
+                    # yield in _run_blocks, and spinning 1000 times on the
+                    # condition alone would starve the loop just as effectively
+                    await asyncio.sleep(0)
                     if self._stop.is_set():
                         raise _Stopped()
                     self._block_id, self._block_op = b.id, b.op

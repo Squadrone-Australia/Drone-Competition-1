@@ -149,7 +149,14 @@ def test_invalid_program_rejected():
             }
         )
         err = collect_until(ws, "error")
-        assert "invalid" in err["message"].lower()
+        # The message is read by a student, so it must name what is wrong rather
+        # than dump the raw ValidationError (which is four lines of
+        # `[type=..., input_value=...]` and a link to pydantic's docs).
+        assert "cannot run" in err["message"]
+        assert "takeoff" in err["message"], "it should say what is allowed instead"
+        assert "pydantic" not in err["message"].lower()
+        assert "input_value" not in err["message"].lower()
+        assert "\n" not in err["message"], "one line, not a stack of them"
 
 
 def test_scene_is_sent_once_on_connect():

@@ -194,16 +194,33 @@ workspace.addChangeListener((event) => {
 selectDebugView("python");
 updateDebugProgram();
 
+// True between pressing Run and the server confirming the mission started.
+// Only while this is set does an `error` mean "it never began".
+let runPending = false;
+
 /** The one socket, shared with panels that live in their own file. */
 window.COMP1_SEND = (msg) => {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify(msg)); return true; }
+  return false;
 };
+
+// Every button that commands the drone goes through here. A socket that is not
+// OPEN discards silently (send() only throws while CONNECTING), so without this
+// the biggest, reddest control on the page could do nothing at all and look
+// exactly like it had worked.
+function sendCommand(msg, what) {
+  if (window.COMP1_SEND(msg)) return true;
+  log(`⚠ ${what} did NOT reach the program — it is not connected. `
+    + `Land the drone by hand if it is flying.`);
+  return false;
+}
 
 // Whether something is flying, as a bus message. The server refuses arena edits
 // mid-mission, and a panel that only greys itself out after the refusal is a
 // panel that looks broken — so both pathways announce themselves here.
 function setRunning(running) {
   missionRunning = running;
+  if (!running) runPending = false;
   useTelloEl.disabled = running || droneSwitching || !droneMode;
   updateReconnect();
   bus.emit({ type: "running", running });
@@ -358,7 +375,10 @@ function connect() {
     const msg = JSON.parse(ev.data);
     bus.emit(msg);
     if (msg.type === "highlight") workspace.highlightBlock(msg.blockId);
-    else if (msg.type === "debug_program") showDebugProgram(msg.program);
+    else if (msg.type === "debug_program") {
+      runPending = false;          // the server accepted it; the mission is real
+      showDebugProgram(msg.program);
+    }
     else if (msg.type === "execution") showExecution(msg);
     else if (msg.type === "found_count") foundEl.textContent = `Targets found: ${msg.count}`;
     else if (msg.type === "finished") {
@@ -381,8 +401,27 @@ function connect() {
       quitting = true;
       log("closing Drone Coder…");
     }
-    else if (msg.type === "error") log("⚠ " + msg.message);
-    else if (msg.type === "estopped") { log("⛔ EMERGENCY STOP"); setRunning(false); }
+    else if (msg.type === "warning") {
+      // Runtime warnings from the interpreter: divide-by-zero, an unset
+      // variable, a clamped value, a loop that gave up, a marker lost from
+      // view. These are exactly the messages that explain a plan which ran
+      // without doing what the student meant.
+      log("⚠ " + msg.message);
+      appendDebugLine(`warning: ${msg.message}`);
+    }
+    else if (msg.type === "error") {
+      log("⚠ " + msg.message);
+      // A rejected plan never starts, so no `finished` is ever coming. Without
+      // this the whole page stays latched in "running" for the rest of the
+      // session and only EMERGENCY STOP -- which cuts a flying drone's motors
+      // -- can release it.
+      if (runPending) setRunning(false);
+    }
+    else if (msg.type === "estopped") {
+      if (msg.ok === false) log("⚠ " + (msg.message || "EMERGENCY STOP did not reach the drone"));
+      else log("⛔ EMERGENCY STOP");
+      setRunning(false);
+    }
     else if (msg.type === "reset") {
       workspace.highlightBlock(null);
       foundEl.textContent = "Targets found: 0";
@@ -405,13 +444,19 @@ document.getElementById("run").onclick = () => {
   // empty sockets are filled in with a harmless default rather than refusing to run —
   // say so out loud so a half-built program isn't a silent mystery
   COMP1.warnings.forEach((w) => log("⚠ " + w));
-  ws.send(JSON.stringify({ type: "run", program }));
+  if (!sendCommand({ type: "run", program }, "Run")) return;
+  // The server may still refuse this plan. Until it confirms the run started,
+  // an `error` means it never began -- and the latch has to come back off,
+  // because Stop cannot clear it (the server has no mission to stop) and the
+  // student would be left with every control disabled and only EMERGENCY STOP
+  // to escape with.
+  runPending = true;
   setRunning(true);
 };
-document.getElementById("stop").onclick = () => ws.send(JSON.stringify({ type: "stop" }));
+document.getElementById("stop").onclick = () => sendCommand({ type: "stop" }, "Stop");
 // Run resets on the server anyway; this button is for putting the drone back
 // after a stopped or crashed attempt without flying another one.
-document.getElementById("reset").onclick = () => ws.send(JSON.stringify({ type: "reset" }));
+document.getElementById("reset").onclick = () => sendCommand({ type: "reset" }, "Reset");
 useTelloEl.onclick = () => {
   const useSimulator = droneMode === "tello";
   const confirmed = window.confirm(useSimulator
@@ -427,7 +472,8 @@ if (reconnectEl) {
     window.COMP1_SEND({ type: "reconnect_drone" });
   };
 }
-document.getElementById("estop").onclick = () => ws.send(JSON.stringify({ type: "estop" }));
+document.getElementById("estop").onclick =
+  () => sendCommand({ type: "estop" }, "EMERGENCY STOP");
 quitEl.onclick = () => {
   // Spelled out because there is nothing else to close: no console window, no
   // icon by the clock. Once this is done the page is just a page.

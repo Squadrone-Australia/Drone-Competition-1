@@ -35,6 +35,11 @@ def _flip_key(direction: str) -> str:
     return _FLIP_ALIAS.get(direction, direction)
 
 
+def _within(v: float, lo: float, hi: float, tol: float = 1e-9) -> bool:
+    """Whether ``v`` is inside ``[lo, hi]``, ignoring float dust."""
+    return lo - tol <= v <= hi + tol
+
+
 def _smoothstep(t: float) -> float:
     return t * t * (3 - 2 * t)
 
@@ -201,6 +206,15 @@ class SimDrone(DroneAdapter):
             # Stop dead rather than sliding around it. A drone that scrapes past
             # teaches that ignoring an obstacle mostly works, which is the
             # opposite of the lesson.
+            self.crashed = True
+
+        # A wall is an obstacle too. `at` clamps the path into the room box, so
+        # without this a student could fly 18 m across a 4 m arena, be quietly
+        # parked against the wall, and be told the mission succeeded -- while the
+        # same plan puts a real Tello into the brickwork. Only the horizontal box
+        # counts: the altitude limits above are deliberate soft ceilings, not
+        # surfaces to hit.
+        if not _within(x0 + dx, x_lo, x_hi) or not _within(y0 + dy, y_lo, y_hi):
             self.crashed = True
 
         def step(t):
