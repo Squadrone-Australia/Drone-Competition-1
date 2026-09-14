@@ -506,10 +506,18 @@ It is untracked **and not in `.gitignore`**, so it shows as `?? src/` on every `
 and is one `git add -A` away from being committed. It also makes `grep`/IDE search return two
 hits for everything, with the stale one often first.
 
-**Fixed, conservatively.** `src/` is now in `.gitignore`, which removes the risk of it being
-committed by a stray `git add -A` and clears it out of `git status`. **It has not been
-deleted** — it is a second checkout with its own history and that is not mine to throw away.
-Delete it yourself once you have confirmed nothing in it is wanted.
+**Fixed: removed.** Before deleting it, everything in it was checked against this repo:
+
+- its commit (`d81c0a8`) is an ancestor of `dev`;
+- the only files it had that the root lacks, `AGENTS.md` and `CLAUDE.md`, were untracked on
+  purpose in `c14cd2d` and remain in history (`git show c14cd2d^:CLAUDE.md`);
+- it carried uncommitted edits to 44 files, and of the ~555 meaningful lines they added, all
+  but 5 already exist in this repo's history. Those 5 are formatter re-wraps of old code, and
+  the one that looks like a setting (`circularity_min = 0.85`) is the *old* value — `dev` has
+  since tuned it to `0.82`.
+
+So it was a stale working copy whose work had already been committed here. It was deleted,
+and the temporary `src/` entry in `.gitignore` removed with it.
 
 ---
 
