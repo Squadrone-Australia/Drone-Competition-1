@@ -56,6 +56,13 @@ BATTERY_INTERVAL = 5.0
 UPDATE_CHECK_DELAY = 2.0
 #: How often the idle watch looks at whether anybody is still watching.
 IDLE_CHECK_INTERVAL = 1.0
+#: How long a mission may keep flying with no browser watching before it is
+#: stopped. A student who closes the tab or shuts the lid mid-flight is no
+#: longer able to press Stop or EMERGENCY STOP — those controls left with the
+#: page — so an aircraft that keeps flying is one nobody can command. Long
+#: enough to ride out a refresh or a laptop waking from sleep, which is the
+#: same reasoning as the idle shutdown and deliberately a shorter number.
+UNATTENDED_STOP_S = 10.0
 #: How long every browser window must stay shut before the program closes
 #: itself. The packaged build has no window of its own, so a tab closed and
 #: never reopened would otherwise leave an invisible process running until the
@@ -192,6 +199,7 @@ def create_app(
             if idle_timeout and shutdown
             else None
         )
+        app.state.unattended_task = asyncio.create_task(_unattended_loop(app))
         app.state.video_task = asyncio.create_task(_video_loop(app))
         app.state.pose_task = asyncio.create_task(_pose_loop(app))
         app.state.link_task = asyncio.create_task(_link_loop(app))
@@ -204,6 +212,7 @@ def create_app(
             app.state.update_task.cancel()
         if app.state.idle_task:
             app.state.idle_task.cancel()
+        app.state.unattended_task.cancel()
         # Detached work (an emergency stop still waiting on a silent aircraft,
         # an update handover) — cancelled here so shutdown does not leave
         # "Task was destroyed but it is pending" behind it.
@@ -362,6 +371,45 @@ def create_app(
             return
         app.state.update = release
         await _broadcast_json(app, _update_message(app))
+
+    async def _unattended_loop(app: FastAPI):
+        """Stop a mission that nobody is watching any more.
+
+        The idle shutdown cannot do this job: it counts a running mission as
+        *busy*, so a program with a long loop kept the aircraft flying
+        indefinitely after the last window closed — with no video, and with both
+        Stop and EMERGENCY STOP gone with the page that hosted them.
+
+        Deliberately a stop rather than a kill: `request_stop` lands the
+        aircraft through the normal path.
+        """
+        idle = 0.0
+        while True:
+            await asyncio.sleep(1.0)
+            interp = app.state.interp
+            # `seen_client` keeps a headless run (--no-browser --script, the test
+            # suite) out of this entirely: nothing was ever watching, so nothing
+            # has been abandoned.
+            if interp is None or not app.state.seen_client or app.state.quitting:
+                idle = 0.0
+                continue
+            if app.state.clients:
+                idle = 0.0
+                continue
+            idle += 1.0
+            if idle >= UNATTENDED_STOP_S:
+                log.warning("no browser for %.0fs while flying — stopping the mission",
+                            idle)
+                await _broadcast_json(
+                    app,
+                    {
+                        "type": "error",
+                        "message": "nobody was watching — the mission was stopped "
+                        "and the drone landed",
+                    },
+                )
+                interp.request_stop()
+                idle = 0.0
 
     async def _idle_loop(app: FastAPI):
         """Close the program once every browser window has gone.
