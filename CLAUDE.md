@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 Squadrone "Drone Coder": a local FastAPI server plus a vendored-Blockly web UI that lets
 students fly a DJI Tello — or a built-in simulator — by dragging blocks. It ships as an
 unsigned Windows installer and students never see a terminal. Setup and user-facing docs
@@ -10,9 +12,12 @@ are in [README.md](README.md); this file is the developer's shortcut.
 ```bash
 python -m pytest -q                        # 497 tests, ~45s
 python -m pytest tests/test_fault_recovery.py -q
+python -m pytest tests/test_interpreter.py::test_stop_flag_halts_and_lands -q  # one test
+python -m pytest -q -k "estop or switch"   # one theme, across files
 python -m ruff check .                     # the exact lint gate CI runs
 python -m ruff check . --fix               # imports, unused names
 node --test tests/js                       # 49 tests; needs `npm ci` once, for jsdom
+node --test tests/js/blocks.test.js        # one file
 python -m comp1                            # simulator on http://localhost:8765
 python -m comp1 --drone sim --seed 42 --no-browser
 ```
@@ -43,6 +48,35 @@ the README.
 - `comp1/paths.py`, `settings.py`, `update.py` — install-time concerns.
 - `docs/specs/` and `docs/plans/` — read the matching spec before changing vision, the
   protocol, or drone switching. `docs/ISSUES.md` is the 2026-09-14 fault-injection report.
+
+## How it fits together
+
+The HTTP surface is two things: `StaticFiles` mounted at `/`, and a single WebSocket at
+`/ws`. There is no REST API — every runtime interaction is a message on that socket, so
+tracing a feature means finding its `msg["type"]` branch in the receive loop
+(`run`, `stop`, `estop`, `reset`, `scenery`, `vision_*`, `switch_drone`, `reconnect_drone`,
+`save_settings`, `install_update`, `quit`) and the matching `ws.send`/`onmessage` in
+`comp1/frontend/app.js`. The server pushes the other way by fanning out over
+`app.state.clients`: `_broadcast_json` for telemetry, pose, link, battery, mission and
+settings; `_broadcast_bytes` for JPEG video frames.
+
+`app.state` is the single shared mutable world — the live adapter, the latest frame and
+`Detection`, the running interpreter, the mission scorer, every background task handle.
+The background loops and the socket handler all reach it, and none of them own it, so read
+what a loop already maintains rather than polling an adapter a second time.
+
+Two front doors converge on one engine. Blocks arrive as JSON, are validated by
+`protocol.Program`, and are walked by `interpreter.py`; a `--script` file runs as ordinary
+Python against `api.Drone`. Both drive the same `DroneAdapter` and the same vision code —
+`api.py` is not a reimplementation, and a behaviour change usually belongs in neither but
+in the adapter or `vision/`.
+
+`DroneAdapter` has three implementations, picked by `--drone`: `mock` (nothing flies),
+`tello` (real hardware over `djitellopy`), `sim` (the `comp1/sim/` world, the default).
+Switching between them at runtime is staged, not a swap — `_begin_switch` → `_activate` →
+`_abandon_switch` on failure — because a half-connected Tello must never become the thing
+a student's next block talks to. `docs/specs/2026-08-03-drone-mode-switching.md` is the
+contract.
 
 ## Invariants
 
