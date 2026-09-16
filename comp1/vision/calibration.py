@@ -83,7 +83,7 @@ def config_with_hsv(cfg: VisionConfig, values: Mapping) -> VisionConfig:
         parsed[key] = triplet
     for suffix in ("1", "2"):
         lower, upper = parsed[f"lower{suffix}"], parsed[f"upper{suffix}"]
-        if any(lo > hi for lo, hi in zip(lower, upper)):
+        if any(lo > hi for lo, hi in zip(lower, upper, strict=True)):
             raise CalibrationError(f"lower{suffix} cannot exceed upper{suffix}")
     return replace(cfg, **parsed)
 
@@ -165,6 +165,11 @@ def suggest_hsv(
     }
 
 
+def _clamp_unit(v: float) -> float:
+    """Pin a normalised coordinate into 0..1, so a box never leaves the frame."""
+    return min(max(float(v), 0.0), 1.0)
+
+
 def find_marker_roi(
     frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG
 ) -> list[float]:
@@ -192,12 +197,11 @@ def find_marker_roi(
     # height, so the y half-extent needs the aspect correction to stay square
     half_x = ROI_FILL * target.radius_norm
     half_y = half_x * width / height
-    clamp = lambda v: min(max(float(v), 0.0), 1.0)
     return [
-        clamp(target.cx - half_x),
-        clamp(target.cy - half_y),
-        clamp(target.cx + half_x),
-        clamp(target.cy + half_y),
+        _clamp_unit(target.cx - half_x),
+        _clamp_unit(target.cy - half_y),
+        _clamp_unit(target.cx + half_x),
+        _clamp_unit(target.cy + half_y),
     ]
 
 

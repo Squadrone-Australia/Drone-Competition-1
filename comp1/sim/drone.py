@@ -4,7 +4,7 @@ import time
 
 from ..drone.base import DroneAdapter
 from . import scenery
-from .render import MARKER_HEIGHT, WALL_HEIGHT_M, draw_minimap, render
+from .render import MARKER_HEIGHT, draw_minimap, render
 
 ANIM_FPS = 60  # pose updates per second while a command is in flight
 MAX_ALT_M = 2.5
