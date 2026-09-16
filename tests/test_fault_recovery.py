@@ -9,13 +9,10 @@ each one used to leave the program in a state a student could not get out of.
 
 import asyncio
 import threading
-import time
 
-import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from comp1.drone.base import DroneAdapter
 from comp1.drone.mock import MockDrone
 from comp1.interpreter import DroneTimeout, Interpreter
 from comp1.protocol import Program

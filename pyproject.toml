@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "comp1"
 # Read from comp1/__init__.py so the package, the packaged exe and the
@@ -14,11 +18,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9", "pytest-asyncio>=1.4", "httpx>=0.28", "pyinstaller>=6.21"]
+dev = ["pytest>=9", "pytest-asyncio>=1.4", "httpx>=0.28", "pyinstaller>=6.21", "ruff>=0.16"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+# The code is written to roughly a 100-column budget; ruff's default 88 would
+# flag dozens of lines that are fine as they are.
+line-length = 100
+extend-exclude = ["comp1/frontend/vendor", "node_modules", ".conda", "venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.setuptools.dynamic]
 version = {attr = "comp1.__version__"}

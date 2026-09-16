@@ -128,7 +128,9 @@ def test_a_launched_browser_arms_the_idle_shutdown(monkeypatch):
     seen = {}
     monkeypatch.setattr(sys, "argv", ["comp1"])
     monkeypatch.setattr(cli, "create_app", lambda drone, **kw: seen.update(kw) or object())
-    monkeypatch.setattr(cli.threading, "Timer", lambda *a, **k: type("T", (), {"start": lambda self: None})())
+    monkeypatch.setattr(
+        cli.threading, "Timer", lambda *a, **k: type("T", (), {"start": lambda self: None})()
+    )
 
     cli.main()
 

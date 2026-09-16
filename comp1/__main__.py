@@ -12,7 +12,9 @@ from pathlib import Path
 
 import uvicorn
 
-from . import __version__, settings as settings_store, update as updater
+from . import __version__
+from . import settings as settings_store
+from . import update as updater
 from .drone.config import DEFAULT_FLIGHT_CONFIG, FlightConfig
 from .paths import is_frozen, log_file, settings_file
 from .server import DEFAULT_IDLE_TIMEOUT, create_app
@@ -303,7 +305,7 @@ def run():
         _report_fatal(exc)
         if not is_frozen():
             traceback.print_exc()
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":

@@ -55,7 +55,7 @@ class DroneAdapter(ABC):
     #: aircraft stops answering, and the server's watchdog reconnects.
     link_ok: bool = True
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: B027 — a no-op default, not an abstract hook
         """Release every OS resource the adapter holds and stop its threads.
 
         The server calls this whenever an adapter stops being the active drone.
@@ -79,7 +79,7 @@ class DroneAdapter(ABC):
         self.close()
         self.connect()
 
-    def reset(self) -> None:
+    def reset(self) -> None:  # noqa: B027 — a no-op default, not an abstract hook
         """Put a simulated drone back on its start pad.
 
         Called before every run so a program always starts from the same state

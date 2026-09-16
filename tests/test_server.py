@@ -488,9 +488,8 @@ def test_reconnect_rebuilds_the_tello_without_leaving_the_hardware():
 def test_a_dropped_link_reconnects_by_itself(monkeypatch):
     """Nothing in the protocol announces a reboot, so the watchdog is the only
     thing between a student and restarting the whole program."""
-    from comp1.sim.drone import SimDrone
-
     import comp1.server as server_module
+    from comp1.sim.drone import SimDrone
 
     monkeypatch.setattr(server_module, "LINK_CHECK_INTERVAL", 0.01)
 
@@ -586,9 +585,8 @@ def test_switching_scenery_rebuilds_the_arena_and_re_sends_it():
     """`scene` used to be a connect-only message. It is not any more — a picker
     that changes the room without telling the browser leaves both views drawing
     the old one."""
-    from comp1.sim.drone import SimDrone
-
     from comp1.sim import scenery
+    from comp1.sim.drone import SimDrone
 
     drone = SimDrone(seed=1, delay=0)
     app = create_app(drone)

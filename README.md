@@ -1,5 +1,7 @@
 # Drone Competition
 
+[![CI](https://github.com/Squadrone-Australia/Drone-Competition-1/actions/workflows/ci.yml/badge.svg)](https://github.com/Squadrone-Australia/Drone-Competition-1/actions/workflows/ci.yml)
+
 This is a program that lets students fly a small drone (a DJI Tello) and teach it to search a
 room, find red targets, and signal each one it finds - by dragging together colourful
 puzzle-piece blocks, like Scratch. No coding experience is needed to get started, and there's a
@@ -200,9 +202,28 @@ node --test tests\js\blocks.test.js             # frontend serializer tests
 closes before the program stops itself; `0` never stops). Default port `8765`. Anything not passed falls back to what
 the browser's Settings panel last saved, then to the code default.
 
+### Continuous integration
+
+Every push to `main` and every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+`ruff check` for lint, the pytest suite on Windows and Linux against Python 3.12 and 3.14, and the
+`node --test` frontend tests. Two things to know before you push:
+
+```powershell
+venv\Scripts\ruff check .               # the exact lint gate CI runs
+venv\Scripts\ruff check . --fix         # fix the mechanical ones (imports, unused names)
+```
+
+Lint settings live in `pyproject.toml` under `[tool.ruff]` — a 100-column budget and the `E,F,W,I,UP,B`
+rule sets. The CI job pins its ruff version, so bump both places together when you upgrade.
+
 ### Releasing
 
-`build.ps1` is the shipping path: it refuses to build from a tree whose tests fail, stamps the
+Pushing a tag `v<version>` runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which does everything `build.ps1` does on a Windows runner and attaches both assets to a **draft**
+GitHub release. It refuses to build if the tag disagrees with `comp1/__init__.py`. Review the draft,
+then publish it yourself — nothing is released automatically.
+
+`build.ps1` remains the local shipping path: it refuses to build from a tree whose tests fail, stamps the
 version from `comp1/__init__.py`, and produces `dist\comp1-Setup-<version>.exe` plus
 `dist\SHA256SUMS.txt`. Publish **both** on a GitHub release tagged `v<version>` — the in-app
 updater looks the installer up by name inside `SHA256SUMS.txt` and refuses to run one whose

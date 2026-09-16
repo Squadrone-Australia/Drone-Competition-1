@@ -21,9 +21,9 @@ import json
 import subprocess
 import sys
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from .paths import updates_dir
 

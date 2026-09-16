@@ -13,7 +13,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import __version__, settings as settings_store, update as updater
+from . import __version__
+from . import settings as settings_store
+from . import update as updater
 from .api import ScriptRun
 from .drone.base import DroneAdapter
 from .interpreter import Interpreter
@@ -1017,7 +1019,9 @@ def create_app(
                                 app,
                                 {
                                     "type": "error",
-                                    "message": f"this plan cannot run: {_plain_validation_error(e)}",
+                                    "message": (
+                                        f"this plan cannot run: {_plain_validation_error(e)}"
+                                    ),
                                 },
                             )
                             continue

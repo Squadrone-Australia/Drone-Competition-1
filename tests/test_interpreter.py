@@ -5,12 +5,16 @@ from comp1.vision.detector import Detection
 
 from .helpers import seen
 
+#: The default camera answer for programs that never look at one. Shared rather
+#: than built per call because nothing mutates it.
+NOTHING_SEEN = Detection(found=False)
+
 
 def prog(blocks):
     return Program.model_validate({"version": 1, "blocks": blocks})
 
 
-async def run(blocks, det=Detection(found=False)):
+async def run(blocks, det=NOTHING_SEEN):
     drone, events = MockDrone(), []
     it = Interpreter(drone, lambda: det, events.append)
     await it.run(prog(blocks))
