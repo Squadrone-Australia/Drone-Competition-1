@@ -99,3 +99,21 @@ def test_auto_calibration_is_reachable_from_the_dialog():
     assert '"vision_auto"' in js
     assert "message.roi" in js  # the sampled region is drawn back
     assert 'src="calibration.js?v=' in html
+
+
+def test_the_workspace_is_buffered_and_restored_on_load():
+    # The buffer is the only thing standing between a student and a workspace
+    # thrown away by a closed tab, so the wiring is asserted here rather than
+    # left to a manual check: buffer.js must be served, it must load before
+    # app.js (which restores as it injects Blockly), and app.js must still seed
+    # the `start` hat when a restore does not bring one - it is not in the
+    # toolbox, so a workspace without it cannot be repaired by dragging.
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    app_js = (FRONTEND / "app.js").read_text(encoding="utf-8")
+    assert 'src="buffer.js?v=' in html
+    assert html.index('src="buffer.js') < html.index('src="app.js')
+    assert "window.COMP1_BUFFER.restore(workspace)" in app_js
+    assert 'workspace.getBlocksByType("start", false).length === 0' in app_js
+    assert "window.COMP1_BUFFER.capture(workspace)" in app_js
+    # A tab closed inside the debounce window must still write the last edit.
+    assert '"pagehide"' in app_js

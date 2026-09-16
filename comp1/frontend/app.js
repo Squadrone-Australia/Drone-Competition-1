@@ -37,8 +37,21 @@ const workspace = Blockly.inject("blockly", {
   theme: squadroneTheme(),
   grid: { spacing: 26, length: 2, colour: "#1a2330", snap: false },
 });
-const start = workspace.newBlock("start");
-start.initSvg(); start.render(); start.moveBy(30, 30);
+// Last session's blocks go back before anything else touches the workspace:
+// before the change listeners further down, which would otherwise read the
+// restore as an edit and immediately buffer it straight back, and before the
+// code inspector reads the workspace for the first time. The result is reported
+// to the student further down still, once `log` and its console element exist.
+const bufferRestore = window.COMP1_BUFFER.restore(workspace);
+// `start` is the only anchor COMP1.serializeProgram looks for, and it is not in
+// the toolbox — so a workspace arriving without one (a buffer written before it
+// existed, or one Blockly could only partly load) would be a program the
+// student has no way to repair by dragging. Seed it whenever it is missing,
+// which on a first run is always.
+if (workspace.getBlocksByType("start", false).length === 0) {
+  const start = workspace.newBlock("start");
+  start.initSvg(); start.render(); start.moveBy(30, 30);
+}
 
 const statusEl = document.getElementById("status");
 const consoleEl = document.getElementById("console");
@@ -185,14 +198,55 @@ document.getElementById("debug-copy").onclick = async () => {
     log("⚠ could not copy the code inspector text");
   }
 };
+// Buffering shares this listener with the code inspector rather than adding a
+// second one: both want exactly the same events — every change to the blocks
+// themselves, and none of the selecting, scrolling and dragging in between.
+let bufferTimer = null;
+function captureBuffer() {
+  bufferTimer = null;
+  window.COMP1_BUFFER.capture(workspace);
+}
+// Coalesced, because a single drag emits a stream of events and the write is
+// synchronous. The delay is also the most a student can lose to a power cut,
+// which is why it is a second rather than the ten that would be cheaper still.
+function scheduleBufferCapture() {
+  if (bufferTimer !== null) clearTimeout(bufferTimer);
+  bufferTimer = setTimeout(captureBuffer, window.COMP1_BUFFER.SAVE_DELAY_MS);
+}
 workspace.addChangeListener((event) => {
   const isUiEvent = typeof event.isUiEvent === "function"
     ? event.isUiEvent()
     : Boolean(event.isUiEvent);
-  if (!isUiEvent) requestAnimationFrame(updateDebugProgram);
+  if (isUiEvent) return;
+  requestAnimationFrame(updateDebugProgram);
+  scheduleBufferCapture();
+});
+// Without this, closing the tab inside the debounce window loses the last edit
+// made — the one most likely to be the reason the student is coming back.
+// `pagehide` rather than `beforeunload`: it fires for a page going into the
+// back/forward cache as well, and browsers are far less willing to skip it.
+window.addEventListener("pagehide", () => {
+  if (bufferTimer !== null) {
+    clearTimeout(bufferTimer);
+    captureBuffer();
+  }
 });
 selectDebugView("python");
 updateDebugProgram();
+
+// Said out loud: a workspace that is not empty on a freshly opened page is a
+// surprise worth explaining, and blocks that quietly failed to come back are
+// worth explaining even more. Nothing has edited the workspace between the
+// restore and here, so counting it now still counts what was restored.
+const restoredBlocks = workspace.getAllBlocks(false)
+  .filter((block) => block.type !== "start").length;
+if (bufferRestore === "restored" && restoredBlocks > 0) {
+  log(`↺ Restored the ${restoredBlocks} block${restoredBlocks === 1 ? "" : "s"} `
+    + `from your last session.`);
+} else if (bufferRestore === "unusable") {
+  log("⚠ The blocks from your last session could not be opened — "
+    + "starting with an empty program.");
+}
 
 // True between pressing Run and the server confirming the mission started.
 // Only while this is set does an `error` mean "it never began".

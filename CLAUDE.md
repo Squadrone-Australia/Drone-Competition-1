@@ -10,13 +10,13 @@ are in [README.md](README.md); this file is the developer's shortcut.
 ## Commands
 
 ```bash
-python -m pytest -q                        # 497 tests, ~45s
+python -m pytest -q                        # 498 tests, ~45s
 python -m pytest tests/test_fault_recovery.py -q
 python -m pytest tests/test_interpreter.py::test_stop_flag_halts_and_lands -q  # one test
 python -m pytest -q -k "estop or switch"   # one theme, across files
 python -m ruff check .                     # the exact lint gate CI runs
 python -m ruff check . --fix               # imports, unused names
-node --test tests/js                       # 49 tests; needs `npm ci` once, for jsdom
+node --test tests/js                       # 71 tests; needs `npm ci` once, for jsdom
 node --test tests/js/blocks.test.js        # one file
 python -m comp1                            # simulator on http://localhost:8765
 python -m comp1 --drone sim --seed 42 --no-browser
@@ -45,6 +45,9 @@ the README.
 - `comp1/sim/` — the hardware-free simulator: world, scene, scenery, render, mission scoring.
 - `comp1/vision/` — HSV marker detection, distance/bearing estimation, obstacles, auto-calibration.
 - `comp1/frontend/` — plain JS with Blockly and three.js vendored under `vendor/`. No build step.
+  `buffer.js` auto-saves the Blockly workspace to `localStorage` and restores it as
+  `app.js` injects. Deliberately client-side: no socket message, nothing in
+  `paths.data_dir()`, and losing a buffer is never allowed to break the page.
 - `comp1/paths.py`, `settings.py`, `update.py` — install-time concerns.
 - `docs/specs/` and `docs/plans/` — read the matching spec before changing vision, the
   protocol, or drone switching. `docs/ISSUES.md` is the 2026-09-14 fault-injection report.

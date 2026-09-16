@@ -284,7 +284,9 @@
     </section>
   </dialog>
   <script src="blocks.js?v=20260819-1"></script>
-  <script src="app.js?v=20260914-1"></script>
+  <!-- Before app.js, which restores the buffered workspace as it injects. -->
+  <script src="buffer.js?v=20260916-1"></script>
+  <script src="app.js?v=20260916-1"></script>
   <script src="calibration.js?v=20260817-1"></script>
   <script src="plan.js?v=20260819-1"></script>
   <script src="settings.js?v=20260820-1"></script>

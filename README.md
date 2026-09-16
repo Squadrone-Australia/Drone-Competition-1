@@ -89,6 +89,12 @@ When your browser opens, you'll see the block-coding screen. A few things to try
   marker circled, plus how far away it is and which direction to turn.
 - The big **EMERGENCY STOP** button immediately halts the drone, no matter what it's doing.
 
+Your blocks are kept for you. There's no Save button and nothing to remember: the program
+quietly keeps a copy of whatever is on the block screen, and puts it back the next time you
+open Drone Coder — after a reload, after closing the tab, or after the computer has been
+turned off. The copy lives in the web browser on that computer, so it comes back on the same
+browser and the same machine, not on a different one.
+
 By default the drone is a **simulator** — a virtual drone in a virtual room — so there's nothing
 to break and no real hardware needed. This is the best way to build and test a flight plan before
 trying it on a real Tello.
