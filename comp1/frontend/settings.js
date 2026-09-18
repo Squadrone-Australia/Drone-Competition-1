@@ -32,10 +32,34 @@
   let running = false;
   let release = null;
 
+  /**
+   * Rebuild the scenery list from the server's catalogue.
+   *
+   * The names live in comp1/sim/scenery.py and nowhere else. This dialog used
+   * to carry its own copy in index.html, which quietly went stale: it still
+   * offered "Corridor (A to B)" after that scenery had been replaced by the
+   * fixed competition arena, so the menu named a room the simulator would not
+   * build. Rendering from the message keeps one source of truth.
+   */
+  function setSceneries(list, selected) {
+    if (!Array.isArray(list) || !list.length) return;
+    sceneryEl.replaceChildren();
+    for (const s of list) {
+      const opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = s.name;
+      opt.title = s.description || "";
+      sceneryEl.appendChild(opt);
+    }
+    // Only after the options exist: assigning .value to a <select> that has no
+    // matching <option> silently leaves it blank.
+    if (selected) sceneryEl.value = selected;
+  }
+
   function showSettings(msg) {
     versionEl.textContent = `Version ${msg.version}`;
     droneEl.value = msg.settings.drone;
-    sceneryEl.value = msg.settings.scenery;
+    setSceneries(msg.sceneries, msg.settings.scenery);
     updatesEl.checked = msg.settings.check_updates !== false;
     // A source checkout has nowhere to save to and nothing to install, so say
     // so rather than offering controls that quietly do nothing.

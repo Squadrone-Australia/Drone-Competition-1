@@ -21,6 +21,7 @@ from .drone.base import DroneAdapter
 from .interpreter import Interpreter
 from .paths import is_frozen
 from .protocol import Program
+from .sim import scenery
 from .sim.mission import MissionScorer
 from .vision.calibration import (
     CalibrationError,
@@ -596,6 +597,13 @@ def create_app(
             # a run from a terminal is quit with Ctrl+C, and a button that did
             # nothing would be worse than no button.
             "can_quit": shutdown is not None,
+            # The catalogue, so the dialog does not keep its own copy of the
+            # scenery names. It is read from the module rather than from
+            # `app.state.drone`, because `scenery_catalog()` is None on a Tello
+            # and these are *startup* preferences: "start in the competition
+            # arena next time" is a sensible thing to choose while a real
+            # aircraft is plugged in.
+            "sceneries": scenery.catalog(),
             "settings": _saved().to_json(),
         }
 

@@ -264,10 +264,11 @@
           </select>
         </label>
         <label>Start in
-          <select id="settings-scenery">
-            <option value="arena">Arena (4 m square)</option>
-            <option value="corridor">Corridor (A to B)</option>
-          </select>
+          <!-- Filled from the server's scenery catalogue when the `settings`
+               message arrives. Deliberately empty here: a hard-coded copy of
+               the names drifted once already, and went on offering "Corridor
+               (A to B)" long after that scenery became the competition arena. -->
+          <select id="settings-scenery"></select>
         </label>
         <label class="settings-check">
           <input id="settings-updates" type="checkbox">

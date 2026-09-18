@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from comp1 import __version__, server, settings, update
 from comp1.drone.mock import MockDrone
 from comp1.server import create_app
+from comp1.sim import scenery
 from comp1.vision.config import VisionConfig
 
 from .test_server import collect_until, red_frame
@@ -47,6 +48,40 @@ def test_connect_reports_the_version_and_saved_settings(tmp_path):
     assert msg["persisted"] is True
     assert msg["settings"]["drone"] == "tello"
     assert msg["settings"]["scenery"] == "corridor"
+
+
+def test_connect_carries_the_scenery_catalogue():
+    """The dialog renders its "Start in" list from this, so it must always come.
+
+    It is read from comp1.sim.scenery rather than from the live adapter on
+    purpose: ``scenery_catalog()`` is None on a Tello and on the mock, and a
+    startup preference is about the *next* launch, not the drone plugged in
+    now. The mock here is what proves that -- it has no arena of its own.
+    """
+    app = create_app(MockDrone())
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        msg = collect_until(ws, "settings")
+    assert msg["sceneries"] == scenery.catalog()
+    by_id = {s["id"]: s["name"] for s in msg["sceneries"]}
+    # The names the browser shows. "corridor" is the fixed competition layout
+    # now, not a hall to fly down, and the settings menu offered the old label
+    # for a while after the scenery itself had been replaced.
+    assert by_id["corridor"] == "Competition arena"
+    assert "corridor" not in by_id["corridor"].lower()
+
+
+def test_every_offered_scenery_is_one_the_settings_file_accepts(tmp_path):
+    """The catalogue and settings.SCENERIES are separate lists that must agree.
+
+    A scenery the dialog offers but ``settings._clean`` rejects would be saved,
+    silently dropped back to the default, and the student's choice would appear
+    not to stick.
+    """
+    path = tmp_path / "settings.json"
+    for entry in scenery.catalog():
+        assert entry["id"] in settings.SCENERIES, entry["id"]
+        saved = settings.update(path, scenery=entry["id"])
+        assert saved.scenery == entry["id"], f"{entry['id']} did not survive a save"
 
 
 def test_save_settings_persists_and_echoes(tmp_path):
