@@ -26,10 +26,10 @@ if (-not (Test-Path "venv\Scripts\python.exe") -and (Test-Path ".venv\Scripts\py
 $venvPython = "$venvDir\Scripts\python.exe"
 
 if (-not (Test-Path $venvPython)) {
-    Write-Host "==> No venv found. Creating one (requires Python 3.11+ on PATH)..." -ForegroundColor Cyan
+    Write-Host "==> No venv found. Creating one (requires Python 3.14+ on PATH)..." -ForegroundColor Cyan
     python -m venv $venvDir
     if (-not (Test-Path $venvPython)) {
-        Write-Error "venv creation failed. Make sure Python 3.11+ is installed and on PATH."
+        Write-Error "venv creation failed. Make sure Python 3.14+ is installed and on PATH."
         exit 1
     }
 }

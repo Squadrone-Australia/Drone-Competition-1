@@ -43,7 +43,7 @@ class Camera:
     focal: float
 
     @classmethod
-    def at(cls, intrinsics, x, y, z, heading, w, h) -> "Camera":
+    def at(cls, intrinsics, x, y, z, heading, w, h) -> Camera:
         return cls(x, y, z, heading, w, h, intrinsics.focal_px(w))
 
     @property

@@ -7,7 +7,11 @@ name = "comp1"
 # Read from comp1/__init__.py so the package, the packaged exe and the
 # installer can never disagree about what version this is.
 dynamic = ["version"]
-requires-python = ">=3.11"
+# 3.14 is what CI tests and what the installer is built and frozen against, so
+# it is the only version this project can honestly claim to support. Kept in
+# step with the matrix in .github/workflows/ci.yml and the setup-python pin in
+# release.yml -- a floor below those is a version nothing has ever run.
+requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.140",
     "uvicorn[standard]>=0.51",

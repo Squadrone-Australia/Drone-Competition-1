@@ -228,9 +228,10 @@ is separate from any browser's.
 
 ### Continuous integration
 
-Every push to `main` and every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
-`ruff check` for lint, the pytest suite on Windows and Linux against Python 3.12 and 3.14, and the
-`node --test` frontend tests. Two things to know before you push:
+Every push to `main` or `dev`, and every pull request, runs
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml): `ruff check` for lint, a fast updater-contract
+job, the pytest suite on Windows and Linux against Python 3.14 — the version the installer is built
+on — and the `node --test` frontend tests. Two things to know before you push:
 
 ```powershell
 venv\Scripts\ruff check .               # the exact lint gate CI runs
@@ -285,8 +286,9 @@ containers.
 
 ### Requirements recap
 
-- **Python 3.11+** — the only hard requirement for running from source. The packaged installer
-  brings its own interpreter, so an installed copy needs nothing.
+- **Python 3.14+** — the only hard requirement for running from source, and the version CI tests
+  against and the installer is built on. The packaged installer brings its own interpreter, so an
+  installed copy needs nothing.
 - **Windows** with PowerShell is the primary target; Linux/macOS work with the POSIX commands
   above.
 - **No Node.js/npm needed to run the app** — Blockly and three.js are vendored under

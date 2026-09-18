@@ -25,12 +25,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 3.12 rather than the 3.14 used locally: PyInstaller and the OpenCV
-      # wheels are better-trodden there. Bump once CI's 3.14 cell has been
-      # green for a while.
+      # The same version CI tests on, and the one developers run locally. It
+      # was pinned to 3.12 while PyInstaller and the OpenCV wheels were better
+      # trodden there; CI's 3.14 cell is now the only cell, so building on
+      # anything else would ship an interpreter nothing has tested.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: pip
 
       - run: pip install -e .[dev]

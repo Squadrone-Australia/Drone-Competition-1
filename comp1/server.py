@@ -139,7 +139,7 @@ def create_app(
     tello_factory: Callable[[], DroneAdapter] = _new_tello,
     simulator_factory: Callable[[], DroneAdapter] = _new_simulator,
     settings_path: Path | None = None,
-    update_check: Callable[[], "updater.Release | None"] | None = None,
+    update_check: Callable[[], updater.Release | None] | None = None,
     shutdown: Callable[[], None] | None = None,
     idle_timeout: float | None = None,
 ) -> FastAPI:

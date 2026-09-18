@@ -53,7 +53,7 @@ class FlightConfig:
     command_timeout_s: float = 45.0
 
     @classmethod
-    def load_file(cls, path: str | Path) -> "FlightConfig":
+    def load_file(cls, path: str | Path) -> FlightConfig:
         """Build a config from a TOML file.
 
         Only the keys present in the file are overridden; anything omitted keeps

@@ -98,7 +98,7 @@ class FrameReader:
         self._started = False
 
     @classmethod
-    def open(cls, tello, **kwargs) -> "FrameReader":
+    def open(cls, tello, **kwargs) -> FrameReader:
         """Start a reader on ``tello``'s video port."""
         reader = cls(tello.get_udp_video_address(), **kwargs)
         reader.start()

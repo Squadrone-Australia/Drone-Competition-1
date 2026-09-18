@@ -104,7 +104,7 @@ class VisionConfig:
         return self.intrinsics.max_range_m(self.marker_radius_m, self.min_area_ratio)
 
     @classmethod
-    def load_file(cls, path: str | Path) -> "VisionConfig":
+    def load_file(cls, path: str | Path) -> VisionConfig:
         """Build a config from a TOML file, e.g. for re-tuning HSV on-site (§3.1).
 
         Only the keys present in the file are overridden; anything omitted keeps
