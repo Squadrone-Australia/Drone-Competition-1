@@ -14,7 +14,8 @@ or helpers — with no assumption you've used a terminal or installed developer 
 
 ## What you'll end up with
 
-A local website that opens in your normal web browser (Chrome, Edge, Firefox). It shows:
+A program that opens in a window of its own. (On a machine that cannot show one, it opens in
+your normal web browser instead — same screen, same everything.) It shows:
 
 - A **block-coding area** where students drag blocks together to build a flight plan.
 - A **live camera view** — either a simulated drone flying around a virtual room, or the video
@@ -44,23 +45,24 @@ page.)
    `SHA256SUMS.txt` you can compare against `Get-FileHash comp1-Setup-<version>.exe`.)
 3. Follow the prompts. It installs for the current user only, so it does **not** ask for an
    administrator password.
-4. Start it from the **Start Menu** entry (or the desktop shortcut, if you asked for one). Your
-   web browser opens on the block-coding screen.
+4. Start it from the **Start Menu** entry (or the desktop shortcut, if you asked for one). The
+   block-coding screen opens.
 
 There is no black terminal window and nothing else to install. To remove it later, use
 **Settings → Apps** in Windows as you would for any other program.
 
 ### Closing the program
 
-Drone Coder has no window of its own — the web page **is** the program's window. So there are two
-ways to finish:
-
-- Click **Close program** at the top of the page. That stops it immediately, and the page says so.
-- Or just close the browser tab. About half a minute after the last Drone Coder tab is gone, the
-  program notices nobody is watching and closes itself.
+- Close the window, the way you close anything else. If a flight is still going, it asks first and
+  lands the drone before it closes.
+- Or click **Close program** at the top of the page. That stops it immediately, and the page says
+  so. (This one asks you to stop the flight yourself first.)
+- If you are using it in a browser tab instead of a window, closing the tab is enough: about half
+  a minute after the last Drone Coder tab is gone, the program notices nobody is watching and
+  closes itself.
 
 Refreshing the page, or having two tabs open, doesn't close anything — and it will never close
-itself in the middle of a flight.
+itself in the middle of a flight without asking.
 
 If you click the Start Menu shortcut while it's already running, it tells you so rather than
 starting a second copy.
@@ -79,7 +81,7 @@ else — the check simply finds nothing and says nothing. You can also turn it o
 
 ## Using the program
 
-When your browser opens, you'll see the block-coding screen. A few things to try:
+When Drone Coder opens, you'll see the block-coding screen. A few things to try:
 
 - Drag blocks from the left-hand palette under **🚁 when mission starts** to build a flight
   plan — for example, take off, turn, move forward, check whether a marker is visible.
@@ -91,9 +93,10 @@ When your browser opens, you'll see the block-coding screen. A few things to try
 
 Your blocks are kept for you. There's no Save button and nothing to remember: the program
 quietly keeps a copy of whatever is on the block screen, and puts it back the next time you
-open Drone Coder — after a reload, after closing the tab, or after the computer has been
-turned off. The copy lives in the web browser on that computer, so it comes back on the same
-browser and the same machine, not on a different one.
+open Drone Coder — after a reload, after closing the window, or after the computer has been
+turned off. The copy lives on that computer, with whatever opened it, so blocks built in the
+Drone Coder window come back in the window, and blocks built in a browser tab come back in that
+browser — not in each other, and not on a different machine.
 
 By default the drone is a **simulator** — a virtual drone in a virtual room — so there's nothing
 to break and no real hardware needed. This is the best way to build and test a flight plan before
@@ -137,17 +140,23 @@ Click **More info**, then **Run anyway**. The warning is about the installer bei
 about anything it found. If the button isn't there at all, the computer is managed by the school
 and someone with admin rights has to allow it.
 
-**Nothing opens in the browser.**
+**Nothing opens.**
 Give it a few extra seconds the first time. If it still doesn't open, go to
-`http://localhost:8765` in your browser while the program is running.
+`http://localhost:8765` in your browser while the program is running — that reaches the same
+program, and always works.
+
+**It opens in a browser instead of its own window.**
+That's the fallback, and nothing is wrong: this computer doesn't have the Microsoft Edge WebView2
+runtime that the window needs. Everything works the same in the tab. Installing Edge (or the
+WebView2 runtime) brings the window back.
 
 **It says Drone Coder is already running.**
-It is — one copy serves the page, and a second would only fight it for the same address. Open
-`http://localhost:8765`, or close the running one first (**Close program** at the top of the page).
+It is — one copy serves the page, and a second would only fight it for the same address. Look for
+its window, open `http://localhost:8765`, or close the running one first.
 
 **I closed the tab but the program is still running.**
 Give it about half a minute: with the last tab gone it closes itself. Use **Close program** if you
-want it gone immediately.
+want it gone immediately. (Closing the Drone Coder *window* stops it straight away.)
 
 **It won't start and I can't see any error.**
 The program writes what happened to `%LOCALAPPDATA%\comp1\logs\comp1.log` — paste that path
@@ -204,9 +213,18 @@ node --test tests\js\blocks.test.js             # frontend serializer tests
 
 `--drone sim` flags: `--seed N` (repeatable arena), `--noise 0.05` (movement drift),
 `--scenery {arena,corridor}` (also switchable in the browser). Server flags: `--port`,
-`--no-browser`, `--no-check-updates`, `--idle-timeout N` (seconds after the last browser window
-closes before the program stops itself; `0` never stops). Default port `8765`. Anything not passed falls back to what
-the browser's Settings panel last saved, then to the code default.
+`--no-window` (use the system browser rather than a window of our own), `--no-browser` (open
+nothing at all), `--no-check-updates`, `--idle-timeout N` (seconds after the last window closes
+before the program stops itself; `0` never stops). Default port `8765`. Anything not passed falls
+back to what the Settings panel last saved, then to the code default.
+
+The window is [pywebview](https://pywebview.flowrl.com/) over the Edge WebView2 runtime, and it is
+the default front door wherever one can be opened. Everything else falls back to the browser —
+including the hub deployment in
+[docs/architecture/platform-options.md](docs/architecture/platform-options.md) §4, where students
+on Chromebooks reach one bridging laptop over the LAN. The window keeps its own profile under
+`%LOCALAPPDATA%\comp1\webview`, so its `localStorage` (the block buffer, saved vision profiles)
+is separate from any browser's.
 
 ### Continuous integration
 

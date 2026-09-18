@@ -15,11 +15,24 @@ import uvicorn
 from . import __version__
 from . import settings as settings_store
 from . import update as updater
+from . import window as native_window
 from .drone.config import DEFAULT_FLIGHT_CONFIG, FlightConfig
 from .paths import is_frozen, log_file, settings_file
 from .server import DEFAULT_IDLE_TIMEOUT, create_app
 from .vision.calibration import CalibrationError, config_with_hsv
 from .vision.config import DEFAULT_CONFIG, VisionConfig
+
+#: How long the window waits for uvicorn to bind before it gives up and says so.
+#: Generous, because lifespan startup connects to the drone and a Tello that is
+#: not on the network takes several seconds to fail. The browser path pokes at a
+#: flat one-second timer and simply loses that race when it happens; a window
+#: cannot, because WebView2 shows its own error page for a refused connection
+#: and never retries.
+SERVER_START_TIMEOUT = 30.0
+#: How long a stopped server gets to finish. ``timeout_graceful_shutdown``
+#: already bounds the sockets; this bounds the lifespan shutdown behind them,
+#: which is what releases the aircraft and its video port.
+SERVER_JOIN_TIMEOUT = 10.0
 
 
 def _setup_logging() -> None:
@@ -81,6 +94,83 @@ def _already_serving(port: int) -> bool:
     return False
 
 
+def _launch_url(port: int) -> str:
+    """Where the front door points, whichever front door it is."""
+    return f"http://localhost:{port}/"
+
+
+def _window_wanted(args) -> bool:
+    """Whether to try for a window of our own rather than the system browser.
+
+    The single seam the tests reach for: whether a machine can open a window is
+    not something a unit test may be allowed to depend on.
+    """
+    if args.no_browser or args.no_window:
+        return False
+    return native_window.usable()
+
+
+def _wait_until_serving(server, thread, timeout=SERVER_START_TIMEOUT) -> bool:
+    """True once uvicorn is accepting connections; False if it died trying.
+
+    A window pointed at a port nothing is listening on shows the renderer's own
+    error page and never retries, so it is not created until the server says so.
+    A bind failure is a ``SystemExit`` inside uvicorn's startup, which on a
+    worker thread is a thread that quietly ends: that is what ``is_alive()``
+    catches, and without it this would wait the whole timeout for a server that
+    is already gone.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if server.started:
+            return True
+        if not thread.is_alive():
+            return False
+        time.sleep(0.05)
+    return thread.is_alive()  # slow, not dead — show the window anyway
+
+
+def _serve_behind_the_window(server, native, fallback_url) -> bool:
+    """Run uvicorn on a worker thread and give the main thread to the window.
+
+    Both want the main thread and only one can have it. The window takes it
+    because pywebview refuses to start anywhere else; uvicorn merely *prefers*
+    it, and its own signal capture already stands aside off the main thread, so
+    the serve loop here is the one the browser path runs, unchanged. Ctrl+C
+    passes to the window, which is the right owner — as far as a student is
+    concerned the window is the program.
+
+    Daemon *and* joined: the join is what lets the lifespan shutdown release the
+    aircraft, and the daemon flag is what stops a wedged server from keeping a
+    windowless process alive for the rest of the afternoon.
+
+    False means the server never came up, which is the one failure this cannot
+    paper over. A window that will not open is not that failure — see below.
+    """
+    thread = threading.Thread(target=server.run, name="comp1-server", daemon=True)
+    thread.start()
+    if not _wait_until_serving(server, thread):
+        return False
+    try:
+        native.open()  # blocks until the window is gone
+    except Exception:  # noqa: BLE001 — a window is never worth losing a session over
+        # usable() said yes and it still would not open. The browser reaches the
+        # same program at the same URL, so there is a working front door to hand
+        # the student instead of an error box, and the idle shutdown is back to
+        # owning the lifetime exactly as it does on the browser path.
+        logging.getLogger("comp1").exception(
+            "the window would not open — falling back to the browser"
+        )
+        webbrowser.open(fallback_url)
+        thread.join()
+        return True
+    # Every way the window can vanish arrives here, so one that went for a
+    # reason nobody anticipated still stops the server.
+    server.should_exit = True
+    thread.join(SERVER_JOIN_TIMEOUT)
+    return True
+
+
 def _report_fatal(exc: BaseException) -> None:
     """Say something visible when a windowed build dies during startup.
 
@@ -120,6 +210,11 @@ def main():
     )
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument(
+        "--no-window",
+        action="store_true",
+        help="always use the system browser, never a window of our own",
+    )
     ap.add_argument(
         "--script",
         type=Path,
@@ -191,10 +286,11 @@ def main():
         # second copy simply died on the port bind with nothing on screen.
         _tell_user(
             "Drone Coder is already running.\n\n"
-            f"Open it at http://localhost:{args.port}\n\n"
-            "To close it, click Close program at the top of that page. If you "
-            "have already closed every Drone Coder tab, it shuts itself down "
-            "about half a minute later."
+            "Look for its window, or open it at "
+            f"http://localhost:{args.port}\n\n"
+            "To close it, close that window, or click Close program at the top "
+            "of the page. If every Drone Coder window is already shut, it "
+            "closes itself about half a minute later."
         )
         return
     saved = settings_store.load()
@@ -242,16 +338,15 @@ def main():
         from .drone.mock import MockDrone
 
         drone = MockDrone()
-    if not args.no_browser:
-        # A unique query makes an already-open competition tab load the current
-        # frontend instead of merely coming to the foreground with stale HTML.
-        launch_url = f"http://localhost:{args.port}/?launch={time.time_ns()}"
-        threading.Timer(1.0, lambda: webbrowser.open(launch_url)).start()
-    # Closing itself when the last window goes is for the launched-browser case:
-    # that browser page is the only window the program has. `--no-browser` is a
-    # terminal session (tests, CI, a developer) that owns its own lifetime, so
-    # it stays up until Ctrl+C. `--idle-timeout` overrides either way, and 0
-    # turns it off — a demonstration laptop meant to sit on a stand all day.
+    want_window = _window_wanted(args)
+    # Closing itself when the last window goes is for the case where a window we
+    # did not open is the only one the program has. `--no-browser` is a terminal
+    # session (tests, CI, a developer) that owns its own lifetime, so it stays
+    # up until Ctrl+C. `--idle-timeout` overrides either way, and 0 turns it
+    # off — a demonstration laptop meant to sit on a stand all day. A native
+    # window keeps the same countdown for a narrower job: it is the only thing
+    # that would ever notice a renderer that has died behind a frame which still
+    # looks like a program.
     idle_timeout = args.idle_timeout
     if idle_timeout is None:
         idle_timeout = None if args.no_browser else DEFAULT_IDLE_TIMEOUT
@@ -260,13 +355,49 @@ def main():
 
     # The server is built rather than run through uvicorn.run() because the app
     # needs a handle on it: with no console and no tray icon, "close the
-    # program" can only come from the browser page, and that means something
-    # has to be able to end this loop from inside.
+    # program" can only come from the window in front of it, and that means
+    # something has to be able to end this loop from inside.
     server = None
+    native = None
 
     def request_shutdown():
+        """Stop the program. Safe to call from any thread."""
         if server is not None:
             server.should_exit = True
+        if native is not None:
+            # Marshalled onto the GUI thread by pywebview. Without it the server
+            # would stop behind a window still sitting there showing a page that
+            # can no longer reach it.
+            native.close()
+
+    def request_close(confirm):
+        """The window's close button. Policy for it lives here, not in window.py.
+
+        Here because this is where the app object is, and keeping it out of the
+        window module is what lets that module be tested on a machine with no
+        pywebview at all.
+        """
+        if getattr(app.state, "installing", False):
+            # The installer is already on its way to closing this process.
+            # Standing in front of its WM_CLOSE only earns a forced kill a few
+            # seconds later, with the drone still held.
+            return native_window.CLOSE_NOW
+        if app.state.interp is not None and not confirm(
+            native_window.WINDOW_TITLE,
+            "A mission is still flying.\n\n"
+            "Close Drone Coder anyway? The drone will be landed first.",
+        ):
+            return native_window.CLOSE_STAY
+        quit_now = getattr(app.state, "request_quit", None)
+        if quit_now is None or app.state.quitting:
+            request_shutdown()
+            return native_window.CLOSE_NOW
+        try:
+            quit_now()
+        except RuntimeError:  # the event loop has already gone
+            request_shutdown()
+            return native_window.CLOSE_NOW
+        return native_window.CLOSE_WAIT
 
     app = create_app(
         drone,
@@ -286,11 +417,34 @@ def main():
         # installs a StreamHandler on it — every log line would then raise.
         # Disabling the config hands logging to the file handler set up above.
         log_config=None if is_frozen() else uvicorn.config.LOGGING_CONFIG,
-        # A browser that never answers its close frame must not keep a program
+        # A page that never answers its close frame must not keep a program
         # the student has just closed alive on the taskbar-less desktop.
         timeout_graceful_shutdown=5,
     )
     server = uvicorn.Server(config)
+
+    if want_window:
+        native = native_window.NativeWindow(
+            _launch_url(args.port), on_close=request_close
+        )
+        if _serve_behind_the_window(server, native, _launch_url(args.port)):
+            return
+        # The window was never shown, so there is nowhere on screen for this to
+        # appear except a message box — and a student staring at nothing at all
+        # is the failure this whole file exists to prevent.
+        native = None
+        _tell_user(
+            "Drone Coder could not start.\n\n"
+            f"Nothing is answering on port {args.port}. Details were written to:\n"
+            f"{log_file()}"
+        )
+        return
+
+    if not args.no_browser:
+        # A unique query makes an already-open competition tab load the current
+        # frontend instead of merely coming to the foreground with stale HTML.
+        launch_url = f"{_launch_url(args.port)}?launch={time.time_ns()}"
+        threading.Timer(1.0, lambda: webbrowser.open(launch_url)).start()
     server.run()
 
 

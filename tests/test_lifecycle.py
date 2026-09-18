@@ -142,3 +142,83 @@ def test_quitting_reaches_every_open_tab():
                 # on "disconnected, retrying" for ever
                 assert collect_until(two, "quitting")["type"] == "quitting"
     assert stopped == [True]
+
+
+def test_the_windows_close_button_lands_a_flying_mission_then_quits():
+    """The X cannot be refused, so it has to bring the aircraft down itself.
+
+    Releasing an adapter never flies it, so letting a close straight through
+    would hand the lifespan shutdown a drone still in the air.
+    """
+    stopped = []
+    app = create_app(MockDrone(), shutdown=lambda: stopped.append(True))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "settings")
+
+        class StillFlying:
+            def __init__(self):
+                self.asked = False
+
+            def request_stop(self):
+                self.asked = True
+
+        flying = StillFlying()
+        app.state.interp = flying
+
+        app.state.request_quit()  # the GUI thread, from outside the loop
+
+        assert wait_for(lambda: flying.asked)
+        assert "landing the drone" in collect_until(ws, "warning")["message"]
+        assert stopped == []  # nothing quits over a drone still in the air
+        app.state.interp = None  # ... the mission ends, as a stop makes it
+        collect_until(ws, "quitting")
+    assert stopped == [True]
+
+
+def test_a_close_that_waits_too_long_for_a_landing_stops_anyway():
+    """A wedged aircraft must not be a window that will not shut."""
+    import comp1.server as server_module
+
+    stopped = []
+    app = create_app(MockDrone(), shutdown=lambda: stopped.append(True))
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "settings")
+
+        class NeverLands:
+            def request_stop(self):
+                pass
+
+        app.state.interp = NeverLands()
+        original = server_module.QUIT_LANDING_TIMEOUT
+        server_module.QUIT_LANDING_TIMEOUT = 0.1
+        try:
+            app.state.request_quit()
+            collect_until(ws, "quitting")
+        finally:
+            server_module.QUIT_LANDING_TIMEOUT = original
+            app.state.interp = None
+    assert stopped == [True]
+
+
+def test_a_close_from_outside_the_page_does_not_need_a_tab():
+    """A window whose renderer has died still has to be able to close."""
+    stopped = []
+    app = create_app(MockDrone(), shutdown=lambda: stopped.append(True))
+    with TestClient(app) as client:
+        client.get("/")  # no socket has ever connected
+
+        app.state.request_quit()
+
+        assert wait_for(lambda: stopped)
+    assert stopped == [True]
+
+
+def test_a_terminal_run_has_nothing_to_close():
+    """Without a shutdown hook there is no quit — and no crash trying."""
+    app = create_app(MockDrone())
+    with TestClient(app) as client:
+        client.get("/")
+
+        app.state.request_quit()
+
+        assert not wait_for(lambda: app.state.quitting, timeout=0.3)

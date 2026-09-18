@@ -223,14 +223,20 @@ workspace.addChangeListener((event) => {
 });
 // Without this, closing the tab inside the debounce window loses the last edit
 // made — the one most likely to be the reason the student is coming back.
-// `pagehide` rather than `beforeunload`: it fires for a page going into the
-// back/forward cache as well, and browsers are far less willing to skip it.
-window.addEventListener("pagehide", () => {
+function flushBuffer() {
   if (bufferTimer !== null) {
     clearTimeout(bufferTimer);
     captureBuffer();
   }
-});
+}
+// `pagehide` rather than `beforeunload`: it fires for a page going into the
+// back/forward cache as well, and browsers are far less willing to skip it.
+window.addEventListener("pagehide", flushBuffer);
+// The native window is destroyed rather than navigated away from, and
+// `pagehide` does not reliably survive that. Exposed so the window can ask for
+// a flush directly as it goes; the `quitting` message below is the ordinary
+// path and this is the one that catches a socket which died first.
+window.COMP1_FLUSH = flushBuffer;
 selectDebugView("python");
 updateDebugProgram();
 
@@ -453,6 +459,11 @@ function connect() {
     }
     else if (msg.type === "quitting") {
       quitting = true;
+      // The one signal every close has in common — the Quit button, the idle
+      // timeout, the native window's X, another tab — and it arrives before the
+      // socket dies. So this, not `pagehide`, is where the last edit of a
+      // session is actually saved.
+      flushBuffer();
       log("closing Drone Coder…");
     }
     else if (msg.type === "warning") {

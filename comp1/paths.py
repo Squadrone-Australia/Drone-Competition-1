@@ -63,3 +63,19 @@ def updates_dir() -> Path:
     path = data_dir() / "updates"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def window_dir() -> Path:
+    """Cookies and local storage for the native window.
+
+    The block buffer a student comes back to and the saved vision profiles are
+    both ``localStorage`` entries, so where this points is the difference
+    between last session reappearing and being silently discarded. It has to be
+    here rather than anywhere near the application directory for the usual
+    reason — an update replaces that wholesale — and pywebview's own default
+    (``%APPDATA%\\pywebview``) is shared with every other pywebview program on
+    the machine, which is not ours to write into.
+    """
+    path = data_dir() / "webview"
+    path.mkdir(parents=True, exist_ok=True)
+    return path

@@ -10,7 +10,7 @@ are in [README.md](README.md); this file is the developer's shortcut.
 ## Commands
 
 ```bash
-python -m pytest -q                        # 498 tests, ~45s
+python -m pytest -q                        # 533 tests, ~60s
 python -m pytest tests/test_fault_recovery.py -q
 python -m pytest tests/test_interpreter.py::test_stop_flag_halts_and_lands -q  # one test
 python -m pytest -q -k "estop or switch"   # one theme, across files
@@ -48,6 +48,10 @@ the README.
   `buffer.js` auto-saves the Blockly workspace to `localStorage` and restores it as
   `app.js` injects. Deliberately client-side: no socket message, nothing in
   `paths.data_dir()`, and losing a buffer is never allowed to break the page.
+- `comp1/window.py` — the pywebview front door. `usable()` proves a window is possible or the
+  launcher opens the system browser instead; `NativeWindow` owns the main thread and the
+  two-way close protocol. Knows nothing about drones: close *policy* is `request_close` in
+  `__main__.py`, where `app.state` is.
 - `comp1/paths.py`, `settings.py`, `update.py` — install-time concerns.
 - `docs/specs/` and `docs/plans/` — read the matching spec before changing vision, the
   protocol, or drone switching. `docs/ISSUES.md` is the 2026-09-14 fault-injection report.
@@ -62,6 +66,11 @@ tracing a feature means finding its `msg["type"]` branch in the receive loop
 `comp1/frontend/app.js`. The server pushes the other way by fanning out over
 `app.state.clients`: `_broadcast_json` for telemetry, pose, link, battery, mission and
 settings; `_broadcast_bytes` for JPEG video frames.
+
+The one exception to "every interaction is a socket message" is `app.state.request_quit`,
+set up in the lifespan: the native window's close button fires on a GUI thread outside the
+event loop, so it needs a thread-safe door in. It lands a flying mission before quitting,
+where the `quit` message refuses one — a button may be refused, a window's X may not.
 
 `app.state` is the single shared mutable world — the live adapter, the latest frame and
 `Detection`, the running interpreter, the mission scorer, every background task handle.
@@ -98,7 +107,12 @@ contract.
   passed"; an explicit CLI flag always wins. Nothing in `settings.py` may raise — a corrupt
   file falls back to defaults rather than refusing to start on competition day.
 - **Never write into the application directory.** An update replaces it wholesale; user
-  state belongs in `paths.data_dir()`.
+  state belongs in `paths.data_dir()` — including the native window's own profile
+  (`paths.window_dir()`), which is where the block buffer's `localStorage` actually lives.
+- **The window is a front door, never a dependency.** Every failure in `window.py` is a browser
+  launch. `--no-window`, `--no-browser` and plain `http://localhost:8765` must keep working:
+  they are the Chromebook hub deployment (`docs/architecture/platform-options.md` §4) and the
+  only recovery path a stuck venue has.
 - **Warn, don't raise, at runtime.** Out-of-range values are clamped with a warning to the
   student; a mission that dies mid-flight is worse than a nudged one.
 - Ruff's version is pinned in both `.github/workflows/ci.yml` and pyproject's `dev` extra —

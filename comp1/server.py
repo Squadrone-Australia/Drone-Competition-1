@@ -66,13 +66,20 @@ IDLE_CHECK_INTERVAL = 1.0
 #: enough to ride out a refresh or a laptop waking from sleep, which is the
 #: same reasoning as the idle shutdown and deliberately a shorter number.
 UNATTENDED_STOP_S = 10.0
-#: How long every browser window must stay shut before the program closes
-#: itself. The packaged build has no window of its own, so a tab closed and
-#: never reopened would otherwise leave an invisible process running until the
-#: laptop is rebooted — still holding the aircraft's video port. Generous enough
-#: that a page refresh (which reconnects in well under a second) and a laptop
-#: waking from sleep are never mistaken for "the student has finished".
+#: How long every window must stay shut before the program closes itself. A
+#: browser tab closed and never reopened would otherwise leave an invisible
+#: process running until the laptop is rebooted — still holding the aircraft's
+#: video port. It keeps that job with a native window in front, where the window
+#: closing is the ordinary way out and this becomes the answer to the window
+#: that is still there but no longer talking (a renderer that has crashed behind
+#: a frame nobody can use). Generous enough that a page refresh (which
+#: reconnects in well under a second) and a laptop waking from sleep are never
+#: mistaken for "the student has finished".
 DEFAULT_IDLE_TIMEOUT = 30.0
+#: How long a close asked for from outside the page waits for a mission to land
+#: before it stops waiting. Longer than a landing, shorter than a student's
+#: patience with a window that will not shut.
+QUIT_LANDING_TIMEOUT = 15.0
 
 
 def _origin_allowed(ws: WebSocket) -> bool:
@@ -144,17 +151,23 @@ def create_app(
     one. ``update_check`` is likewise injected rather than imported, so no test
     can reach the network.
 
-    ``shutdown`` is how the program stops itself. The packaged build is windowed
-    — there is no console to close and no tray icon — so the browser page *is*
-    the window, and it needs both a way to say "close the program" and a way for
-    the program to notice that every window has gone. Without it there is no
-    quit at all short of Task Manager. ``comp1.__main__`` passes a hook that
-    ends the uvicorn server; tests leave it unset, and the browser then hides
-    the Quit button rather than offering one that does nothing.
+    ``shutdown`` is how the program stops itself. The packaged build has no
+    console to close and no tray icon, so the window in front of it — a native
+    one where the machine can show one, a browser tab otherwise — needs both a
+    way to say "close the program" and a way for the program to notice that
+    every window has gone. Without it there is no quit at all short of Task
+    Manager. ``comp1.__main__`` passes a hook that ends the uvicorn server and
+    closes the window; tests leave it unset, and the page then hides the Quit
+    button rather than offering one that does nothing.
 
-    ``idle_timeout`` arms the same shutdown after every browser window has been
-    closed for that long. Left unset (tests, ``--no-browser``, a developer run
-    that owns its own terminal) the program simply keeps running.
+    ``idle_timeout`` arms the same shutdown after every window has been closed
+    for that long. Left unset (tests, ``--no-browser``, a developer run that
+    owns its own terminal) the program simply keeps running.
+
+    ``app.state.request_quit`` is the same exit seen from the other side: the
+    only thread-safe way in, for a native window whose close button fires
+    outside this event loop entirely. It lands a flying mission first, which is
+    the difference between it and the page's own Quit — see ``_land_then_quit``.
     """
     # Each app gets an independent runtime config. In particular, a calibration
     # session must never mutate DEFAULT_CONFIG or leak into a later test/server.
@@ -197,6 +210,16 @@ def create_app(
         # Latched once the program is on its way out, so the idle watch stops
         # counting and a second quit cannot race the first.
         app.state.quitting = False
+        # The one door into this loop from outside it. Everything else in this
+        # file is either a task on this loop or a socket handler running on it;
+        # a native window's close button is neither — it fires on the GUI thread
+        # of a process that is otherwise entirely asyncio. Thread-safe by
+        # construction, and a no-op when there is nothing to close (a copy run
+        # from a terminal passes no shutdown hook).
+        loop = asyncio.get_running_loop()
+        app.state.request_quit = lambda: loop.call_soon_threadsafe(
+            lambda: _spawn(_land_then_quit(app))
+        )
         # ground truth for the mission panel; None whenever the adapter has no
         # arena to score against (mock, real Tello)
         app.state.scorer = _new_scorer(app)
@@ -471,13 +494,40 @@ def create_app(
 
     async def _quit(app: FastAPI):
         """Stop the program. The drone is released by the lifespan shutdown."""
-        if app.state.quitting:
+        if app.state.quitting or shutdown is None:
             return
         app.state.quitting = True
         # Told before the socket dies, so any other tab can say what happened
-        # instead of sitting on "disconnected, retrying" forever.
+        # instead of sitting on "disconnected, retrying" forever. It is also
+        # what makes the page write its block buffer, so nothing may quit
+        # without going through here.
         await _broadcast_json(app, {"type": "quitting"})
         shutdown()
+
+    async def _land_then_quit(app: FastAPI):
+        """Close the program at the request of something that is not a page.
+
+        A native window's close button, unlike the page's own Quit, cannot be
+        refused: a window that will not shut reads as a broken program, and the
+        student closing it has already said they are finished. So anything
+        flying is stopped and given time to land first — the same choice
+        ``_unattended_loop`` makes, for the same reason. A stop brings the
+        aircraft down through the ordinary path; letting the close through
+        untouched would hand the lifespan shutdown a drone still in the air,
+        because releasing an adapter never flies it.
+        """
+        interp = app.state.interp
+        if interp is not None:
+            await _broadcast_json(
+                app,
+                {"type": "warning", "message": "landing the drone before closing…"},
+            )
+            interp.request_stop()
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + QUIT_LANDING_TIMEOUT
+            while app.state.interp is not None and loop.time() < deadline:
+                await asyncio.sleep(0.1)
+        await _quit(app)
 
     async def _install_update(app: FastAPI, release):
         """Download, verify, hand over to the installer, and step aside.

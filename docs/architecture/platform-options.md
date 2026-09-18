@@ -65,7 +65,7 @@ See §1. None can host the custom vision pipeline that is the heart of the compe
 | Option | Verdict | Reasoning |
 |---|---|---|
 | **PyInstaller, onedir, auto-open system browser** | ✅ **Recommended** | The Jupyter/OctoPrint pattern named in the requirements. Mature community hooks for `cv2`/`numpy`. `onedir` over `onefile`: faster startup, and on-venue failures are debuggable (files are inspectable). Build per-OS (Windows and macOS builds each produced on that OS). |
-| pywebview native window | ⏸ Deferred, not primary | Near-zero extra weight and more kiosk-like — but it binds the frontend to the desktop process. Keeping the frontend purely browser-served preserves the Chromebook thin-client path (§4). Can be added later with **no architecture change**. |
+| pywebview native window | ✅ **Adopted 2026-09-18**, on top of the above | Near-zero extra weight and more kiosk-like. The worry recorded here — that it binds the frontend to the desktop process — did not materialise, because the window is a *front door* rather than a host: it loads `http://localhost:8765` like any other client, `--no-window` and `--no-browser` still work, and §4's hub deployment is untouched. This is the "can be added later with **no architecture change**" that the original entry was holding open. See [2026-09-18-native-window.md](../plans/2026-09-18-native-window.md). |
 | Electron / Tauri + Python sidecar | ❌ Rejected | Adds a Node and/or Rust toolchain and a second runtime to maintain, for no functional gain over a browser tab. |
 | Nuitka | ❌ Rejected | Slower builds and fewer prebuilt hooks for `cv2`/`numpy` than PyInstaller; no benefit that matters here. |
 

@@ -15,6 +15,13 @@ dependencies = [
     "djitellopy>=2.5",
     "opencv-python>=5.0",
     "numpy>=2.5",
+    # The native window. Windows-only because Windows is the only platform with
+    # a shipping installer, and because the Linux backends need GTK/Qt system
+    # packages pip cannot supply — a dependency that could never run there.
+    # comp1/window.py imports it lazily and falls back to the browser when it is
+    # absent, so a macOS or Linux checkout that installs it by hand gets the
+    # window anyway, and one that does not loses nothing.
+    "pywebview>=6.2; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
