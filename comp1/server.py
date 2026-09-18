@@ -596,8 +596,22 @@ def create_app(
             # a run from a terminal is quit with Ctrl+C, and a button that did
             # nothing would be worse than no button.
             "can_quit": shutdown is not None,
-            "settings": settings_store.load(settings_path).to_json(),
+            "settings": _saved().to_json(),
         }
+
+    def _saved() -> settings_store.Settings:
+        """Preferences this server is allowed to see.
+
+        No path means no profile, in *either* direction. ``settings_store.load``
+        falls back to the real ``settings_file()`` when handed ``None``, so
+        reading it here would let a developer run -- and the test suite -- show
+        whatever happens to be saved on that machine, while ``_remember``
+        silently drops every write. Defaults are the honest answer: they are
+        what this server will still be using next launch.
+        """
+        if settings_path is None:
+            return replace(settings_store.DEFAULTS)
+        return settings_store.load(settings_path)
 
     def _remember(changes: dict) -> None:
         """Persist preferences, if this server was given somewhere to put them.

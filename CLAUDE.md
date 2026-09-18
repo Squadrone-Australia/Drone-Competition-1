@@ -10,11 +10,12 @@ are in [README.md](README.md); this file is the developer's shortcut.
 ## Commands
 
 ```bash
-python -m pytest -q                        # 533 tests, ~60s
+python -m pytest -q                        # 561 tests, ~60s
 python -m pytest tests/test_fault_recovery.py -q
 python -m pytest tests/test_interpreter.py::test_stop_flag_halts_and_lands -q  # one test
 python -m pytest -q -k "estop or switch"   # one theme, across files
 python -m ruff check .                     # the exact lint gate CI runs
+python -m pytest tests/test_update.py tests/test_update_release.py -q  # CI's updater gate
 python -m ruff check . --fix               # imports, unused names
 node --test tests/js                       # 71 tests; needs `npm ci` once, for jsdom
 node --test tests/js/blocks.test.js        # one file
@@ -96,7 +97,11 @@ contract.
   and the updater all read it; the release workflow fails if tag `v<version>` disagrees.
 - **A release needs both `comp1-Setup-<v>.exe` and `SHA256SUMS.txt`.** `comp1/update.py`
   looks the installer up by bare filename inside that file and refuses a digest mismatch,
-  so a release missing it is one no installed copy can ever update to.
+  so a release missing it is one no installed copy can ever update to. That contract spans
+  `update.py`, `build.ps1`, `installer/comp1.iss` and `release.yml` — including the
+  `/RELAUNCH` switch the updater sends and `comp1.iss` reads back — and otherwise only ever
+  meets during a real tagged build, so `tests/test_update_release.py` checks the seams as
+  text. Change any one of those four and run it.
 - **The block wire format is a two-sided contract.** `comp1/protocol.py` and
   `comp1/frontend/blocks.js` change together, per `docs/specs/2026-07-31-program-schema-v2.md`.
 - **The stop flag is only read between blocks** (`interpreter.py`). Every adapter call must

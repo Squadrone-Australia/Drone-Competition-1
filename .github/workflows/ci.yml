@@ -1,4 +1,8 @@
-# Lint + tests on every push to main and every pull request.
+# Lint + tests on every push to main or dev, and every pull request.
+#
+# `dev` is in that list because it is the integration branch -- feature work
+# lands there, not on main, so without it a merge to dev runs nothing and the
+# first CI a change sees is the release tag.
 #
 # Note for anyone editing this: install the project with `pip install -e .[dev]`,
 # never `-r requirements.txt`. That file is a UTF-16 `pip freeze` snapshot taken
@@ -7,7 +11,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 concurrency:
@@ -30,6 +34,33 @@ jobs:
       # it deliberately, together with the version in pyproject.toml's dev extra.
       - run: pip install ruff==0.16.2
       - run: ruff check --output-format=github .
+
+  # The updater, on its own and ahead of the matrix. It is the one feature no
+  # installed copy can be told to work around: a broken update check is a laptop
+  # that quietly stays on an old version until someone notices at a venue, and
+  # the contract it rests on is spread across comp1/update.py, build.ps1,
+  # installer/comp1.iss and release.yml -- files that otherwise only ever meet
+  # during a real tagged build.
+  #
+  # These two files reach nothing heavier than the standard library, so the job
+  # needs pytest and PYTHONPATH rather than `pip install -e .[dev]` and OpenCV.
+  # That buys a ~20-second gate that names the updater when it goes red, instead
+  # of a failure buried in 500-odd tests ten minutes later. The full matrix below
+  # runs these same files again, along with tests/test_update_flow.py, which does
+  # need the server.
+  update:
+    name: updater contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: Update check, download, handover, and the release contract
+        env:
+          PYTHONPATH: .
+        run: pytest tests/test_update.py tests/test_update_release.py -q
 
   test:
     name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
