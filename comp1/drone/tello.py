@@ -1,5 +1,7 @@
+import threading
 import time
 
+import av
 import numpy as np
 from djitellopy import Tello
 
@@ -32,6 +34,145 @@ def _drain_responses(t) -> None:
         pass
 
 
+#: How long a stalled video read blocks before PyAV abandons it. This is the
+#: whole reason a teardown can be safe: djitellopy opens the stream with *no*
+#: read timeout, so once the aircraft stops sending, its decode thread parks
+#: inside ``av_read_frame()`` for good and the only way to get the UDP port
+#: back is to free the container out from under it — which segfaults the
+#: process. A finite timeout means the thread always comes back to check
+#: whether it has been asked to stop.
+_VIDEO_READ_TIMEOUT_S = 1.0
+#: How long the *first* open may take. A stream that needs a moment to come up
+#: is not a failure, so this is generous — it is only ever paid on connect,
+#: where the caller is already waiting.
+_VIDEO_OPEN_TIMEOUT_S = float(Tello.FRAME_GRAB_TIMEOUT)
+#: How long a *reopen* on the decoder thread may take. Much shorter than the
+#: first open, because this one is paid where nobody is waiting and a teardown
+#: cannot interrupt an open in flight — it is the longest a close() can block.
+#: Giving up here is cheap: the worker exits, ``alive`` goes False and the
+#: adapter opens a fresh reader on its own retry interval.
+_VIDEO_REOPEN_TIMEOUT_S = 1.5
+#: How long a teardown waits for the decoder thread to notice. Longer than the
+#: worst single blocking call the worker can be inside — a read or a reopen —
+#: so the normal path always joins.
+_VIDEO_JOIN_TIMEOUT_S = 4.0
+
+
+def _open_container(address: str, open_timeout: float = _VIDEO_OPEN_TIMEOUT_S):
+    """Open the video stream with both timeouts set. Raises like ``av.open``."""
+    return av.open(address, timeout=(open_timeout, _VIDEO_READ_TIMEOUT_S))
+
+
+class FrameReader:
+    """Decodes the Tello's H.264 stream on a thread that *owns* its container.
+
+    The ownership rule is the point, and it is not decoration: an
+    ``AVFormatContext`` freed by one thread while another sits inside
+    ``av_read_frame()`` is a use-after-free, and it lands as
+    ``SIGSEGV`` in ``avio_read_partial`` — the process dies with no Python
+    traceback at all. djitellopy's ``BackgroundFrameRead`` invites exactly
+    that: ``stop()`` only sets a flag its worker reads *after the next frame
+    arrives*, which never happens once the aircraft is gone, so releasing the
+    port means closing the container behind the worker's back.
+
+    Here only :meth:`_run` ever touches the container, and it always returns
+    within ``_VIDEO_READ_TIMEOUT_S``. A teardown sets an event and joins; no
+    other thread closes anything.
+    """
+
+    def __init__(self, address: str, opener=None):
+        self._address = address
+        # resolved here rather than as a default argument so that tests (and a
+        # future transport) can substitute the av layer wholesale
+        self._opener = opener or _open_container
+        self._lock = threading.Lock()
+        self._frame = None
+        self._stop = threading.Event()
+        # Opened here rather than on the thread so that a stream which never
+        # comes up is reported to the caller instead of dying in the worker.
+        # Once :meth:`start` runs, this reference is stale by design — the
+        # worker reopens as needed and nobody else may close it.
+        self._container = self._opener(address)
+        self._worker = threading.Thread(target=self._run, name="tello-video",
+                                        daemon=True)
+        self._started = False
+
+    @classmethod
+    def open(cls, tello, **kwargs) -> FrameReader:
+        """Start a reader on ``tello``'s video port."""
+        reader = cls(tello.get_udp_video_address(), **kwargs)
+        reader.start()
+        return reader
+
+    def start(self) -> None:
+        self._started = True
+        self._worker.start()
+
+    @property
+    def frame(self):
+        """Most recently decoded frame as RGB uint8, or None before the first."""
+        with self._lock:
+            return self._frame
+
+    @property
+    def alive(self) -> bool:
+        """False once the worker has given up — the stream needs reopening."""
+        return self._started and self._worker.is_alive()
+
+    def close(self, timeout: float = _VIDEO_JOIN_TIMEOUT_S) -> bool:
+        """Stop decoding and give the UDP port back. Idempotent.
+
+        Returns whether the worker actually finished. It normally does; if it
+        somehow did not, the container is deliberately *leaked* rather than
+        closed, because leaking a port is a bug and closing it is a crash.
+        """
+        self._stop.set()
+        if not self._started:
+            self._discard(self._container)
+            return True
+        self._worker.join(timeout)
+        return not self._worker.is_alive()
+
+    # --- worker thread only ------------------------------------------------
+
+    def _run(self) -> None:
+        container = self._container
+        try:
+            while container is not None and not self._stop.is_set():
+                try:
+                    for frame in container.decode(video=0):
+                        with self._lock:
+                            self._frame = frame.to_ndarray(format="rgb24")
+                        if self._stop.is_set():
+                            break
+                except Exception:
+                    # A read timeout, a decoder hiccup and an aircraft that
+                    # went away all arrive here as av.error.ExitError, and a
+                    # container that has raised once never yields another
+                    # frame — reopening is the only cure, not retrying.
+                    pass
+                if self._stop.is_set():
+                    break
+                container = self._reopen(container)
+        finally:
+            self._discard(container)
+
+    def _reopen(self, old):
+        self._discard(old)
+        try:
+            return self._opener(self._address, _VIDEO_REOPEN_TIMEOUT_S)
+        except Exception:
+            return None  # `alive` goes False; the adapter retries from scratch
+
+    @staticmethod
+    def _discard(container) -> None:
+        if container is None:
+            return
+        try:
+            container.close()
+        except Exception:
+            pass
+
 class TelloDrone(DroneAdapter):
     """Adapter for a real DJI Tello, built to survive the aircraft going away.
 
@@ -41,12 +182,11 @@ class TelloDrone(DroneAdapter):
     * A rebooted Tello is a new SDK session with an empty response buffer. The
       old object's queued responses would be answers to commands from before the
       reboot, so it is retired rather than reused.
-    * The video decoder holds a UDP port until its container is closed, and
-      ``BackgroundFrameRead.stop()`` only sets a flag that the decode thread
-      checks *after the next frame arrives* — which never happens once the
-      aircraft is gone. Closing the container here is what makes a later
-      reconnect (or a round trip through the simulator) possible without
-      restarting the program.
+    * The video decoder holds a UDP port until its container is closed, so the
+      stream is read through :class:`FrameReader` rather than djitellopy's
+      ``BackgroundFrameRead`` — see that class for why closing it is otherwise
+      a segfault. Releasing the port here is what makes a later reconnect (or
+      a round trip through the simulator) possible without restarting.
     """
 
     mode = "tello"
@@ -55,6 +195,7 @@ class TelloDrone(DroneAdapter):
         self._t = Tello()
         self._reader = None
         self.flight = flight
+        self.command_timeout_s = flight.command_timeout_s
         self.link_ok = False
         #: whether a session has actually been opened on the aircraft — a
         #: teardown only has replies to outrun if there was one
@@ -134,7 +275,7 @@ class TelloDrone(DroneAdapter):
         if self._t is None:
             return None
         try:
-            self._reader = self._t.get_frame_read()
+            self._reader = FrameReader.open(self._t)
         except Exception:
             self._reader = None
             self._reopen_at = time.monotonic() + _REOPEN_INTERVAL_S
@@ -145,12 +286,7 @@ class TelloDrone(DroneAdapter):
         if reader is None:
             return
         try:
-            reader.stop()
-        except Exception:
-            pass
-        try:
-            # the flag alone is not enough — see the class docstring
-            reader.container.close()
+            reader.close()
         except Exception:
             pass
 
@@ -193,11 +329,11 @@ class TelloDrone(DroneAdapter):
 
     def flip(self, direction):
         self._cmd("flip", _FLIP_CODE[direction])
-        # The aircraft throws itself along the flip direction and stays there,
-        # so without this a "signal target found" back-flip leaves the drone
-        # short of the target it just found and every following move starts from
-        # the wrong place. Tune flip_recover_cm on-site; below the 20 cm floor
-        # the Tello would refuse the move, so skip it instead of erroring.
+        # The aircraft throws itself along the flip direction and stays there.
+        # An opposite move undoes that, but it also costs altitude the flip has
+        # already taken, so flip_recover_cm defaults to 0 and the recovery is
+        # opt-in. Below the 20 cm floor the Tello would refuse the move, so
+        # skip it instead of erroring — which is also how 0 disables it.
         if self.flight.flip_recover_cm >= TELLO_MIN_MOVE_CM:
             self.move(_OPPOSITE[direction], self.flight.flip_recover_cm)
 
@@ -213,6 +349,12 @@ class TelloDrone(DroneAdapter):
         """
         now = time.monotonic()
         reader = self._reader
+        if reader is not None and not reader.alive:
+            # the decoder thread gave up: the stream stalled and would not
+            # reopen. Let go of it and come back through the retry path.
+            self._release_reader()
+            reader = None
+            self._reopen_at = now + _REOPEN_INTERVAL_S
         if reader is None:
             if now < self._reopen_at:
                 return None

@@ -1,22 +1,27 @@
 import asyncio
 import base64
 import json
+import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import cv2
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import __version__, settings as settings_store, update as updater
+from . import __version__
+from . import settings as settings_store
+from . import update as updater
 from .api import ScriptRun
 from .drone.base import DroneAdapter
 from .interpreter import Interpreter
 from .paths import is_frozen
 from .protocol import Program
+from .sim import scenery
 from .sim.mission import MissionScorer
 from .vision.calibration import (
     CalibrationError,
@@ -37,6 +42,8 @@ FRAME_INTERVAL = 0.1  # ~10 fps
 # at 10 Hz the third-person view stutters, and no amount of browser-side
 # smoothing hides a 100 ms step in heading during a fast yaw.
 POSE_INTERVAL = 1 / 30
+log = logging.getLogger(__name__)
+
 SCRIPT_CLIENT_WAIT = 5.0  # how long a --script run holds off for the browser
 #: How often the watchdog looks at the hardware link, and how long it waits
 #: between reconnection attempts. A reboot of the aircraft takes several
@@ -53,13 +60,61 @@ BATTERY_INTERVAL = 5.0
 UPDATE_CHECK_DELAY = 2.0
 #: How often the idle watch looks at whether anybody is still watching.
 IDLE_CHECK_INTERVAL = 1.0
-#: How long every browser window must stay shut before the program closes
-#: itself. The packaged build has no window of its own, so a tab closed and
-#: never reopened would otherwise leave an invisible process running until the
-#: laptop is rebooted — still holding the aircraft's video port. Generous enough
-#: that a page refresh (which reconnects in well under a second) and a laptop
-#: waking from sleep are never mistaken for "the student has finished".
+#: How long a mission may keep flying with no browser watching before it is
+#: stopped. A student who closes the tab or shuts the lid mid-flight is no
+#: longer able to press Stop or EMERGENCY STOP — those controls left with the
+#: page — so an aircraft that keeps flying is one nobody can command. Long
+#: enough to ride out a refresh or a laptop waking from sleep, which is the
+#: same reasoning as the idle shutdown and deliberately a shorter number.
+UNATTENDED_STOP_S = 10.0
+#: How long every window must stay shut before the program closes itself. A
+#: browser tab closed and never reopened would otherwise leave an invisible
+#: process running until the laptop is rebooted — still holding the aircraft's
+#: video port. It keeps that job with a native window in front, where the window
+#: closing is the ordinary way out and this becomes the answer to the window
+#: that is still there but no longer talking (a renderer that has crashed behind
+#: a frame nobody can use). Generous enough that a page refresh (which
+#: reconnects in well under a second) and a laptop waking from sleep are never
+#: mistaken for "the student has finished".
 DEFAULT_IDLE_TIMEOUT = 30.0
+#: How long a close asked for from outside the page waits for a mission to land
+#: before it stops waiting. Longer than a landing, shorter than a student's
+#: patience with a window that will not shut.
+QUIT_LANDING_TIMEOUT = 15.0
+
+
+def _origin_allowed(ws: WebSocket) -> bool:
+    """Whether this socket may be opened.
+
+    A browser always sends ``Origin``; it must match the ``Host`` the page was
+    served from. Anything without an ``Origin`` is not a browser — the test
+    suite, a student's own Python, a diagnostic script — and same-origin policy
+    was never protecting those anyway, so they are left alone.
+    """
+    origin = ws.headers.get("origin")
+    if origin is None:
+        return True
+    host = ws.headers.get("host")
+    return bool(host) and urlsplit(origin).netloc == host
+
+
+def _plain_validation_error(exc: ValidationError) -> str:
+    """A sentence a ten-year-old can act on, out of a pydantic ValidationError.
+
+    The raw string is four lines of ``[type=value_error, input_value={...}]`` and
+    a link to pydantic's docs. That is the right amount of detail for a log and
+    entirely the wrong amount for the console a student is reading, where it
+    buries the one clause that says what to change.
+    """
+    parts = []
+    for err in exc.errors():
+        message = err.get("msg", "")
+        # pydantic prefixes messages raised from a validator; the useful half is
+        # what our own code wrote.
+        message = message.removeprefix("Value error, ").strip()
+        if message and message not in parts:
+            parts.append(message)
+    return "; ".join(parts) or "the blocks did not make a valid plan"
 
 
 def _new_tello() -> DroneAdapter:
@@ -85,7 +140,7 @@ def create_app(
     tello_factory: Callable[[], DroneAdapter] = _new_tello,
     simulator_factory: Callable[[], DroneAdapter] = _new_simulator,
     settings_path: Path | None = None,
-    update_check: Callable[[], "updater.Release | None"] | None = None,
+    update_check: Callable[[], updater.Release | None] | None = None,
     shutdown: Callable[[], None] | None = None,
     idle_timeout: float | None = None,
 ) -> FastAPI:
@@ -97,17 +152,23 @@ def create_app(
     one. ``update_check`` is likewise injected rather than imported, so no test
     can reach the network.
 
-    ``shutdown`` is how the program stops itself. The packaged build is windowed
-    — there is no console to close and no tray icon — so the browser page *is*
-    the window, and it needs both a way to say "close the program" and a way for
-    the program to notice that every window has gone. Without it there is no
-    quit at all short of Task Manager. ``comp1.__main__`` passes a hook that
-    ends the uvicorn server; tests leave it unset, and the browser then hides
-    the Quit button rather than offering one that does nothing.
+    ``shutdown`` is how the program stops itself. The packaged build has no
+    console to close and no tray icon, so the window in front of it — a native
+    one where the machine can show one, a browser tab otherwise — needs both a
+    way to say "close the program" and a way for the program to notice that
+    every window has gone. Without it there is no quit at all short of Task
+    Manager. ``comp1.__main__`` passes a hook that ends the uvicorn server and
+    closes the window; tests leave it unset, and the page then hides the Quit
+    button rather than offering one that does nothing.
 
-    ``idle_timeout`` arms the same shutdown after every browser window has been
-    closed for that long. Left unset (tests, ``--no-browser``, a developer run
-    that owns its own terminal) the program simply keeps running.
+    ``idle_timeout`` arms the same shutdown after every window has been closed
+    for that long. Left unset (tests, ``--no-browser``, a developer run that
+    owns its own terminal) the program simply keeps running.
+
+    ``app.state.request_quit`` is the same exit seen from the other side: the
+    only thread-safe way in, for a native window whose close button fires
+    outside this event loop entirely. It lands a flying mission first, which is
+    the difference between it and the page's own Quit — see ``_land_then_quit``.
     """
     # Each app gets an independent runtime config. In particular, a calibration
     # session must never mutate DEFAULT_CONFIG or leak into a later test/server.
@@ -150,6 +211,16 @@ def create_app(
         # Latched once the program is on its way out, so the idle watch stops
         # counting and a second quit cannot race the first.
         app.state.quitting = False
+        # The one door into this loop from outside it. Everything else in this
+        # file is either a task on this loop or a socket handler running on it;
+        # a native window's close button is neither — it fires on the GUI thread
+        # of a process that is otherwise entirely asyncio. Thread-safe by
+        # construction, and a no-op when there is nothing to close (a copy run
+        # from a terminal passes no shutdown hook).
+        loop = asyncio.get_running_loop()
+        app.state.request_quit = lambda: loop.call_soon_threadsafe(
+            lambda: _spawn(_land_then_quit(app))
+        )
         # ground truth for the mission panel; None whenever the adapter has no
         # arena to score against (mock, real Tello)
         app.state.scorer = _new_scorer(app)
@@ -162,6 +233,9 @@ def create_app(
         # "no newer version, or we could not tell" — the browser cannot and
         # should not distinguish the two.
         app.state.update = None
+        # Latched while an installer download/handover is in flight, so a second
+        # click cannot start it twice.
+        app.state.installing = False
         app.state.update_task = (
             asyncio.create_task(_update_loop(app)) if update_check else None
         )
@@ -170,6 +244,7 @@ def create_app(
             if idle_timeout and shutdown
             else None
         )
+        app.state.unattended_task = asyncio.create_task(_unattended_loop(app))
         app.state.video_task = asyncio.create_task(_video_loop(app))
         app.state.pose_task = asyncio.create_task(_pose_loop(app))
         app.state.link_task = asyncio.create_task(_link_loop(app))
@@ -182,6 +257,12 @@ def create_app(
             app.state.update_task.cancel()
         if app.state.idle_task:
             app.state.idle_task.cancel()
+        app.state.unattended_task.cancel()
+        # Detached work (an emergency stop still waiting on a silent aircraft,
+        # an update handover) — cancelled here so shutdown does not leave
+        # "Task was destroyed but it is pending" behind it.
+        for task in list(background_tasks):
+            task.cancel()
         app.state.video_task.cancel()
         app.state.pose_task.cancel()
         app.state.link_task.cancel()
@@ -336,6 +417,45 @@ def create_app(
         app.state.update = release
         await _broadcast_json(app, _update_message(app))
 
+    async def _unattended_loop(app: FastAPI):
+        """Stop a mission that nobody is watching any more.
+
+        The idle shutdown cannot do this job: it counts a running mission as
+        *busy*, so a program with a long loop kept the aircraft flying
+        indefinitely after the last window closed — with no video, and with both
+        Stop and EMERGENCY STOP gone with the page that hosted them.
+
+        Deliberately a stop rather than a kill: `request_stop` lands the
+        aircraft through the normal path.
+        """
+        idle = 0.0
+        while True:
+            await asyncio.sleep(1.0)
+            interp = app.state.interp
+            # `seen_client` keeps a headless run (--no-browser --script, the test
+            # suite) out of this entirely: nothing was ever watching, so nothing
+            # has been abandoned.
+            if interp is None or not app.state.seen_client or app.state.quitting:
+                idle = 0.0
+                continue
+            if app.state.clients:
+                idle = 0.0
+                continue
+            idle += 1.0
+            if idle >= UNATTENDED_STOP_S:
+                log.warning("no browser for %.0fs while flying — stopping the mission",
+                            idle)
+                await _broadcast_json(
+                    app,
+                    {
+                        "type": "error",
+                        "message": "nobody was watching — the mission was stopped "
+                        "and the drone landed",
+                    },
+                )
+                interp.request_stop()
+                idle = 0.0
+
     async def _idle_loop(app: FastAPI):
         """Close the program once every browser window has gone.
 
@@ -375,13 +495,40 @@ def create_app(
 
     async def _quit(app: FastAPI):
         """Stop the program. The drone is released by the lifespan shutdown."""
-        if app.state.quitting:
+        if app.state.quitting or shutdown is None:
             return
         app.state.quitting = True
         # Told before the socket dies, so any other tab can say what happened
-        # instead of sitting on "disconnected, retrying" forever.
+        # instead of sitting on "disconnected, retrying" forever. It is also
+        # what makes the page write its block buffer, so nothing may quit
+        # without going through here.
         await _broadcast_json(app, {"type": "quitting"})
         shutdown()
+
+    async def _land_then_quit(app: FastAPI):
+        """Close the program at the request of something that is not a page.
+
+        A native window's close button, unlike the page's own Quit, cannot be
+        refused: a window that will not shut reads as a broken program, and the
+        student closing it has already said they are finished. So anything
+        flying is stopped and given time to land first — the same choice
+        ``_unattended_loop`` makes, for the same reason. A stop brings the
+        aircraft down through the ordinary path; letting the close through
+        untouched would hand the lifespan shutdown a drone still in the air,
+        because releasing an adapter never flies it.
+        """
+        interp = app.state.interp
+        if interp is not None:
+            await _broadcast_json(
+                app,
+                {"type": "warning", "message": "landing the drone before closing…"},
+            )
+            interp.request_stop()
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + QUIT_LANDING_TIMEOUT
+            while app.state.interp is not None and loop.time() < deadline:
+                await asyncio.sleep(0.1)
+        await _quit(app)
 
     async def _install_update(app: FastAPI, release):
         """Download, verify, hand over to the installer, and step aside.
@@ -407,6 +554,7 @@ def create_app(
                 app,
                 {"type": "update_progress", "state": "failed", "message": str(exc)},
             )
+            app.state.installing = False
             return
         await _broadcast_json(
             app,
@@ -427,6 +575,7 @@ def create_app(
                 app,
                 {"type": "update_progress", "state": "failed", "message": str(exc)},
             )
+            app.state.installing = False
 
     def _update_message(app: FastAPI) -> dict:
         release = app.state.update
@@ -448,8 +597,29 @@ def create_app(
             # a run from a terminal is quit with Ctrl+C, and a button that did
             # nothing would be worse than no button.
             "can_quit": shutdown is not None,
-            "settings": settings_store.load(settings_path).to_json(),
+            # The catalogue, so the dialog does not keep its own copy of the
+            # scenery names. It is read from the module rather than from
+            # `app.state.drone`, because `scenery_catalog()` is None on a Tello
+            # and these are *startup* preferences: "start in the competition
+            # arena next time" is a sensible thing to choose while a real
+            # aircraft is plugged in.
+            "sceneries": scenery.catalog(),
+            "settings": _saved().to_json(),
         }
+
+    def _saved() -> settings_store.Settings:
+        """Preferences this server is allowed to see.
+
+        No path means no profile, in *either* direction. ``settings_store.load``
+        falls back to the real ``settings_file()`` when handed ``None``, so
+        reading it here would let a developer run -- and the test suite -- show
+        whatever happens to be saved on that machine, while ``_remember``
+        silently drops every write. Defaults are the honest answer: they are
+        what this server will still be using next launch.
+        """
+        if settings_path is None:
+            return replace(settings_store.DEFAULTS)
+        return settings_store.load(settings_path)
 
     def _remember(changes: dict) -> None:
         """Persist preferences, if this server was given somewhere to put them.
@@ -577,6 +747,56 @@ def create_app(
                 await ws.send_text(json.dumps(data))
             except Exception:
                 app.state.clients.discard(ws)
+
+    #: Strong references to fire-and-forget tasks. Without this the only
+    #: reference is the event loop's own weak one, and a task can be collected
+    #: mid-flight — the documented failure mode of bare ``create_task``.
+    background_tasks: set = set()
+
+    def _spawn(coro):
+        """Run ``coro`` detached, keeping it alive and logging what it raises."""
+        task = asyncio.ensure_future(coro)
+        background_tasks.add(task)
+        task.add_done_callback(background_tasks.discard)
+        return task
+
+    async def _emergency_stop(app: FastAPI):
+        """Cut the motors, then say honestly whether it worked.
+
+        Runs off the websocket receive loop so that an aircraft which has
+        stopped answering cannot take the rest of the page's controls with it.
+        """
+        drone = app.state.drone
+        timeout = getattr(drone, "command_timeout_s", None)
+        try:
+            await asyncio.wait_for(asyncio.to_thread(drone.emergency), timeout)
+        except Exception as exc:
+            detail = (
+                f"no answer within {timeout:g}s"
+                if isinstance(exc, TimeoutError)
+                else str(exc)
+            )
+            drone.link_ok = False
+            # Never claim a stop that did not happen: the old code broadcast
+            # `estopped` unconditionally, so the last and loudest line a student
+            # saw was "EMERGENCY STOP" even when the motors were still turning.
+            await _broadcast_json(
+                app,
+                {
+                    "type": "estopped",
+                    "ok": False,
+                    "message": f"EMERGENCY STOP could not reach the drone: {detail}",
+                },
+            )
+            return
+        await _broadcast_json(app, {"type": "estopped", "ok": True})
+
+    async def _reply_error(ws, message: str):
+        """Tell one client something went wrong, without killing its socket."""
+        try:
+            await ws.send_text(json.dumps({"type": "error", "message": message}))
+        except Exception:
+            app.state.clients.discard(ws)
 
     async def _reset(app: FastAPI):
         """Start state, for the drone and for everything watching it.
@@ -748,6 +968,12 @@ def create_app(
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):
+        if not _origin_allowed(ws):
+            # WebSockets are not covered by the same-origin policy, so without
+            # this any page the student happens to visit while the program is
+            # running could open this socket and fly the drone.
+            await ws.close(code=1008)
+            return
         await ws.accept()
         app.state.clients.add(ws)
         app.state.seen_client = True
@@ -810,347 +1036,392 @@ def create_app(
 
         try:
             while True:
-                msg = json.loads(await ws.receive_text())
-                if msg["type"] == "run":
-                    if app.state.drone_switching:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "wait for the drone connection",
-                            },
-                        )
-                        continue
-                    if app.state.interp is not None:
-                        await _broadcast_json(
-                            app, {"type": "error", "message": "already running"}
-                        )
-                        continue
-                    if not app.state.drone.link_ok:
-                        # Flying at an aircraft that is not answering ends as a
-                        # mission that dies on its first command; say why now.
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "the drone is not connected — "
-                                "reconnecting, try again in a moment",
-                            },
-                        )
-                        continue
+                msg = None
+                try:
+                    # A binary frame makes receive_text raise, so this is inside
+                    # the guard too -- the handler below must not assume `msg`.
+                    raw = await ws.receive_text()
                     try:
-                        program = Program.model_validate(msg["program"])
-                    except ValidationError as e:
-                        await _broadcast_json(
-                            app, {"type": "error", "message": f"invalid program: {e}"}
+                        msg = json.loads(raw)
+                    except json.JSONDecodeError:
+                        await _reply_error(
+                            ws, "that message was not something this program understands"
                         )
                         continue
-                    # This is the canonical program the interpreter will run,
-                    # after schema validation and v1-to-v2 compatibility lifts.
-                    await _broadcast_json(
-                        app,
-                        {
-                            "type": "debug_program",
-                            "program": program.model_dump(
-                                mode="json", exclude_none=True
-                            ),
-                        },
-                    )
-                    # every attempt starts from the same place, so a change in the
-                    # program is the only thing that changed
-                    await _reset(app)
-                    interp = Interpreter(
-                        app.state.drone,
-                        lambda: app.state.latest_detection,
-                        emit,
-                        cfg=cfg,
-                        select_nearest_target=_select_nearest_target,
-                    )
-                    app.state.interp = interp
-
-                    async def _run(interp=interp, program=program):
-                        try:
-                            await interp.run(program)
-                        finally:
-                            app.state.interp = None
-
-                    asyncio.create_task(_run())
-                elif msg["type"] == "stop":
-                    if app.state.interp:
-                        app.state.interp.request_stop()
-                elif msg["type"] == "reset":
-                    if app.state.drone_switching:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "wait for the drone connection",
-                            },
-                        )
-                    elif app.state.interp is not None:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "stop the mission before resetting",
-                            },
-                        )
-                    else:
-                        await _reset(app)
-                elif msg["type"] in ("scenery", "layout"):
-                    # Editing the arena mid-flight would move the ground out from
-                    # under a running mission, so it waits — same rule as reset.
-                    if app.state.drone_switching:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "wait for the drone connection",
-                            },
-                        )
-                    elif app.state.drone.scenery_catalog() is None:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "this drone has no arena to edit",
-                            },
-                        )
-                    elif app.state.interp is not None:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "stop the mission before changing the arena",
-                            },
-                        )
-                    elif msg["type"] == "scenery":
-                        await _rebuild_arena(
-                            app,
-                            name=msg.get("name"),
-                            randomise=bool(msg.get("randomise")),
-                        )
-                    else:
-                        await _rebuild_arena(app, fires=msg.get("fires") or [])
-                elif msg["type"] in (
-                    "vision_sample",
-                    "vision_auto",
-                    "vision_preview",
-                    "vision_apply",
-                    "vision_reset",
-                ):
-                    if app.state.drone_switching:
-                        await ws.send_text(
-                            json.dumps(
+                    # A browser only ever sends objects with a string `type`.
+                    # Anything else is a bug or a stray client, and neither is
+                    # worth tearing this connection down over.
+                    if not isinstance(msg, dict) or not isinstance(msg.get("type"), str):
+                        await _reply_error(ws, "message had no type")
+                        continue
+                    if msg["type"] == "run":
+                        if app.state.drone_switching:
+                            await _broadcast_json(
+                                app,
                                 {
-                                    "type": "vision_error",
+                                    "type": "error",
                                     "message": "wait for the drone connection",
-                                }
+                                },
                             )
-                        )
-                    elif app.state.interp is not None:
-                        await ws.send_text(
-                            json.dumps(
+                            continue
+                        if app.state.interp is not None:
+                            await _broadcast_json(
+                                app, {"type": "error", "message": "already running"}
+                            )
+                            continue
+                        if not app.state.drone.link_ok:
+                            # Flying at an aircraft that is not answering ends as a
+                            # mission that dies on its first command; say why now.
+                            await _broadcast_json(
+                                app,
                                 {
-                                    "type": "vision_error",
-                                    "message": "stop the mission before calibrating vision",
-                                }
+                                    "type": "error",
+                                    "message": "the drone is not connected — "
+                                    "reconnecting, try again in a moment",
+                                },
                             )
-                        )
-                    else:
+                            continue
                         try:
-                            if msg["type"] in ("vision_sample", "vision_auto"):
-                                raw = app.state.latest_frame
-                                if msg["type"] == "vision_auto":
-                                    values, roi = auto_suggest_hsv(raw, cfg)
-                                else:
-                                    roi = msg.get("roi")
-                                    values = suggest_hsv(raw, roi)
-                                candidate = config_with_hsv(cfg, values)
-                                # gate proposals only: an operator dragging a
-                                # slider wide on purpose should get the preview
-                                # they asked for, not an error
-                                check_coverage(raw, candidate)
-                                response = _vision_message(
-                                    "vision_suggestion", candidate
-                                )
-                                response["preview_jpeg"] = _vision_preview(candidate)
-                                response["roi"] = [float(v) for v in roi]
-                                await ws.send_text(json.dumps(response))
-                            elif msg["type"] == "vision_preview":
-                                candidate = config_with_hsv(
-                                    cfg, msg.get("config") or {}
-                                )
-                                response = _vision_message("vision_preview", candidate)
-                                response["preview_jpeg"] = _vision_preview(candidate)
-                                await ws.send_text(json.dumps(response))
-                            elif msg["type"] == "vision_apply":
-                                _apply_hsv(msg.get("config") or {})
-                                # A venue re-tune (§3.1) has to outlive the
-                                # session that made it: an operator who
-                                # calibrated the gym at 9am should not have to
-                                # do it again after lunch because someone
-                                # closed the program.
-                                _remember({"hsv": hsv_values(cfg)})
-                                await _broadcast_json(
-                                    app, _vision_message("vision_config", cfg)
-                                )
-                            else:
-                                _apply_hsv(initial_hsv)
-                                _remember({"hsv": {}})
-                                await _broadcast_json(
-                                    app, _vision_message("vision_config", cfg)
-                                )
-                        except CalibrationError as exc:
+                            program = Program.model_validate(msg["program"])
+                        except KeyError:
+                            await _reply_error(ws, "that run had no program in it")
+                            continue
+                        except ValidationError as e:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": (
+                                        f"this plan cannot run: {_plain_validation_error(e)}"
+                                    ),
+                                },
+                            )
+                            continue
+                        # This is the canonical program the interpreter will run,
+                        # after schema validation and v1-to-v2 compatibility lifts.
+                        await _broadcast_json(
+                            app,
+                            {
+                                "type": "debug_program",
+                                "program": program.model_dump(
+                                    mode="json", exclude_none=True
+                                ),
+                            },
+                        )
+                        # every attempt starts from the same place, so a change in the
+                        # program is the only thing that changed
+                        await _reset(app)
+                        interp = Interpreter(
+                            app.state.drone,
+                            lambda: app.state.latest_detection,
+                            emit,
+                            cfg=cfg,
+                            select_nearest_target=_select_nearest_target,
+                        )
+                        app.state.interp = interp
+
+                        async def _run(interp=interp, program=program):
+                            try:
+                                await interp.run(program)
+                            finally:
+                                app.state.interp = None
+
+                        asyncio.create_task(_run())
+                    elif msg["type"] == "stop":
+                        if app.state.interp:
+                            app.state.interp.request_stop()
+                    elif msg["type"] == "reset":
+                        if app.state.drone_switching:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "wait for the drone connection",
+                                },
+                            )
+                        elif app.state.interp is not None:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "stop the mission before resetting",
+                                },
+                            )
+                        else:
+                            await _reset(app)
+                    elif msg["type"] in ("scenery", "layout"):
+                        # Editing the arena mid-flight would move the ground out from
+                        # under a running mission, so it waits — same rule as reset.
+                        if app.state.drone_switching:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "wait for the drone connection",
+                                },
+                            )
+                        elif app.state.drone.scenery_catalog() is None:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "this drone has no arena to edit",
+                                },
+                            )
+                        elif app.state.interp is not None:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "stop the mission before changing the arena",
+                                },
+                            )
+                        elif msg["type"] == "scenery":
+                            await _rebuild_arena(
+                                app,
+                                name=msg.get("name"),
+                                randomise=bool(msg.get("randomise")),
+                            )
+                        else:
+                            await _rebuild_arena(app, fires=msg.get("fires") or [])
+                    elif msg["type"] in (
+                        "vision_sample",
+                        "vision_auto",
+                        "vision_preview",
+                        "vision_apply",
+                        "vision_reset",
+                    ):
+                        if app.state.drone_switching:
                             await ws.send_text(
                                 json.dumps(
-                                    {"type": "vision_error", "message": str(exc)}
+                                    {
+                                        "type": "vision_error",
+                                        "message": "wait for the drone connection",
+                                    }
                                 )
                             )
-                elif msg["type"] == "estop":
-                    if app.state.interp:
-                        app.state.interp.request_stop()
-                    try:
-                        await asyncio.to_thread(app.state.drone.emergency)
-                    except Exception as exc:
-                        # The stop button must survive an unreachable aircraft:
-                        # the program stop above already happened, and killing
-                        # this socket would take the button away entirely.
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": f"emergency stop could not reach the drone: {exc}",
-                            },
-                        )
-                    await _broadcast_json(app, {"type": "estopped"})
-                elif msg["type"] == "reconnect_drone":
-                    # The manual twin of the watchdog: an operator who has just
-                    # power-cycled the aircraft should not have to wait for the
-                    # timeout, and a link that looks fine but is not (stale SDK
-                    # session after a reboot) has no other cure.
-                    if app.state.drone_switching:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "a drone connection is already in progress",
-                            },
-                        )
-                    elif app.state.interp is not None:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "stop the mission before reconnecting",
-                            },
-                        )
-                    elif app.state.drone.mode != "tello":
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "only the real Tello can be reconnected",
-                            },
-                        )
+                        elif app.state.interp is not None:
+                            await ws.send_text(
+                                json.dumps(
+                                    {
+                                        "type": "vision_error",
+                                        "message": "stop the mission before calibrating vision",
+                                    }
+                                )
+                            )
+                        else:
+                            try:
+                                if msg["type"] in ("vision_sample", "vision_auto"):
+                                    raw = app.state.latest_frame
+                                    if msg["type"] == "vision_auto":
+                                        values, roi = auto_suggest_hsv(raw, cfg)
+                                    else:
+                                        roi = msg.get("roi")
+                                        values = suggest_hsv(raw, roi)
+                                    candidate = config_with_hsv(cfg, values)
+                                    # gate proposals only: an operator dragging a
+                                    # slider wide on purpose should get the preview
+                                    # they asked for, not an error
+                                    check_coverage(raw, candidate)
+                                    response = _vision_message(
+                                        "vision_suggestion", candidate
+                                    )
+                                    response["preview_jpeg"] = _vision_preview(candidate)
+                                    response["roi"] = [float(v) for v in roi]
+                                    await ws.send_text(json.dumps(response))
+                                elif msg["type"] == "vision_preview":
+                                    candidate = config_with_hsv(
+                                        cfg, msg.get("config") or {}
+                                    )
+                                    response = _vision_message("vision_preview", candidate)
+                                    response["preview_jpeg"] = _vision_preview(candidate)
+                                    await ws.send_text(json.dumps(response))
+                                elif msg["type"] == "vision_apply":
+                                    _apply_hsv(msg.get("config") or {})
+                                    # A venue re-tune (§3.1) has to outlive the
+                                    # session that made it: an operator who
+                                    # calibrated the gym at 9am should not have to
+                                    # do it again after lunch because someone
+                                    # closed the program.
+                                    _remember({"hsv": hsv_values(cfg)})
+                                    await _broadcast_json(
+                                        app, _vision_message("vision_config", cfg)
+                                    )
+                                else:
+                                    _apply_hsv(initial_hsv)
+                                    _remember({"hsv": {}})
+                                    await _broadcast_json(
+                                        app, _vision_message("vision_config", cfg)
+                                    )
+                            except CalibrationError as exc:
+                                await ws.send_text(
+                                    json.dumps(
+                                        {"type": "vision_error", "message": str(exc)}
+                                    )
+                                )
+                    elif msg["type"] == "estop":
+                        if app.state.interp:
+                            app.state.interp.request_stop(emergency=True)
+                        # Deliberately NOT awaited here. This is the socket's receive
+                        # loop: an aircraft that has stopped answering parks a
+                        # command for tens of seconds, and awaiting it inline would
+                        # stall every later message from this browser — a second
+                        # press of EMERGENCY STOP, Stop, Run, all of it — while the
+                        # page still showed "connected". The aircraft is commanded
+                        # on its own task and the outcome is broadcast when known.
+                        _spawn(_emergency_stop(app))
+                    elif msg["type"] == "reconnect_drone":
+                        # The manual twin of the watchdog: an operator who has just
+                        # power-cycled the aircraft should not have to wait for the
+                        # timeout, and a link that looks fine but is not (stale SDK
+                        # session after a reboot) has no other cure.
+                        if app.state.drone_switching:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "a drone connection is already in progress",
+                                },
+                            )
+                        elif app.state.interp is not None:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "stop the mission before reconnecting",
+                                },
+                            )
+                        elif app.state.drone.mode != "tello":
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "only the real Tello can be reconnected",
+                                },
+                            )
+                        else:
+                            await _switch_to_tello(app)
+                    elif msg["type"] == "switch_drone":
+                        requested_mode = msg.get("mode")
+                        if requested_mode not in ("sim", "tello"):
+                            await _broadcast_json(
+                                app, {"type": "error", "message": "unsupported drone mode"}
+                            )
+                        elif app.state.drone.mode == requested_mode:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "drone_mode",
+                                    "mode": requested_mode,
+                                    "switching": False,
+                                },
+                            )
+                        elif app.state.interp is not None:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "stop the mission before switching drones",
+                                },
+                            )
+                        elif app.state.drone_switching:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "a drone connection is already in progress",
+                                },
+                            )
+                        elif requested_mode == "tello":
+                            await _switch_to_tello(app)
+                        else:
+                            await _switch_to_simulator(app)
+                    elif msg["type"] == "quit":
+                        if shutdown is None:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "this copy is run from a terminal — "
+                                    "press Ctrl+C there to close it",
+                                },
+                            )
+                        elif app.state.interp is not None:
+                            # Same family as the calibration and update guards, and
+                            # the same reason as the update one: closing the program
+                            # underneath a flying drone leaves it in the air with
+                            # nothing controlling it.
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "stop the mission before closing",
+                                },
+                            )
+                        else:
+                            await _quit(app)
+                    elif msg["type"] == "save_settings":
+                        # Preferences only — what the program should default to next
+                        # launch. Nothing here takes effect on the running drone;
+                        # switching drone or scenery has its own message, and
+                        # conflating the two would let a settings panel silently
+                        # reconnect hardware mid-session.
+                        _remember(msg.get("settings") or {})
+                        await _broadcast_json(app, _settings_message())
+                    elif msg["type"] == "install_update":
+                        release = app.state.update
+                        if release is None:
+                            await _broadcast_json(
+                                app,
+                                {"type": "error", "message": "no update is available"},
+                            )
+                        elif app.state.interp is not None:
+                            # Same guard as calibration and the drone switch, for a
+                            # much better reason: the installer's first act is to
+                            # close this process, and doing that to a drone in the
+                            # air would leave it hovering with nothing flying it.
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "stop the mission before updating",
+                                },
+                            )
+                        elif app.state.drone_switching:
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "wait for the drone connection",
+                                },
+                            )
+                        elif app.state.installing:
+                            await _reply_error(ws, "the update is already installing")
+                        else:
+                            # Detached on purpose. Awaited inline, this ran as
+                            # part of the socket's receive loop -- so a student
+                            # closing the tab mid-update cancelled the install
+                            # *after* the drone had been released but *before*
+                            # the installer was handed over, and the update
+                            # simply never happened.
+                            app.state.installing = True
+                            _spawn(_install_update(app, release))
                     else:
-                        await _switch_to_tello(app)
-                elif msg["type"] == "switch_drone":
-                    requested_mode = msg.get("mode")
-                    if requested_mode not in ("sim", "tello"):
-                        await _broadcast_json(
-                            app, {"type": "error", "message": "unsupported drone mode"}
+                        # An unknown type used to be dropped in silence, which
+                        # makes a version mismatch look like a feature that
+                        # merely does nothing.
+                        await _reply_error(
+                            ws, f"this program does not understand '{msg['type']}'"
                         )
-                    elif app.state.drone.mode == requested_mode:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "drone_mode",
-                                "mode": requested_mode,
-                                "switching": False,
-                            },
-                        )
-                    elif app.state.interp is not None:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "stop the mission before switching drones",
-                            },
-                        )
-                    elif app.state.drone_switching:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "a drone connection is already in progress",
-                            },
-                        )
-                    elif requested_mode == "tello":
-                        await _switch_to_tello(app)
-                    else:
-                        await _switch_to_simulator(app)
-                elif msg["type"] == "quit":
-                    if shutdown is None:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "this copy is run from a terminal — "
-                                "press Ctrl+C there to close it",
-                            },
-                        )
-                    elif app.state.interp is not None:
-                        # Same family as the calibration and update guards, and
-                        # the same reason as the update one: closing the program
-                        # underneath a flying drone leaves it in the air with
-                        # nothing controlling it.
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "stop the mission before closing",
-                            },
-                        )
-                    else:
-                        await _quit(app)
-                elif msg["type"] == "save_settings":
-                    # Preferences only — what the program should default to next
-                    # launch. Nothing here takes effect on the running drone;
-                    # switching drone or scenery has its own message, and
-                    # conflating the two would let a settings panel silently
-                    # reconnect hardware mid-session.
-                    _remember(msg.get("settings") or {})
-                    await _broadcast_json(app, _settings_message())
-                elif msg["type"] == "install_update":
-                    release = app.state.update
-                    if release is None:
-                        await _broadcast_json(
-                            app,
-                            {"type": "error", "message": "no update is available"},
-                        )
-                    elif app.state.interp is not None:
-                        # Same guard as calibration and the drone switch, for a
-                        # much better reason: the installer's first act is to
-                        # close this process, and doing that to a drone in the
-                        # air would leave it hovering with nothing flying it.
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "stop the mission before updating",
-                            },
-                        )
-                    elif app.state.drone_switching:
-                        await _broadcast_json(
-                            app,
-                            {
-                                "type": "error",
-                                "message": "wait for the drone connection",
-                            },
-                        )
-                    else:
-                        await _install_update(app, release)
+                except WebSocketDisconnect:
+                    raise
+                except Exception as exc:
+                    # One malformed or unlucky message must never take the
+                    # socket with it: the page would silently reconnect and the
+                    # student would just see their controls stop working.
+                    kind = msg.get("type") if isinstance(msg, dict) else "unreadable"
+                    log.exception("error handling %s message", kind)
+                    await _reply_error(ws, f"could not do that: {exc}")
         except WebSocketDisconnect:
             pass
         finally:

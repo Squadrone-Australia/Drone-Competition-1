@@ -7,17 +7,19 @@
 # whichever ones you need for on-site conditions and delete the rest; keys
 # left out of the file simply keep the code default.
 
-# --- flip recovery ---
+# --- flip recovery (off by default) ---
 # A Tello does not flip on the spot: it throws itself along the flip direction
 # and stays there, so a "signal fire found" back-flip leaves the drone short
-# of where it made the find and every following move starts from the wrong
-# place. Measure the displacement on the arena floor and put it here; the
-# adapter flies the same distance the opposite way once the flip completes.
+# of where it made the find. The adapter can fly the same distance back the
+# opposite way once the flip completes — but that extra move spends altitude
+# the flip has already cost, so it is disabled unless you ask for it.
 #
-# 30 is a reasonable starting point. Battery level and floor surface both move
-# it, so re-measure on the day. The Tello refuses translations below 20 cm, so
-# anything under that (including 0) skips the recovery move entirely.
-flip_recover_cm = 30
+# 0 (the default) means the drone flips and carries on from wherever the flip
+# left it. To turn the recovery on, measure the displacement on the arena floor
+# and put it here; 30 is a reasonable starting point, and battery level and
+# floor surface both move it. The Tello refuses translations below 20 cm, so
+# anything under that (including 0) performs no recovery move at all.
+flip_recover_cm = 0
 
 # --- link watchdog ---
 # How long the video stream may be silent before the adapter calls the link
@@ -29,3 +31,17 @@ flip_recover_cm = 30
 # Raise it if a congested hall makes the stream stutter for seconds at a time
 # and you see needless reconnects; lower it to notice a lost drone sooner.
 link_timeout_s = 6.0
+
+# --- find-signal battery floor ---
+# Below roughly 50% charge a Tello refuses `flip` outright. It answers with an
+# error and keeps hovering, so the find signal the judges are watching for
+# (requirements §2.1) is the one thing that silently does not happen while the
+# program counts the find and flies on. "signal target found" therefore reads
+# the battery first and turns a doomed flip into a 360-degree spin, which the
+# aircraft will always do.
+#
+# This is the charge it switches over at, in percent. The margin above 50
+# covers the level sagging between the reading and the manoeuvre — raise it if
+# a tired battery still refuses flips near the line. 0 disables the fallback
+# and always flips, which is only sensible on a bench with a full pack.
+flip_min_battery_pct = 55

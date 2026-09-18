@@ -26,13 +26,32 @@ function squadroneTheme() {
   }
 }
 
+// `media` is not cosmetic: left unset, Blockly fetches its trashcan/zoom
+// sprite sheet, its drag cursors and its click sounds from
+// blockly-demo.appspot.com, which at a venue on the TELLO-xxxx Wi-Fi resolves
+// to nothing. The vendored copy must match vendor/blockly.min.js - 12.5.1 wants
+// sprites.png, where later releases renamed it sprites.svg.
 const workspace = Blockly.inject("blockly", {
+  media: "vendor/blockly-media/",
   toolbox: COMP1.toolbox, trashcan: true, zoom: { controls: true },
   theme: squadroneTheme(),
   grid: { spacing: 26, length: 2, colour: "#1a2330", snap: false },
 });
-const start = workspace.newBlock("start");
-start.initSvg(); start.render(); start.moveBy(30, 30);
+// Last session's blocks go back before anything else touches the workspace:
+// before the change listeners further down, which would otherwise read the
+// restore as an edit and immediately buffer it straight back, and before the
+// code inspector reads the workspace for the first time. The result is reported
+// to the student further down still, once `log` and its console element exist.
+const bufferRestore = window.COMP1_BUFFER.restore(workspace);
+// `start` is the only anchor COMP1.serializeProgram looks for, and it is not in
+// the toolbox — so a workspace arriving without one (a buffer written before it
+// existed, or one Blockly could only partly load) would be a program the
+// student has no way to repair by dragging. Seed it whenever it is missing,
+// which on a first run is always.
+if (workspace.getBlocksByType("start", false).length === 0) {
+  const start = workspace.newBlock("start");
+  start.initSvg(); start.render(); start.moveBy(30, 30);
+}
 
 const statusEl = document.getElementById("status");
 const consoleEl = document.getElementById("console");
@@ -179,25 +198,89 @@ document.getElementById("debug-copy").onclick = async () => {
     log("⚠ could not copy the code inspector text");
   }
 };
+// Buffering shares this listener with the code inspector rather than adding a
+// second one: both want exactly the same events — every change to the blocks
+// themselves, and none of the selecting, scrolling and dragging in between.
+let bufferTimer = null;
+function captureBuffer() {
+  bufferTimer = null;
+  window.COMP1_BUFFER.capture(workspace);
+}
+// Coalesced, because a single drag emits a stream of events and the write is
+// synchronous. The delay is also the most a student can lose to a power cut,
+// which is why it is a second rather than the ten that would be cheaper still.
+function scheduleBufferCapture() {
+  if (bufferTimer !== null) clearTimeout(bufferTimer);
+  bufferTimer = setTimeout(captureBuffer, window.COMP1_BUFFER.SAVE_DELAY_MS);
+}
 workspace.addChangeListener((event) => {
   const isUiEvent = typeof event.isUiEvent === "function"
     ? event.isUiEvent()
     : Boolean(event.isUiEvent);
-  if (!isUiEvent) requestAnimationFrame(updateDebugProgram);
+  if (isUiEvent) return;
+  requestAnimationFrame(updateDebugProgram);
+  scheduleBufferCapture();
 });
+// Without this, closing the tab inside the debounce window loses the last edit
+// made — the one most likely to be the reason the student is coming back.
+function flushBuffer() {
+  if (bufferTimer !== null) {
+    clearTimeout(bufferTimer);
+    captureBuffer();
+  }
+}
+// `pagehide` rather than `beforeunload`: it fires for a page going into the
+// back/forward cache as well, and browsers are far less willing to skip it.
+window.addEventListener("pagehide", flushBuffer);
+// The native window is destroyed rather than navigated away from, and
+// `pagehide` does not reliably survive that. Exposed so the window can ask for
+// a flush directly as it goes; the `quitting` message below is the ordinary
+// path and this is the one that catches a socket which died first.
+window.COMP1_FLUSH = flushBuffer;
 selectDebugView("python");
 updateDebugProgram();
 
+// Said out loud: a workspace that is not empty on a freshly opened page is a
+// surprise worth explaining, and blocks that quietly failed to come back are
+// worth explaining even more. Nothing has edited the workspace between the
+// restore and here, so counting it now still counts what was restored.
+const restoredBlocks = workspace.getAllBlocks(false)
+  .filter((block) => block.type !== "start").length;
+if (bufferRestore === "restored" && restoredBlocks > 0) {
+  log(`↺ Restored the ${restoredBlocks} block${restoredBlocks === 1 ? "" : "s"} `
+    + `from your last session.`);
+} else if (bufferRestore === "unusable") {
+  log("⚠ The blocks from your last session could not be opened — "
+    + "starting with an empty program.");
+}
+
+// True between pressing Run and the server confirming the mission started.
+// Only while this is set does an `error` mean "it never began".
+let runPending = false;
+
 /** The one socket, shared with panels that live in their own file. */
 window.COMP1_SEND = (msg) => {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify(msg)); return true; }
+  return false;
 };
+
+// Every button that commands the drone goes through here. A socket that is not
+// OPEN discards silently (send() only throws while CONNECTING), so without this
+// the biggest, reddest control on the page could do nothing at all and look
+// exactly like it had worked.
+function sendCommand(msg, what) {
+  if (window.COMP1_SEND(msg)) return true;
+  log(`⚠ ${what} did NOT reach the program — it is not connected. `
+    + `Land the drone by hand if it is flying.`);
+  return false;
+}
 
 // Whether something is flying, as a bus message. The server refuses arena edits
 // mid-mission, and a panel that only greys itself out after the refusal is a
 // panel that looks broken — so both pathways announce themselves here.
 function setRunning(running) {
   missionRunning = running;
+  if (!running) runPending = false;
   useTelloEl.disabled = running || droneSwitching || !droneMode;
   updateReconnect();
   bus.emit({ type: "running", running });
@@ -253,7 +336,9 @@ function showDroneLink(msg) {
 // Aircraft charge. `null` is "not known", which is honest for a drone that is
 // not answering — a stale number beside a dead link reads as a healthy battery.
 // The 50% line is where a real Tello starts refusing flips, so a student sees
-// the reading turn amber before their find signal stops working.
+// the reading turn amber before the flip stops being available. The find itself
+// is still signalled below it — "signal target found" spins instead (see
+// drone.config.choose_signal) — so this is a heads-up, not a failure.
 let batteryLow = null;
 function showBattery(msg) {
   const fill = batteryEl.querySelector(".battery-fill");
@@ -271,13 +356,13 @@ function showBattery(msg) {
   const state = level <= 15 ? " critical" : level < 50 ? " low" : "";
   batteryEl.className = "battery" + state;
   batteryEl.title = level < 50
-    ? "Battery below 50%: the drone will refuse to flip, so the find signal fails"
+    ? "Battery below 50%: the drone will refuse to flip, so a find is signalled by spinning instead"
     : "Drone battery charge";
   fill.style.width = `${level}%`;
   text.textContent = `${level}%`;
   const low = level < 50;
   if (low && batteryLow === false) {
-    log("⚠ battery below 50% — the drone will refuse to flip, so a find cannot be signalled");
+    log("⚠ battery below 50% — the drone will refuse to flip; 'signal target found' will spin instead");
   }
   batteryLow = low;
 }
@@ -316,7 +401,8 @@ function showMission(m) {
     log("⚠ no target close enough to that signal, it did not count");
   }
   if (m.state === "success" && missionState !== "success") {
-    log("🏆 mission success: every target found and landed at the destination");
+    const goal = m.goal === "start" ? "the take-off point" : "the destination";
+    log(`🏆 mission success: every target found and landed at ${goal}`);
   }
   if (m.state === "crashed" && missionState !== "crashed") {
     log("💥 hit an obstacle — the attempt does not count. Use “obstacle in the way?” " +
@@ -349,7 +435,10 @@ function connect() {
     const msg = JSON.parse(ev.data);
     bus.emit(msg);
     if (msg.type === "highlight") workspace.highlightBlock(msg.blockId);
-    else if (msg.type === "debug_program") showDebugProgram(msg.program);
+    else if (msg.type === "debug_program") {
+      runPending = false;          // the server accepted it; the mission is real
+      showDebugProgram(msg.program);
+    }
     else if (msg.type === "execution") showExecution(msg);
     else if (msg.type === "found_count") foundEl.textContent = `Targets found: ${msg.count}`;
     else if (msg.type === "finished") {
@@ -370,10 +459,34 @@ function connect() {
     }
     else if (msg.type === "quitting") {
       quitting = true;
+      // The one signal every close has in common — the Quit button, the idle
+      // timeout, the native window's X, another tab — and it arrives before the
+      // socket dies. So this, not `pagehide`, is where the last edit of a
+      // session is actually saved.
+      flushBuffer();
       log("closing Drone Coder…");
     }
-    else if (msg.type === "error") log("⚠ " + msg.message);
-    else if (msg.type === "estopped") { log("⛔ EMERGENCY STOP"); setRunning(false); }
+    else if (msg.type === "warning") {
+      // Runtime warnings from the interpreter: divide-by-zero, an unset
+      // variable, a clamped value, a loop that gave up, a marker lost from
+      // view. These are exactly the messages that explain a plan which ran
+      // without doing what the student meant.
+      log("⚠ " + msg.message);
+      appendDebugLine(`warning: ${msg.message}`);
+    }
+    else if (msg.type === "error") {
+      log("⚠ " + msg.message);
+      // A rejected plan never starts, so no `finished` is ever coming. Without
+      // this the whole page stays latched in "running" for the rest of the
+      // session and only EMERGENCY STOP -- which cuts a flying drone's motors
+      // -- can release it.
+      if (runPending) setRunning(false);
+    }
+    else if (msg.type === "estopped") {
+      if (msg.ok === false) log("⚠ " + (msg.message || "EMERGENCY STOP did not reach the drone"));
+      else log("⛔ EMERGENCY STOP");
+      setRunning(false);
+    }
     else if (msg.type === "reset") {
       workspace.highlightBlock(null);
       foundEl.textContent = "Targets found: 0";
@@ -396,13 +509,19 @@ document.getElementById("run").onclick = () => {
   // empty sockets are filled in with a harmless default rather than refusing to run —
   // say so out loud so a half-built program isn't a silent mystery
   COMP1.warnings.forEach((w) => log("⚠ " + w));
-  ws.send(JSON.stringify({ type: "run", program }));
+  if (!sendCommand({ type: "run", program }, "Run")) return;
+  // The server may still refuse this plan. Until it confirms the run started,
+  // an `error` means it never began -- and the latch has to come back off,
+  // because Stop cannot clear it (the server has no mission to stop) and the
+  // student would be left with every control disabled and only EMERGENCY STOP
+  // to escape with.
+  runPending = true;
   setRunning(true);
 };
-document.getElementById("stop").onclick = () => ws.send(JSON.stringify({ type: "stop" }));
+document.getElementById("stop").onclick = () => sendCommand({ type: "stop" }, "Stop");
 // Run resets on the server anyway; this button is for putting the drone back
 // after a stopped or crashed attempt without flying another one.
-document.getElementById("reset").onclick = () => ws.send(JSON.stringify({ type: "reset" }));
+document.getElementById("reset").onclick = () => sendCommand({ type: "reset" }, "Reset");
 useTelloEl.onclick = () => {
   const useSimulator = droneMode === "tello";
   const confirmed = window.confirm(useSimulator
@@ -418,7 +537,8 @@ if (reconnectEl) {
     window.COMP1_SEND({ type: "reconnect_drone" });
   };
 }
-document.getElementById("estop").onclick = () => ws.send(JSON.stringify({ type: "estop" }));
+document.getElementById("estop").onclick =
+  () => sendCommand({ type: "estop" }, "EMERGENCY STOP");
 quitEl.onclick = () => {
   // Spelled out because there is nothing else to close: no console window, no
   // icon by the clock. Once this is done the page is just a page.

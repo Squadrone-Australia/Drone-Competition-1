@@ -7,11 +7,8 @@ A scenery is just a recipe for a :class:`~comp1.sim.world.World`. Two exist:
     the middle.
 
 ``corridor``
-    A long hall. The drone starts at one end, a fixed **destination sign** sits
-    at the other, and the targets are sprinkled free-standing down the middle —
-    a point A to point B navigation exercise (requirements §3.4) on top of the
-    search task. The destination is an ordinary red circle, so the detector
-    reports it exactly like a target; working out which is which is the job.
+    The fixed ICONIP 2026 Search and Find competition layout: a 6 m by 4 m
+    flight area with three red-circle fires and four specified decoys.
 
 **These are absolute arena coordinates.** Like :meth:`DroneAdapter.scene`, they
 reach the browser so the arena can be drawn and edited, and they must never
@@ -23,20 +20,33 @@ import random
 
 from .world import (
     DEFAULT_OBSTACLE_DIAMETER_M,
-    DESTINATION,
-    DISTRACTOR_KINDS,
     FIRE,
     OBSTACLE_KINDS,
     Marker,
     World,
 )
 
-CORRIDOR_W_M = 2.5
-CORRIDOR_L_M = 10.0
+CORRIDOR_W_M = 6.0
+CORRIDOR_L_M = 4.0
+CORRIDOR_HEIGHT_M = 3.0
+CORRIDOR_MARKER_HEIGHT_M = 2.0
+CORRIDOR_START = (3.0, 3.0)
 CORRIDOR_FIRES = 3
-CORRIDOR_DISTRACTORS = 2
-CORRIDOR_OBSTACLES = 2
+CORRIDOR_DISTRACTORS = 4
+CORRIDOR_OBSTACLES = 0
 ARENA_OBSTACLES = 2
+
+# Fixed marker centres from the competition specification. Coordinates use x
+# along the 6 m length and y along the 4 m width.
+CORRIDOR_MARKERS = (
+    (0.75, 3.25, FIRE),
+    (5.25, 3.25, FIRE),
+    (3.00, 0.50, FIRE),
+    (0.75, 1.50, "green_triangle"),
+    (5.25, 1.50, "black_square"),
+    (1.75, 0.50, "green_circle"),
+    (4.25, 0.50, "black_triangle"),
+)
 
 # Placement rules for free-standing markers. A target on a wall is a different
 # exercise (you can sweep the perimeter); these stand in the open, so they need
@@ -62,9 +72,9 @@ def catalog() -> list[dict]:
         },
         {
             "id": "corridor",
-            "name": "Corridor",
-            "description": f"{CORRIDOR_W_M:g} x {CORRIDOR_L_M:g} m hall — fly from the "
-            "start pad to the destination sign, finding targets on the way.",
+            "name": "Competition arena",
+            "description": f"Fixed {CORRIDOR_W_M:g} x {CORRIDOR_L_M:g} x "
+            f"{CORRIDOR_HEIGHT_M:g} m Search and Find layout.",
         },
     ]
 
@@ -113,28 +123,20 @@ def _obstacle(rng, spot) -> Marker:
 
 
 def _corridor(seed=None) -> World:
-    rng = random.Random(seed)
-    w, length = CORRIDOR_W_M, CORRIDOR_L_M
-    start = (w / 2, 0.6)
-    # Fixed, and deliberately so: the destination is the one thing in the room a
-    # student can count on being in the same place every run.
-    markers = [Marker(w / 2, length - 0.6, DESTINATION)]
-    kinds = [FIRE] * CORRIDOR_FIRES + [
-        rng.choice(DISTRACTOR_KINDS) for _ in range(CORRIDOR_DISTRACTORS)
+    # ``seed`` is intentionally ignored. The official layout is fixed so every
+    # attempt presents the same classification task.
+    markers = [
+        Marker(x, y, kind, height_m=CORRIDOR_MARKER_HEIGHT_M)
+        for x, y, kind in CORRIDOR_MARKERS
     ]
-    rng.shuffle(kinds)
-    for kind in kinds:
-        spot = _find_spot(rng, w, length, markers, start)
-        if spot is not None:
-            markers.append(Marker(spot[0], spot[1], kind))
-    # Obstacles last, so they fit around the targets rather than crowding them
-    # out — a run that cannot reach a target is a broken arena, not a hard one.
-    for _ in range(CORRIDOR_OBSTACLES):
-        spot = _find_spot(rng, w, length, markers, start, sep_m=OBSTACLE_SEP_M)
-        if spot is not None:
-            markers.append(_obstacle(rng, spot))
     return World(
-        size_m=w, markers=markers, length_m=length, start=start, name="corridor"
+        size_m=CORRIDOR_W_M,
+        markers=markers,
+        length_m=CORRIDOR_L_M,
+        start=CORRIDOR_START,
+        name="corridor",
+        room_height_m=CORRIDOR_HEIGHT_M,
+        return_to_start=True,
     )
 
 
@@ -182,11 +184,18 @@ def with_fires(world: World, points) -> World:
     for p in points:
         x, y = (p["x"], p["y"]) if isinstance(p, dict) else (p[0], p[1])
         if is_free(float(x), float(y), w, d, kept, start):
-            kept.append(Marker(float(x), float(y), FIRE))
+            height = (
+                CORRIDOR_MARKER_HEIGHT_M
+                if world.name == "corridor"
+                else Marker(float(x), float(y), FIRE).height_m
+            )
+            kept.append(Marker(float(x), float(y), FIRE, height_m=height))
     return World(
         size_m=world.size_m,
         markers=kept,
         length_m=world.length_m,
         start=world.start,
         name=world.name,
+        room_height_m=world.room_height_m,
+        return_to_start=world.return_to_start,
     )

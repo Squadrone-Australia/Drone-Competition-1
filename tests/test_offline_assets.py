@@ -26,6 +26,31 @@ def test_three_js_is_vendored():
         assert (FRONTEND / "vendor" / name).stat().st_size > 10_000, name
 
 
+def test_blockly_media_is_vendored_and_injected():
+    # Blockly's default pathToMedia is blockly-demo.appspot.com. Left unset, the
+    # trashcan/zoom sprite sheet, the drag cursors and the click sounds are all
+    # network fetches, which is nothing at all on a venue's TELLO-xxxx Wi-Fi.
+    app_js = (FRONTEND / "app.js").read_text(encoding="utf-8")
+    assert 'media: "vendor/blockly-media/"' in app_js
+    assert (FRONTEND / "vendor" / "blockly-media" / "sprites.png").exists()
+
+
+def test_every_media_file_blockly_asks_for_is_vendored():
+    # Derived from the bundle rather than hardcoded, so a Blockly upgrade that
+    # renames an asset (12.x wants sprites.png, later releases sprites.svg) or
+    # adds one fails here instead of silently going back to the network.
+    bundle = (FRONTEND / "vendor" / "blockly.min.js").read_bytes().decode(
+        "utf-8", "replace"
+    )
+    wanted = set(re.findall(r"<<<PATH>>>/([\w.-]+\.\w+)", bundle))
+    wanted |= set(re.findall(r"\$\{a\}([\w.-]+\.\w+)", bundle))
+    wanted |= set(re.findall(r'url:\s*"([\w.-]+\.\w+)"', bundle))
+    assert wanted, "no media references found - did the bundle format change?"
+    media = FRONTEND / "vendor" / "blockly-media"
+    missing = sorted(n for n in wanted if not (media / n).exists())
+    assert not missing, f"Blockly media not vendored (breaks offline use): {missing}"
+
+
 def test_the_import_map_points_at_the_vendored_three():
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     assert '"three": "./vendor/three.module.min.js"' in html
@@ -74,3 +99,21 @@ def test_auto_calibration_is_reachable_from_the_dialog():
     assert '"vision_auto"' in js
     assert "message.roi" in js  # the sampled region is drawn back
     assert 'src="calibration.js?v=' in html
+
+
+def test_the_workspace_is_buffered_and_restored_on_load():
+    # The buffer is the only thing standing between a student and a workspace
+    # thrown away by a closed tab, so the wiring is asserted here rather than
+    # left to a manual check: buffer.js must be served, it must load before
+    # app.js (which restores as it injects Blockly), and app.js must still seed
+    # the `start` hat when a restore does not bring one - it is not in the
+    # toolbox, so a workspace without it cannot be repaired by dragging.
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    app_js = (FRONTEND / "app.js").read_text(encoding="utf-8")
+    assert 'src="buffer.js?v=' in html
+    assert html.index('src="buffer.js') < html.index('src="app.js')
+    assert "window.COMP1_BUFFER.restore(workspace)" in app_js
+    assert 'workspace.getBlocksByType("start", false).length === 0' in app_js
+    assert "window.COMP1_BUFFER.capture(workspace)" in app_js
+    # A tab closed inside the debounce window must still write the last edit.
+    assert '"pagehide"' in app_js

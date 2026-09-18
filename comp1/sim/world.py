@@ -6,7 +6,7 @@ FIRE = "fire"
 # cannot tell the two apart — that is the point. Distinguishing them (the
 # destination is the one at the end of the corridor) is the student's problem.
 DESTINATION = "destination"
-DISTRACTOR_KINDS = ["red_square", "blue_circle", "green_triangle", "yellow_square"]
+DISTRACTOR_KINDS = ["green_triangle", "black_square", "green_circle", "black_triangle"]
 # Free-standing obstacles: the same printed shapes, but solid. The detector sees
 # them exactly the way it sees a wall distractor -- as "not a red circle", which
 # is the whole definition -- and SimDrone will not let the drone fly through one.
@@ -62,6 +62,8 @@ class World:
     length_m: float | None = None  # y extent; None -> square
     start: tuple | None = None  # (x, y) start pad; None -> centre
     name: str = "arena"
+    room_height_m: float = 2.8
+    return_to_start: bool = False
 
     @classmethod
     def random(cls, seed=None, n_fires=3, n_distractors=4, size_m=4.0):

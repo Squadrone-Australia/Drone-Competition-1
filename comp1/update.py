@@ -21,9 +21,9 @@ import json
 import subprocess
 import sys
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from .paths import updates_dir
 
@@ -42,11 +42,14 @@ DOWNLOAD_TIMEOUT_S = 600.0
 #:
 #: ``/CLOSEAPPLICATIONS`` alone is not enough. It asks the Restart Manager to
 #: close us, and the Restart Manager closes a GUI application by posting to its
-#: top-level window — which a windowed-but-window-less server process does not
-#: have. Setup then reports "some applications could not be shut down" and, with
-#: message boxes suppressed, aborts. ``/FORCECLOSEAPPLICATIONS`` makes it
-#: terminate us instead, which is safe precisely because ``install_update``
-#: refuses to run while anything is flying.
+#: top-level window. Running behind a browser tab there is no such window, so
+#: Setup reports "some applications could not be shut down" and, with message
+#: boxes suppressed, aborts. ``/FORCECLOSEAPPLICATIONS`` makes it terminate us
+#: instead, which is safe precisely because ``install_update`` refuses to run
+#: while anything is flying. The native window does give us a top-level window,
+#: and its close handler stands aside for an install in progress so the polite
+#: path can work — but the force switch stays, because the browser is still a
+#: front door and a renderer that has already died has no window either.
 #:
 #: ``/RELAUNCH`` is ours, read by the RelaunchRequested check in comp1.iss: with
 #: the app force-closed rather than politely shut down, the Restart Manager has

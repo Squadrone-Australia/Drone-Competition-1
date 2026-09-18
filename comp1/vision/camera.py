@@ -21,19 +21,19 @@ class CameraIntrinsics:
     f_norm: float  # focal length in pixels / frame width
 
     @classmethod
-    def from_hfov(cls, hfov_deg: float) -> "CameraIntrinsics":
+    def from_hfov(cls, hfov_deg: float) -> CameraIntrinsics:
         return cls(f_norm=0.5 / math.tan(math.radians(hfov_deg) / 2))
 
     @classmethod
     def from_dfov(
         cls, dfov_deg: float, aspect_w: float = 4, aspect_h: float = 3
-    ) -> "CameraIntrinsics":
+    ) -> CameraIntrinsics:
         # half the sensor diagonal, in units of frame widths
         half_diag = math.hypot(1.0, aspect_h / aspect_w) / 2
         return cls(f_norm=half_diag / math.tan(math.radians(dfov_deg) / 2))
 
     @classmethod
-    def from_focal_px(cls, focal_px: float, frame_width: int) -> "CameraIntrinsics":
+    def from_focal_px(cls, focal_px: float, frame_width: int) -> CameraIntrinsics:
         return cls(f_norm=focal_px / frame_width)
 
     # --- derived field of view ---

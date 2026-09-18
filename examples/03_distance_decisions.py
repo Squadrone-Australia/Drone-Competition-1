@@ -22,7 +22,7 @@ drone.takeoff()
 while not drone.sees_target():
     drone.turn_right(20)
 
-for step in range(30):
+for _step in range(30):
     if not drone.sees_target():
         print("lost it — turning back")
         drone.turn_left(20)

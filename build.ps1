@@ -42,9 +42,26 @@ if (-not $SkipTests) {
     }
 }
 
+# The window is the shipping front door, and a build without it does not fail -
+# it quietly opens a browser instead, which is exactly the symptom nobody
+# notices until a venue. So check the venv has it before spending ten minutes
+# building, and check it survived the bundle afterwards.
+& $venvPython -c "import webview"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "pywebview is missing from $venvDir. Run: $venvPython -m pip install -e '.[dev]'"
+    exit 1
+}
+
 Write-Host "==> PyInstaller (onedir)..." -ForegroundColor Cyan
 & $venvPython -m PyInstaller comp1.spec --noconfirm
 if ($LASTEXITCODE -ne 0) { Write-Error "PyInstaller failed."; exit 1 }
+
+# pywebview's own PyInstaller hook is what puts these there. A miss is silent at
+# build time and only shows up as a browser opening on a student's laptop.
+if (-not (Test-Path "dist\comp1\_internal\webview\lib")) {
+    Write-Error "The bundle has no webview\lib - the native window would fall back to a browser."
+    exit 1
+}
 
 # Inno Setup is a separate download (jrsoftware.org/isdl.php) and is not on PATH
 # by default, so look where it actually installs before giving up. Newest major

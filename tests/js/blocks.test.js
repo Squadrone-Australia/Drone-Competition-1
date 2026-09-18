@@ -60,8 +60,17 @@ test("a beginner program looks exactly like it did under v1, but version 2", () 
 });
 
 test("plain ops carry only id and op", () => {
-  for (const op of ["takeoff", "land", "approach_marker", "mark_found", "end_mission"])
+  for (const op of ["takeoff", "land", "approach_marker", "end_mission"])
     assert.deepStrictEqual(run(fake(op, { id: "x" })).blocks, [{ id: "x", op }]);
+});
+
+test("signal target found carries the chosen signal, defaulting to a flip", () => {
+  assert.deepStrictEqual(
+    run(fake("mark_found", { id: "x", fields: { SIGNAL: "spin" } })).blocks,
+    [{ id: "x", op: "mark_found", signal: "spin" }]);
+  // a workspace saved before the dropdown existed has no SIGNAL field at all
+  assert.deepStrictEqual(run(fake("mark_found", { id: "x" })).blocks,
+    [{ id: "x", op: "mark_found", signal: "flip" }]);
 });
 
 test("student-facing block text consistently calls markers targets", () => {
@@ -83,7 +92,7 @@ test("Python translation uses the public Drone API and keeps block ids", () => {
   assert.match(python, /# block takeoff \[launch\]\s+drone\.takeoff\(\)/);
   assert.match(python, /# block move \[fly\]\s+drone\.forward\(50\)/);
   assert.match(python, /drone\.turn_right\(90\)/);
-  assert.match(python, /drone\.mark_found\(\)/);
+  assert.match(python, /drone\.mark_found\("flip"\)/);
   assert.match(python, /drone\.land\(\)/);
 });
 
@@ -151,15 +160,15 @@ test("repeat_until / while / if take a Value cond", () => {
   assert.deepStrictEqual(
     run(fake("repeat_until", { id: "u", inputs: { COND: cond(), BODY: body } })).blocks,
     [{ id: "u", op: "repeat_until", cond: { kind: "sensor", sensor: "target_visible" },
-       body: [{ id: "m", op: "mark_found" }] }]);
+       body: [{ id: "m", op: "mark_found", signal: "flip" }] }]);
   assert.deepStrictEqual(
     run(fake("while_block", { id: "w", inputs: { COND: cond(), BODY: body } })).blocks,
     [{ id: "w", op: "while", cond: { kind: "sensor", sensor: "target_visible" },
-       body: [{ id: "m", op: "mark_found" }] }]);
+       body: [{ id: "m", op: "mark_found", signal: "flip" }] }]);
   assert.deepStrictEqual(
     run(fake("if_block", { id: "i", inputs: { COND: cond(), BODY: body } })).blocks,
     [{ id: "i", op: "if", cond: { kind: "sensor", sensor: "target_visible" },
-       body: [{ id: "m", op: "mark_found" }], else_body: [] }]);
+       body: [{ id: "m", op: "mark_found", signal: "flip" }], else_body: [] }]);
 });
 
 test("if keeps its else branch", () => {

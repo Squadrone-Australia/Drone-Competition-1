@@ -103,8 +103,12 @@ const BLOCKS = [
   { type: "approach_marker", message0: "approach target and stop", colour: C.mission,
     tooltip: "Chooses the closest visible target, flies toward it, and stops at the configured safe distance.",
     previousStatement: null, nextStatement: null },
-  { type: "mark_found", message0: "signal target found 🎉", colour: C.mission,
-    tooltip: "Performs the required signal and adds one to the targets-found count.",
+  { type: "mark_found", message0: "signal target found 🎉 by %1", colour: C.mission,
+    args0: [{ type: "field_dropdown", name: "SIGNAL", options: [
+      ["flipping", "flip"], ["spinning 360°", "spin"]] }],
+    tooltip: "Performs the required signal and adds one to the targets-found count. " +
+             "The drone refuses to flip on a low battery, and would then count a find " +
+             "it never signalled — so a flip below the safe charge turns into a spin instead.",
     previousStatement: null, nextStatement: null },
   { type: "sense_found_count", message0: "targets found so far", colour: C.mission,
     tooltip: "The number of times this program has used 'signal target found'.",
@@ -317,9 +321,11 @@ function blockJson(b, loopDepth = 0) {
   const base = { id: b.id };
   switch (b.type) {
     case "takeoff": case "land": case "approach_marker":
-    case "avoid_obstacle":
-    case "mark_found": case "end_mission":
+    case "avoid_obstacle": case "end_mission":
       return { ...base, op: b.type };
+    case "mark_found":
+      // a workspace saved before the dropdown existed has no SIGNAL field
+      return { ...base, op: "mark_found", signal: b.getFieldValue("SIGNAL") || "flip" };
     case "break": case "continue":
       if (loopDepth === 0) warn(`'${b.type}' must be placed inside a loop`);
       return { ...base, op: b.type };
@@ -445,7 +451,9 @@ function pythonBlocks(blocks, depth = 0) {
       case "flip": add(`drone.flip(${JSON.stringify(block.dir)})`); break;
       case "approach_marker": add("drone.approach_target()"); break;
       case "avoid_obstacle": add("drone.avoid_obstacle()"); break;
-      case "mark_found": add("drone.mark_found()"); break;
+      case "mark_found":
+        add(`drone.mark_found(${JSON.stringify(block.signal || "flip")})`);
+        break;
       case "end_mission":
         add("drone.land()");
         add("raise SystemExit  # finish without running later blocks");

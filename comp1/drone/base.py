@@ -41,13 +41,21 @@ class DroneAdapter(ABC):
     #: they left it is how a drone gets flown into a wall.
     can_reset: bool = False
 
+    #: How long one command on this adapter may block before the interpreter
+    #: abandons it, in seconds. The simulated adapters answer immediately and
+    #: will never reach it; :class:`~comp1.drone.tello.TelloDrone` overrides it
+    #: from its :class:`~comp1.drone.config.FlightConfig`. It exists because a
+    #: command that never returns is a mission that can never be stopped — the
+    #: stop flag is only read between blocks.
+    command_timeout_s: float = 45.0
+
     #: Whether the adapter currently believes it can still reach its aircraft.
     #: Only hardware can lose a link, so the simulated adapters leave this True
     #: forever; :class:`~comp1.drone.tello.TelloDrone` clears it when the
     #: aircraft stops answering, and the server's watchdog reconnects.
     link_ok: bool = True
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: B027 — a no-op default, not an abstract hook
         """Release every OS resource the adapter holds and stop its threads.
 
         The server calls this whenever an adapter stops being the active drone.
@@ -71,7 +79,7 @@ class DroneAdapter(ABC):
         self.close()
         self.connect()
 
-    def reset(self) -> None:
+    def reset(self) -> None:  # noqa: B027 — a no-op default, not an abstract hook
         """Put a simulated drone back on its start pad.
 
         Called before every run so a program always starts from the same state

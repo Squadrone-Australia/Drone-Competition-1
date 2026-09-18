@@ -4,7 +4,7 @@ import time
 
 from ..drone.base import DroneAdapter
 from . import scenery
-from .render import MARKER_HEIGHT, WALL_HEIGHT_M, draw_minimap, render
+from .render import MARKER_HEIGHT, draw_minimap, render
 
 ANIM_FPS = 60  # pose updates per second while a command is in flight
 MAX_ALT_M = 2.5
@@ -33,6 +33,11 @@ _FLIP_ALIAS = {"b": "back", "f": "forward", "l": "left", "r": "right"}
 
 def _flip_key(direction: str) -> str:
     return _FLIP_ALIAS.get(direction, direction)
+
+
+def _within(v: float, lo: float, hi: float, tol: float = 1e-9) -> bool:
+    """Whether ``v`` is inside ``[lo, hi]``, ignoring float dust."""
+    return lo - tol <= v <= hi + tol
 
 
 def _smoothstep(t: float) -> float:
@@ -203,6 +208,15 @@ class SimDrone(DroneAdapter):
             # opposite of the lesson.
             self.crashed = True
 
+        # A wall is an obstacle too. `at` clamps the path into the room box, so
+        # without this a student could fly 18 m across a 4 m arena, be quietly
+        # parked against the wall, and be told the mission succeeded -- while the
+        # same plan puts a real Tello into the brickwork. Only the horizontal box
+        # counts: the altitude limits above are deliberate soft ceilings, not
+        # surfaces to hit.
+        if not _within(x0 + dx, x_lo, x_hi) or not _within(y0 + dy, y_lo, y_hi):
+            self.crashed = True
+
         def step(t):
             if limit_t is not None:
                 t = min(t, limit_t)
@@ -269,10 +283,12 @@ class SimDrone(DroneAdapter):
         # a back-flip as a barrel roll and made three of the four identical.
         #
         # It also sags in the flip's own direction and comes back. A real Tello
-        # translates through a flip; TelloDrone undoes that with a compensating
-        # move afterwards (see FlightConfig.flip_recover_cm), and showing the sag
-        # here is what makes the two views agree about a lurch the aircraft
-        # genuinely performs. sin(pi*t) peaks mid-flip and returns to zero, so
+        # translates through a flip, and showing the sag here is what makes the
+        # two views agree about a lurch the aircraft genuinely performs. The sim
+        # always nets to zero: on hardware the compensating move is opt-in (see
+        # FlightConfig.flip_recover_cm, 0 by default, because it spends altitude
+        # the flip already cost), but the signal must not move the mission in
+        # the view students learn from. sin(pi*t) peaks mid-flip and returns to zero, so
         # the end pose is exactly the start pose — the flip is the *signal*
         # (requirements §2.1), never a way to travel.
         key = _flip_key(direction)
@@ -341,7 +357,8 @@ class SimDrone(DroneAdapter):
             "width_m": self.world.width_m,
             "depth_m": self.world.depth_m,
             "start": list(self.world.start_xy),
-            "wall_height_m": WALL_HEIGHT_M,
+            "wall_height_m": self.world.room_height_m,
+            "return_to_start": self.world.return_to_start,
             "markers": [
                 {
                     "x": m.x,

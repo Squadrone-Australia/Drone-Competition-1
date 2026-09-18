@@ -31,7 +31,10 @@ print("found one:", drone.target())
 
 if drone.approach_target():  # True once it is holding at a safe distance
     print(f"in position, {drone.distance_cm():.0f} cm away")
-    drone.mark_found()  # the victory signal the judges look for
+    # The victory signal the judges look for. mark_found("spin") turns a full
+    # circle instead of flipping — and a flip on a low battery becomes a spin
+    # by itself, because the aircraft would simply refuse it.
+    drone.mark_found()
     print("targets marked:", drone.found_count)
 else:
     print("lost sight of the target on the way in")

@@ -77,7 +77,7 @@ class Detection:
         target: Target | None,
         targets: list | None = None,
         obstacles: list | None = None,
-    ) -> "Detection":
+    ) -> Detection:
         if target is None:
             return cls(found=False, targets=targets or [], obstacles=obstacles or [])
         return cls(

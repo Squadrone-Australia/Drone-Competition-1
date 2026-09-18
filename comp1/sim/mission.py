@@ -4,8 +4,8 @@
 :mod:`comp1.api` increment it wherever the student calls it, because the drone
 itself has no way to know whether it was right. The simulator does know, so the
 server scores it here: a signal only counts when the drone was actually beside
-an un-credited target, and the mission succeeds when every target has been
-credited *and* the drone has landed at the destination sign.
+an un-credited target. A mission may finish at a destination sign or, for the
+competition layout, back at its take-off point.
 
 This is built from :meth:`DroneAdapter.scene` and fed :meth:`DroneAdapter.pose`
 — the same one-way display feeds the browser's 3D view runs on. It is a
@@ -27,7 +27,16 @@ class MissionScorer:
         markers = scene.get("markers") or []
         self.fires = [(m["x"], m["y"]) for m in markers if m["kind"] == "fire"]
         dest = next((m for m in markers if m["kind"] == "destination"), None)
-        self.destination = (dest["x"], dest["y"]) if dest else None
+        start = scene.get("start")
+        if dest:
+            self.destination = (dest["x"], dest["y"])
+            self.goal = "destination"
+        elif scene.get("return_to_start") and start:
+            self.destination = (start[0], start[1])
+            self.goal = "start"
+        else:
+            self.destination = None
+            self.goal = None
         self.credited: set[int] = set()
         # Latched, not read live: the drone can be pushed clear of an obstacle by
         # a later command, but the mission still hit it.
@@ -77,9 +86,9 @@ class MissionScorer:
     def state(self, pose) -> dict:
         """The mission panel's whole view of the world.
 
-        A scenery with no destination sign (the square arena) succeeds on the
-        targets alone — otherwise the original search mission could never be
-        won once scoring existed.
+        A scenery with no return goal (the square arena) succeeds on the targets
+        alone — otherwise the original search mission could never be won once
+        scoring existed.
         """
         self.note_pose(pose)
         arrived = self.at_destination(pose)
@@ -103,6 +112,7 @@ class MissionScorer:
             "total": self.total,
             "at_destination": arrived,
             "needs_destination": self.destination is not None,
+            "goal": self.goal,
             "crashed": self.crashed,
             "state": "crashed" if self.crashed else ("success" if success else "flying"),
         }

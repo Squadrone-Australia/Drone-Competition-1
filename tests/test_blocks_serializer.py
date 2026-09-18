@@ -17,10 +17,27 @@ ROOT = Path(__file__).parent.parent
 JS_DIR = ROOT / "tests" / "js"
 
 
-def test_blocks_serializer_js():
+def _node_or_skip():
+    """The node binary, or a skip.
+
+    Two separate things can be missing. Node itself is optional -- a Python-only
+    contributor should still get a green ``pytest -q``. So is ``npm ci``, which
+    is a one-off step the README asks for and CI only runs in the js-test job:
+    buffer.test.js and calibration.test.js import jsdom, and without
+    node_modules they fail with MODULE_NOT_FOUND rather than a real
+    disagreement about the wire format. The js-test job is the gate that always
+    has both; this is a convenience for anyone running the Python suite.
+    """
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not on PATH")
+    if not (ROOT / "node_modules" / "jsdom").is_dir():
+        pytest.skip("node_modules is not installed -- run `npm ci` for jsdom")
+    return node
+
+
+def test_blocks_serializer_js():
+    node = _node_or_skip()
     tests = sorted(JS_DIR.glob("*.test.js"))
     assert tests, "no node tests found in tests/js"
     # node's reporter emits UTF-8 (including box-drawing characters), so the
@@ -38,9 +55,7 @@ def test_blocks_serializer_js():
 
 
 def test_display_python_is_valid_python_syntax():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node is not on PATH")
+    node = _node_or_skip()
     program = {
         "version": 2,
         "blocks": [
@@ -54,7 +69,9 @@ def test_display_python_is_valid_python_syntax():
                         "id": "if",
                         "op": "if",
                         "cond": {"kind": "sensor", "sensor": "target_visible"},
-                        "body": [{"id": "found", "op": "mark_found"}],
+                        "body": [
+                            {"id": "found", "op": "mark_found", "signal": "flip"}
+                        ],
                         "else_body": [
                             {"id": "turn", "op": "rotate", "dir": "cw", "deg": 30}
                         ],

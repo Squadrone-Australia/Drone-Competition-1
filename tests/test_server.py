@@ -149,7 +149,14 @@ def test_invalid_program_rejected():
             }
         )
         err = collect_until(ws, "error")
-        assert "invalid" in err["message"].lower()
+        # The message is read by a student, so it must name what is wrong rather
+        # than dump the raw ValidationError (which is four lines of
+        # `[type=..., input_value=...]` and a link to pydantic's docs).
+        assert "cannot run" in err["message"]
+        assert "takeoff" in err["message"], "it should say what is allowed instead"
+        assert "pydantic" not in err["message"].lower()
+        assert "input_value" not in err["message"].lower()
+        assert "\n" not in err["message"], "one line, not a stack of them"
 
 
 def test_scene_is_sent_once_on_connect():
@@ -203,6 +210,12 @@ def test_battery_is_not_polled_while_a_mission_is_running(monkeypatch):
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         collect_until(ws, "battery")
         app.state.interp = object()  # stands in for a flying program
+        # A poll that had already passed the `interp is None` check is still in
+        # flight on a worker thread, and lands after this line. Let it settle
+        # before taking the baseline, or the count moves once for a poll that
+        # started before the mission did and the test fails for the one reason
+        # it is not looking for.
+        time.sleep(0.05)
         polled = drone.battery_polls
         time.sleep(0.1)  # many poll intervals
         assert drone.battery_polls == polled
@@ -481,9 +494,8 @@ def test_reconnect_rebuilds_the_tello_without_leaving_the_hardware():
 def test_a_dropped_link_reconnects_by_itself(monkeypatch):
     """Nothing in the protocol announces a reboot, so the watchdog is the only
     thing between a student and restarting the whole program."""
-    from comp1.sim.drone import SimDrone
-
     import comp1.server as server_module
+    from comp1.sim.drone import SimDrone
 
     monkeypatch.setattr(server_module, "LINK_CHECK_INTERVAL", 0.01)
 
@@ -579,6 +591,7 @@ def test_switching_scenery_rebuilds_the_arena_and_re_sends_it():
     """`scene` used to be a connect-only message. It is not any more — a picker
     that changes the room without telling the browser leaves both views drawing
     the old one."""
+    from comp1.sim import scenery
     from comp1.sim.drone import SimDrone
 
     drone = SimDrone(seed=1, delay=0)
@@ -587,7 +600,9 @@ def test_switching_scenery_rebuilds_the_arena_and_re_sends_it():
         collect_until(ws, "sceneries")
         ws.send_json({"type": "scenery", "name": "corridor"})
         scene = collect_where(ws, "scene", lambda m: m["scene"]["name"] == "corridor")
-        assert scene["scene"]["depth_m"] > scene["scene"]["width_m"] * 3
+        # corridor is the fixed competition layout now, not a long hall
+        assert scene["scene"]["width_m"] == scenery.CORRIDOR_W_M
+        assert scene["scene"]["depth_m"] == scenery.CORRIDOR_L_M
     assert drone.world.name == "corridor"
     assert (drone.x, drone.y) == drone.world.start_xy
 
@@ -608,12 +623,14 @@ def test_editing_the_layout_re_sends_the_arena():
         )
         fires = [k for k in scene["scene"]["markers"] if k["kind"] == "fire"]
         assert len(fires) <= 1
-        # whatever survived validation, the destination is untouched
-        assert any(k["kind"] == "destination" for k in scene["scene"]["markers"])
+        # whatever survived validation, the fixed decoys are untouched
+        decoys = [k for k in scene["scene"]["markers"] if k["kind"] != "fire"]
+        assert len(decoys) == scenery.CORRIDOR_DISTRACTORS
     assert scenery.MIN_FIRE_SEP_M > 0
 
 
-def test_clearing_the_layout_leaves_the_destination_alone():
+def test_clearing_the_layout_leaves_the_decoys_alone():
+    from comp1.sim import scenery
     from comp1.sim.drone import SimDrone
 
     drone = SimDrone(scenery_name="corridor", seed=1, delay=0)
@@ -627,7 +644,10 @@ def test_clearing_the_layout_leaves_the_destination_alone():
             lambda m: not [k for k in m["scene"]["markers"] if k["kind"] == "fire"],
         )
     assert drone.world.fires == []
-    assert drone.world.destination is not None
+    # corridor has no destination marker any more — it returns to the start pad
+    assert drone.world.destination is None
+    assert drone.world.return_to_start is True
+    assert len(drone.world.markers) == scenery.CORRIDOR_DISTRACTORS
 
 
 def test_arena_edits_are_refused_while_a_mission_is_running():

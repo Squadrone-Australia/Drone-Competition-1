@@ -1,0 +1,119 @@
+# Build the shipping Windows installer and attach it to a DRAFT GitHub release.
+#
+# This is build.ps1 on a runner. It exists because the in-app updater
+# (comp1/update.py) looks the installer up *by filename* inside SHA256SUMS.txt
+# and refuses any digest that does not match: a release missing that file, or
+# carrying a stale one, is a release no installed copy can ever update to.
+#
+# The release is left as a draft on purpose. Check both assets, then publish it
+# by hand.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # Build and verify the installer without creating a release, to test changes
+  # to this workflow before a real tag depends on them.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same version CI tests on, and the one developers run locally. It
+      # was pinned to 3.12 while PyInstaller and the OpenCV wheels were better
+      # trodden there; CI's 3.14 cell is now the only cell, so building on
+      # anything else would ship an interpreter nothing has tested.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - run: pip install -e .[dev]
+
+      # comp1/__init__.py is the single source of truth for the version, and
+      # the updater finds a release by its tag. If the two disagree, the
+      # installer is unreachable — so fail here, before anything is built.
+      - name: Resolve the version and check it against the tag
+        id: version
+        shell: pwsh
+        run: |
+          $versionLine = Select-String -Path "comp1\__init__.py" -Pattern '__version__ = "([^"]+)"'
+          $version = $versionLine.Matches[0].Groups[1].Value
+          Write-Host "comp1 version: $version"
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $tag = $env:GITHUB_REF_NAME
+            if ($tag -ne "v$version") {
+              Write-Error "Tag $tag does not match comp1.__version__ ($version). Expected v$version."
+              exit 1
+            }
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # The same gate build.ps1 enforces: never build an installer from a red tree.
+      - name: Run the test suite
+        run: pytest -q
+
+      - name: PyInstaller (onedir)
+        run: pyinstaller comp1.spec --noconfirm
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) {
+            $candidates = @()
+            foreach ($major in 7, 6) {
+              $candidates += "$env:ProgramFiles\Inno Setup $major\ISCC.exe"
+              $candidates += "${env:ProgramFiles(x86)}\Inno Setup $major\ISCC.exe"
+            }
+            $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) { Write-Error "Inno Setup not found after install."; exit 1 }
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" "installer\comp1.iss"
+          if ($LASTEXITCODE -ne 0) { Write-Error "Inno Setup failed."; exit 1 }
+
+      # The updater looks the installer up *by name* in this file, so the format
+      # is the plain "<hash>  <filename>" one, with no path in front of the name.
+      # Kept byte-for-byte in step with build.ps1.
+      - name: Write SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $setup = "dist\comp1-Setup-${{ steps.version.outputs.version }}.exe"
+          if (-not (Test-Path $setup)) { Write-Error "Expected $setup, but it is not there."; exit 1 }
+          $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
+          $name = Split-Path $setup -Leaf
+          "$hash  $name" | Out-File -FilePath "dist\SHA256SUMS.txt" -Encoding ascii
+          Write-Host "SHA-256 $hash  $name"
+
+      # On workflow_dispatch there is no tag to release against, so just keep
+      # the artifacts for inspection.
+      - name: Upload the build for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: comp1-installer-${{ steps.version.outputs.version }}
+          path: |
+            dist/comp1-Setup-*.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Create the draft release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$env:GITHUB_REF_NAME" `
+            --draft `
+            --title "Squadrone Drone Coder ${{ steps.version.outputs.version }}" `
+            --notes "Draft build from $env:GITHUB_REF_NAME. Check both assets, then publish." `
+            "dist\comp1-Setup-${{ steps.version.outputs.version }}.exe" `
+            "dist\SHA256SUMS.txt"

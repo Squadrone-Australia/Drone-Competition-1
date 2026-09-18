@@ -47,6 +47,11 @@ version_resource = VSVersionInfo(
     ],
 )
 
+# pywebview needs nothing declared here: it ships a PyInstaller hook of its own
+# (webview/__pyinstaller), wired up through the `pyinstaller40` entry point, and
+# that hook is what collects webview/lib/*.dll — WebView2Loader.dll included —
+# and webview/js. build.ps1 checks the result rather than trusting it, because
+# the failure mode of a miss is an exe that quietly opens a browser instead.
 a = Analysis(
     ["comp1/launcher.py"],
     datas=[("comp1/frontend", "comp1/frontend")],

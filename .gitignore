@@ -5,8 +5,7 @@ build/
 dist/
 *.egg-info/
 /node_modules
-# Agent tooling (kept local)
+# Agent tooling (kept local) - CLAUDE.md is tracked on purpose, see the file itself
 .agents/
 .claude/
-CLAUDE.md
 AGENTS.md

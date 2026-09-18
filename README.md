@@ -1,5 +1,7 @@
 # Drone Competition
 
+[![CI](https://github.com/Squadrone-Australia/Drone-Competition-1/actions/workflows/ci.yml/badge.svg)](https://github.com/Squadrone-Australia/Drone-Competition-1/actions/workflows/ci.yml)
+
 This is a program that lets students fly a small drone (a DJI Tello) and teach it to search a
 room, find red targets, and signal each one it finds - by dragging together colourful
 puzzle-piece blocks, like Scratch. No coding experience is needed to get started, and there's a
@@ -12,7 +14,8 @@ or helpers — with no assumption you've used a terminal or installed developer 
 
 ## What you'll end up with
 
-A local website that opens in your normal web browser (Chrome, Edge, Firefox). It shows:
+A program that opens in a window of its own. (On a machine that cannot show one, it opens in
+your normal web browser instead — same screen, same everything.) It shows:
 
 - A **block-coding area** where students drag blocks together to build a flight plan.
 - A **live camera view** — either a simulated drone flying around a virtual room, or the video
@@ -42,23 +45,24 @@ page.)
    `SHA256SUMS.txt` you can compare against `Get-FileHash comp1-Setup-<version>.exe`.)
 3. Follow the prompts. It installs for the current user only, so it does **not** ask for an
    administrator password.
-4. Start it from the **Start Menu** entry (or the desktop shortcut, if you asked for one). Your
-   web browser opens on the block-coding screen.
+4. Start it from the **Start Menu** entry (or the desktop shortcut, if you asked for one). The
+   block-coding screen opens.
 
 There is no black terminal window and nothing else to install. To remove it later, use
 **Settings → Apps** in Windows as you would for any other program.
 
 ### Closing the program
 
-Drone Coder has no window of its own — the web page **is** the program's window. So there are two
-ways to finish:
-
-- Click **Close program** at the top of the page. That stops it immediately, and the page says so.
-- Or just close the browser tab. About half a minute after the last Drone Coder tab is gone, the
-  program notices nobody is watching and closes itself.
+- Close the window, the way you close anything else. If a flight is still going, it asks first and
+  lands the drone before it closes.
+- Or click **Close program** at the top of the page. That stops it immediately, and the page says
+  so. (This one asks you to stop the flight yourself first.)
+- If you are using it in a browser tab instead of a window, closing the tab is enough: about half
+  a minute after the last Drone Coder tab is gone, the program notices nobody is watching and
+  closes itself.
 
 Refreshing the page, or having two tabs open, doesn't close anything — and it will never close
-itself in the middle of a flight.
+itself in the middle of a flight without asking.
 
 If you click the Start Menu shortcut while it's already running, it tells you so rather than
 starting a second copy.
@@ -77,7 +81,7 @@ else — the check simply finds nothing and says nothing. You can also turn it o
 
 ## Using the program
 
-When your browser opens, you'll see the block-coding screen. A few things to try:
+When Drone Coder opens, you'll see the block-coding screen. A few things to try:
 
 - Drag blocks from the left-hand palette under **🚁 when mission starts** to build a flight
   plan — for example, take off, turn, move forward, check whether a marker is visible.
@@ -86,6 +90,13 @@ When your browser opens, you'll see the block-coding screen. A few things to try
 - The right-hand panel shows what the drone "sees" through its camera, with the detected red
   marker circled, plus how far away it is and which direction to turn.
 - The big **EMERGENCY STOP** button immediately halts the drone, no matter what it's doing.
+
+Your blocks are kept for you. There's no Save button and nothing to remember: the program
+quietly keeps a copy of whatever is on the block screen, and puts it back the next time you
+open Drone Coder — after a reload, after closing the window, or after the computer has been
+turned off. The copy lives on that computer, with whatever opened it, so blocks built in the
+Drone Coder window come back in the window, and blocks built in a browser tab come back in that
+browser — not in each other, and not on a different machine.
 
 By default the drone is a **simulator** — a virtual drone in a virtual room — so there's nothing
 to break and no real hardware needed. This is the best way to build and test a flight plan before
@@ -129,17 +140,23 @@ Click **More info**, then **Run anyway**. The warning is about the installer bei
 about anything it found. If the button isn't there at all, the computer is managed by the school
 and someone with admin rights has to allow it.
 
-**Nothing opens in the browser.**
+**Nothing opens.**
 Give it a few extra seconds the first time. If it still doesn't open, go to
-`http://localhost:8765` in your browser while the program is running.
+`http://localhost:8765` in your browser while the program is running — that reaches the same
+program, and always works.
+
+**It opens in a browser instead of its own window.**
+That's the fallback, and nothing is wrong: this computer doesn't have the Microsoft Edge WebView2
+runtime that the window needs. Everything works the same in the tab. Installing Edge (or the
+WebView2 runtime) brings the window back.
 
 **It says Drone Coder is already running.**
-It is — one copy serves the page, and a second would only fight it for the same address. Open
-`http://localhost:8765`, or close the running one first (**Close program** at the top of the page).
+It is — one copy serves the page, and a second would only fight it for the same address. Look for
+its window, open `http://localhost:8765`, or close the running one first.
 
 **I closed the tab but the program is still running.**
 Give it about half a minute: with the last tab gone it closes itself. Use **Close program** if you
-want it gone immediately.
+want it gone immediately. (Closing the Drone Coder *window* stops it straight away.)
 
 **It won't start and I can't see any error.**
 The program writes what happened to `%LOCALAPPDATA%\comp1\logs\comp1.log` — paste that path
@@ -196,13 +213,42 @@ node --test tests\js\blocks.test.js             # frontend serializer tests
 
 `--drone sim` flags: `--seed N` (repeatable arena), `--noise 0.05` (movement drift),
 `--scenery {arena,corridor}` (also switchable in the browser). Server flags: `--port`,
-`--no-browser`, `--no-check-updates`, `--idle-timeout N` (seconds after the last browser window
-closes before the program stops itself; `0` never stops). Default port `8765`. Anything not passed falls back to what
-the browser's Settings panel last saved, then to the code default.
+`--no-window` (use the system browser rather than a window of our own), `--no-browser` (open
+nothing at all), `--no-check-updates`, `--idle-timeout N` (seconds after the last window closes
+before the program stops itself; `0` never stops). Default port `8765`. Anything not passed falls
+back to what the Settings panel last saved, then to the code default.
+
+The window is [pywebview](https://pywebview.flowrl.com/) over the Edge WebView2 runtime, and it is
+the default front door wherever one can be opened. Everything else falls back to the browser —
+including the hub deployment in
+[docs/architecture/platform-options.md](docs/architecture/platform-options.md) §4, where students
+on Chromebooks reach one bridging laptop over the LAN. The window keeps its own profile under
+`%LOCALAPPDATA%\comp1\webview`, so its `localStorage` (the block buffer, saved vision profiles)
+is separate from any browser's.
+
+### Continuous integration
+
+Every push to `main` or `dev`, and every pull request, runs
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml): `ruff check` for lint, a fast updater-contract
+job, the pytest suite on Windows and Linux against Python 3.14 — the version the installer is built
+on — and the `node --test` frontend tests. Two things to know before you push:
+
+```powershell
+venv\Scripts\ruff check .               # the exact lint gate CI runs
+venv\Scripts\ruff check . --fix         # fix the mechanical ones (imports, unused names)
+```
+
+Lint settings live in `pyproject.toml` under `[tool.ruff]` — a 100-column budget and the `E,F,W,I,UP,B`
+rule sets. The CI job pins its ruff version, so bump both places together when you upgrade.
 
 ### Releasing
 
-`build.ps1` is the shipping path: it refuses to build from a tree whose tests fail, stamps the
+Pushing a tag `v<version>` runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which does everything `build.ps1` does on a Windows runner and attaches both assets to a **draft**
+GitHub release. It refuses to build if the tag disagrees with `comp1/__init__.py`. Review the draft,
+then publish it yourself — nothing is released automatically.
+
+`build.ps1` remains the local shipping path: it refuses to build from a tree whose tests fail, stamps the
 version from `comp1/__init__.py`, and produces `dist\comp1-Setup-<version>.exe` plus
 `dist\SHA256SUMS.txt`. Publish **both** on a GitHub release tagged `v<version>` — the in-app
 updater looks the installer up by name inside `SHA256SUMS.txt` and refuses to run one whose
@@ -240,8 +286,9 @@ containers.
 
 ### Requirements recap
 
-- **Python 3.11+** — the only hard requirement for running from source. The packaged installer
-  brings its own interpreter, so an installed copy needs nothing.
+- **Python 3.14+** — the only hard requirement for running from source, and the version CI tests
+  against and the installer is built on. The packaged installer brings its own interpreter, so an
+  installed copy needs nothing.
 - **Windows** with PowerShell is the primary target; Linux/macOS work with the POSIX commands
   above.
 - **No Node.js/npm needed to run the app** — Blockly and three.js are vendored under

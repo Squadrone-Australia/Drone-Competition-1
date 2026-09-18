@@ -1,9 +1,17 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "comp1"
 # Read from comp1/__init__.py so the package, the packaged exe and the
 # installer can never disagree about what version this is.
 dynamic = ["version"]
-requires-python = ">=3.11"
+# 3.14 is what CI tests and what the installer is built and frozen against, so
+# it is the only version this project can honestly claim to support. Kept in
+# step with the matrix in .github/workflows/ci.yml and the setup-python pin in
+# release.yml -- a floor below those is a version nothing has ever run.
+requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.140",
     "uvicorn[standard]>=0.51",
@@ -11,14 +19,30 @@ dependencies = [
     "djitellopy>=2.5",
     "opencv-python>=5.0",
     "numpy>=2.5",
+    # The native window. Windows-only because Windows is the only platform with
+    # a shipping installer, and because the Linux backends need GTK/Qt system
+    # packages pip cannot supply — a dependency that could never run there.
+    # comp1/window.py imports it lazily and falls back to the browser when it is
+    # absent, so a macOS or Linux checkout that installs it by hand gets the
+    # window anyway, and one that does not loses nothing.
+    "pywebview>=6.2; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9", "pytest-asyncio>=1.4", "httpx>=0.28", "pyinstaller>=6.21"]
+dev = ["pytest>=9", "pytest-asyncio>=1.4", "httpx>=0.28", "pyinstaller>=6.21", "ruff>=0.16"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+# The code is written to roughly a 100-column budget; ruff's default 88 would
+# flag dozens of lines that are fine as they are.
+line-length = 100
+extend-exclude = ["comp1/frontend/vendor", "node_modules", ".conda", "venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.setuptools.dynamic]
 version = {attr = "comp1.__version__"}
