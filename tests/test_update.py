@@ -6,7 +6,6 @@ socket — the suite is hardware-free and network-free by the same rule.
 
 import hashlib
 import json
-import subprocess
 
 import pytest
 
@@ -244,14 +243,25 @@ def test_launch_installer_keeps_the_switches_the_upgrade_needs():
     }
 
 
-def test_launch_installer_detaches_from_this_process(popen, tmp_path):
+def test_launch_installer_detaches_from_this_process(popen, tmp_path, monkeypatch):
     # The installer's first act is to close us. A child in our process group
     # would be taken down with us and the upgrade would never happen.
+    #
+    # Both flags are injected rather than read off subprocess. They only exist
+    # on Windows -- launch_installer itself reaches them through
+    # ``getattr(..., 0)`` for that reason -- so reading them here would raise
+    # on the Linux cells. Injecting their real Windows values instead makes
+    # the assertion mean the same thing on every platform: reading them would
+    # leave the Linux expectation as 0 == 0, which passes whether or not the
+    # flags were ever combined.
+    monkeypatch.setattr(update.subprocess, "DETACHED_PROCESS", 0x8, raising=False)
+    monkeypatch.setattr(
+        update.subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200, raising=False
+    )
     update.launch_installer(tmp_path / "comp1-Setup-0.2.0.exe")
     _, kwargs = popen[0]
     assert kwargs["close_fds"] is True
-    expected = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    assert kwargs["creationflags"] == expected
+    assert kwargs["creationflags"] == 0x8 | 0x200
 
 
 def test_launch_installer_refuses_anywhere_but_windows(monkeypatch, tmp_path):

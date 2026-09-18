@@ -210,6 +210,12 @@ def test_battery_is_not_polled_while_a_mission_is_running(monkeypatch):
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         collect_until(ws, "battery")
         app.state.interp = object()  # stands in for a flying program
+        # A poll that had already passed the `interp is None` check is still in
+        # flight on a worker thread, and lands after this line. Let it settle
+        # before taking the baseline, or the count moves once for a poll that
+        # started before the mission did and the test fails for the one reason
+        # it is not looking for.
+        time.sleep(0.05)
         polled = drone.battery_polls
         time.sleep(0.1)  # many poll intervals
         assert drone.battery_polls == polled

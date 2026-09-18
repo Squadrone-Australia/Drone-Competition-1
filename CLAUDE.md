@@ -17,7 +17,7 @@ python -m pytest -q -k "estop or switch"   # one theme, across files
 python -m ruff check .                     # the exact lint gate CI runs
 python -m pytest tests/test_update.py tests/test_update_release.py -q  # CI's updater gate
 python -m ruff check . --fix               # imports, unused names
-node --test tests/js                       # 71 tests; needs `npm ci` once, for jsdom
+node --test 'tests/js/**/*.test.js'        # 71 tests; needs `npm ci` once, for jsdom
 node --test tests/js/blocks.test.js        # one file
 python -m comp1                            # simulator on http://localhost:8765
 python -m comp1 --drone sim --seed 42 --no-browser

@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       # Ruff alone, not the project: this job needs no OpenCV, and skipping the
       # install turns a two-minute job into a ten-second one. Pinned so a new
       # ruff release cannot turn a green branch red on its own schedule — bump
@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - run: pip install pytest
       - name: Update check, download, handover, and the release contract
         env:
@@ -69,7 +69,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.12", "3.14"]
+        # 3.14 only: it is what the installer is built and shipped on, so a
+        # second cell would be testing an interpreter nobody runs. Widen this
+        # again only together with release.yml -- a version tested here but not
+        # shipped, or shipped but not tested, is the gap this list exists to
+        # close.
+        python-version: ["3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -93,7 +98,13 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      # blocks.test.js duck-types Blockly and needs nothing, but
-      # calibration.test.js needs jsdom, so the install is not optional.
+      # blocks.test.js duck-types Blockly and needs nothing, but buffer.test.js
+      # and calibration.test.js need jsdom, so the install is not optional.
       - run: npm ci
-      - run: node --test tests/js
+      # A glob, not the directory. `node --test tests/js` does not scan a
+      # directory -- node resolves the positional argument as a module, finds no
+      # tests/js/index.js and dies with MODULE_NOT_FOUND, which the runner then
+      # reports as one failing test called "tests/js". Quoted so node expands
+      # the pattern itself rather than the shell, which keeps the command
+      # identical on every platform.
+      - run: node --test 'tests/js/**/*.test.js'
