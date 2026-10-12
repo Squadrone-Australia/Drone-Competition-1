@@ -122,8 +122,11 @@ contract.
 - **Flying must not need a firewall rule.** A managed laptop drops unsolicited inbound UDP,
   so `tello_link.py` only ever reads replies to its own datagrams — no :8890 telemetry,
   battery is asked for — and never re-sends a manoeuvre (that is what `error Not joystick`
-  and double moves came from). Video on :11111 is the one exception: it can be blocked, and
-  that is reported as `video_blocked`, never as a lost link.
+  and double moves came from). Commands always leave from :8889, because the drone answers
+  only the first port that spoke to it until it is rebooted. Video on :11111 gets through by
+  a UDP hole-punch from `FrameReader`'s own socket. If it still never arrives, that is
+  `video_blocked`, never a lost link. Never send `streamoff`: video won't come back until the
+  drone is rebooted.
   `docs/plans/2026-10-12-tello-udp-client.md` has the investigation.
 - **Warn, don't raise, at runtime.** Out-of-range values are clamped with a warning to the
   student; a mission that dies mid-flight is worse than a nudged one.

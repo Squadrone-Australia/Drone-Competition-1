@@ -45,6 +45,27 @@ Still open:
   untested. This also probably explains why djitellopy worked here and not on a
   university laptop. Next step: test on a laptop whose only firewall is Windows
   Defender Firewall, ideally the volunteer's university one.
+
+**Field test 3 (2026-10-12, Linux laptop, ufw, the same Tello EDU):**
+
+| ufw | Commands | Status / video, no punch | Status / video, punched |
+| --- | --- | --- | --- |
+| off | ok | arrive | arrive |
+| on | ok | NOTHING | arrive (full stream) |
+
+- **Commands work through a blocking stateful firewall**, so the core claim of
+  Part A holds.
+- **The hole-punch works** for both status and video. The firewall's entry then
+  stays open for as long as the stream keeps flowing. Runs after the punch got
+  video without one, because that entry was still live; with no `streamoff`,
+  the stream never stops.
+- **C.1 is implemented.** `FrameReader` now owns the :11111 socket. While no
+  video is arriving it punches every second to 62512 and 62513, and it feeds the
+  datagrams to PyAV's H.264 parser and decoder itself, with no FFmpeg `udp://`
+  demuxer. Tests cover real chunked H.264, recovery from garbage, the punch
+  leaving from the video socket, and a prompt port release.
+- Still unproven: the punch through **Windows Defender Firewall** (expected to
+  behave the same, since it is also stateful for UDP), and the full app under ufw.
 - **C.2 (installer rule)** rested on a wrong premise. `installer/comp1.iss` installs with
   `PrivilegesRequired=lowest` (deliberately not admin), so it can't add a firewall rule
   without a UAC prompt, and silent in-app updates must never raise one. This needs a
