@@ -16,7 +16,10 @@ dependencies = [
     "fastapi>=0.140",
     "uvicorn[standard]>=0.51",
     "pydantic>=2.13",
-    "djitellopy>=2.5",
+    # PyAV decodes the Tello's H.264 stream (comp1/drone/tello.py). It used to
+    # arrive by way of djitellopy; the command channel is our own now
+    # (comp1/drone/tello_link.py), so it is named here directly.
+    "av>=18.0",
     "opencv-python>=5.0",
     "numpy>=2.5",
     # The native window. Windows-only because Windows is the only platform with

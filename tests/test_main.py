@@ -89,19 +89,13 @@ def test_flight_config_reaches_a_tello_built_later_in_the_session(
         seen.update(kwargs)
         return object()
 
-    class FakeTello:
-        def __init__(self):
-            pass
-
     monkeypatch.setattr(
         sys, "argv", ["comp1", "--no-browser", "--flight-config", str(cfg_file)]
     )
     monkeypatch.setattr(cli, "create_app", fake_create_app)
     cli.main()
 
-    import comp1.drone.tello as t
-
-    monkeypatch.setattr(t, "Tello", FakeTello)
+    # building the adapter opens nothing — the link only exists after connect()
     assert seen["tello_factory"]().flight.flip_recover_cm == 45
 
 

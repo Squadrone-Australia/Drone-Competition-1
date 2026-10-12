@@ -317,17 +317,25 @@ function updateReconnect() {
   reconnectEl.classList.toggle("needs-attention", droneMode === "tello" && !droneLinkOk);
 }
 
+// A camera the laptop's firewall is blocking is not a lost drone: it still
+// answers and still flies, so it gets its own status rather than "offline".
+let videoBlocked = false;
 function showDroneLink(msg) {
   const wasOk = droneLinkOk;
+  const wasBlocked = videoBlocked;
   droneLinkOk = msg.ok !== false;
+  videoBlocked = msg.video_blocked === true;
   updateReconnect();
-  if (msg.message && droneLinkOk !== wasOk) {
-    log((droneLinkOk ? "🔗 " : "⚠ ") + msg.message);
+  if (msg.message && (droneLinkOk !== wasOk || videoBlocked !== wasBlocked)) {
+    log((droneLinkOk && !videoBlocked ? "🔗 " : "⚠ ") + msg.message);
   }
   if (!droneLinkOk) {
     statusEl.textContent = "drone offline, reconnecting";
     statusEl.className = "status bad";
-  } else if (wasOk === false) {
+  } else if (videoBlocked) {
+    statusEl.textContent = "connected, no video";
+    statusEl.className = "status bad";
+  } else if (wasOk === false || wasBlocked) {
     statusEl.textContent = "connected";
     statusEl.className = "status ok";
   }

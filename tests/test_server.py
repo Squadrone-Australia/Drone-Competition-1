@@ -517,6 +517,38 @@ def test_a_dropped_link_reconnects_by_itself(monkeypatch):
     assert ("reconnect",) in tello.log
 
 
+def test_a_firewalled_camera_is_reported_without_a_reconnect_loop(monkeypatch):
+    """The aircraft answers but its video never arrives: a laptop firewall
+    dropping :11111. Reconnecting cannot open a firewall, so the student is
+    told what to ask for and the working link is left alone."""
+    import comp1.server as server_module
+    from comp1.sim.drone import SimDrone
+
+    monkeypatch.setattr(server_module, "LINK_CHECK_INTERVAL", 0.01)
+
+    class FirewalledTello(ClosableTello):
+        video_blocked = False
+
+        def reconnect(self):
+            self.log.append(("reconnect",))
+
+    tello = FirewalledTello()
+    app = create_app(SimDrone(seed=2, delay=0), tello_factory=lambda: tello)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "drone_mode")
+        ws.send_json({"type": "switch_drone", "mode": "tello"})
+        collect_where(ws, "drone_mode", lambda m: m["mode"] == "tello" and not m["switching"])
+
+        tello.video_blocked = True
+        link = collect_where(ws, "drone_link", lambda m: m["video_blocked"], limit=800)
+        assert link["ok"] is True
+        assert "firewall" in link["message"] and "11111" in link["message"]
+
+        tello.video_blocked = False
+        collect_where(ws, "drone_link", lambda m: not m["video_blocked"], limit=800)
+    assert ("reconnect",) not in tello.log
+
+
 def test_a_disconnected_drone_refuses_to_fly(monkeypatch):
     """Better than a mission that dies on its first unanswered command."""
     from comp1.sim.drone import SimDrone

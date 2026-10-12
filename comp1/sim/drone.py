@@ -27,7 +27,7 @@ _FLIP_SPIN = {
     "left": ("roll", 1),
     "right": ("roll", -1),
 }
-# djitellopy's single-letter codes reach the simulator from tests and scripts
+# the Tello SDK's single-letter flip codes reach the simulator from tests and scripts
 _FLIP_ALIAS = {"b": "back", "f": "forward", "l": "left", "r": "right"}
 
 

@@ -85,7 +85,8 @@ Python against `api.Drone`. Both drive the same `DroneAdapter` and the same visi
 in the adapter or `vision/`.
 
 `DroneAdapter` has three implementations, picked by `--drone`: `mock` (nothing flies),
-`tello` (real hardware over `djitellopy`), `sim` (the `comp1/sim/` world, the default).
+`tello` (real hardware over our own SDK client, `drone/tello_link.py`), `sim` (the
+`comp1/sim/` world, the default).
 Switching between them at runtime is staged, not a swap — `_begin_switch` → `_activate` →
 `_abandon_switch` on failure — because a half-connected Tello must never become the thing
 a student's next block talks to. `docs/specs/2026-08-03-drone-mode-switching.md` is the
@@ -118,6 +119,12 @@ contract.
   launch. `--no-window`, `--no-browser` and plain `http://localhost:8765` must keep working:
   they are the Chromebook hub deployment (`docs/architecture/platform-options.md` §4) and the
   only recovery path a stuck venue has.
+- **Flying must not need a firewall rule.** A managed laptop drops unsolicited inbound UDP,
+  so `tello_link.py` only ever reads replies to its own datagrams — no :8890 telemetry,
+  battery is asked for — and never re-sends a manoeuvre (that is what `error Not joystick`
+  and double moves came from). Video on :11111 is the one exception: it can be blocked, and
+  that is reported as `video_blocked`, never as a lost link.
+  `docs/plans/2026-10-12-tello-udp-client.md` has the investigation.
 - **Warn, don't raise, at runtime.** Out-of-range values are clamped with a warning to the
   student; a mission that dies mid-flight is worse than a nudged one.
 - Ruff's version is pinned in both `.github/workflows/ci.yml` and pyproject's `dev` extra —

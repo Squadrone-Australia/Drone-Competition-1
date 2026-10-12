@@ -31,46 +31,59 @@ def test_mock_frame_factory():
     assert d.get_frame()[0, 0, 2] == 255
 
 
+class FakeLink:
+    """Stands in for :class:`comp1.drone.tello_link.TelloLink`.
+
+    Records every datagram the adapter would put on the wire, in order, so a
+    test reads exactly what the aircraft would have been told.
+    """
+
+    def __init__(self, log=None):
+        self.log = [] if log is None else log
+        self.closed = False
+        self.replies = {"battery?": "87"}
+
+    def handshake(self):
+        self.log.append("command")
+
+    def send(self, command):
+        self.log.append(command)
+        return self.replies.get(command, "ok")
+
+    def interrupt(self, command):
+        self.log.append(command)
+        return "ok"
+
+    def send_no_reply(self, command):
+        self.log.append(command)
+
+    def close(self):
+        self.closed = True
+
+
 @pytest.fixture
 def fake_tello(monkeypatch):
-    """Patch djitellopy out and hand back (calls, TelloDrone factory)."""
+    """Patch the command link out and hand back (calls, TelloDrone factory).
+
+    Commands sent before ``connect`` need a link too, so flight tests that
+    never connect get one installed directly.
+    """
     import comp1.drone.tello as t
 
     calls = []
+    monkeypatch.setattr(t, "TelloLink", lambda: FakeLink(calls))
+    monkeypatch.setattr(t.FrameReader, "open", classmethod(_no_video))
 
-    class FakeTello:
-        def connect(self):
-            calls.append("connect")
+    def factory(*args, **kwargs):
+        drone = t.TelloDrone(*args, **kwargs)
+        drone._link = FakeLink(calls)
+        return drone
 
-        def streamon(self):
-            calls.append("streamon")
+    return calls, factory
 
-        def takeoff(self):
-            calls.append("takeoff")
 
-        def move_forward(self, cm):
-            calls.append(f"move_forward {cm}")
-
-        def move_back(self, cm):
-            calls.append(f"move_back {cm}")
-
-        def move_right(self, cm):
-            calls.append(f"move_right {cm}")
-
-        def flip(self, code):
-            calls.append(f"flip {code}")
-
-        def rotate_clockwise(self, deg):
-            calls.append(f"cw {deg}")
-
-        def get_battery(self):
-            return 87
-
-        def get_frame_read(self):
-            raise RuntimeError("not in test")
-
-    monkeypatch.setattr(t, "Tello", FakeTello)
-    return calls, t.TelloDrone
+def _no_video(cls, *args, **kwargs):
+    raise RuntimeError("not in test")
 
 
 def test_tello_adapter_maps_commands(fake_tello):
@@ -80,8 +93,17 @@ def test_tello_adapter_maps_commands(fake_tello):
     d.takeoff()
     d.move("forward", 40)
     d.rotate("cw", 90)
-    assert calls == ["connect", "streamon", "takeoff", "move_forward 40", "cw 90"]
+    d.rotate("ccw", 45)
+    assert calls == [
+        "command",
+        "streamon",
+        "takeoff",
+        "forward 40",
+        "cw 90",
+        "ccw 45",
+    ]
     assert d.battery() == 87
+    assert calls[-1] == "battery?"  # asked for, never read from telemetry
 
 
 def test_a_flip_is_just_a_flip_by_default(fake_tello):
@@ -97,7 +119,7 @@ def test_flip_recovery_flies_back_when_it_is_configured(fake_tello):
     would rather correct that than keep the altitude can still ask for it."""
     calls, TelloDrone = fake_tello
     TelloDrone(FlightConfig(flip_recover_cm=45)).flip("left")
-    assert calls == ["flip l", "move_right 45"]
+    assert calls == ["flip l", "right 45"]
 
 
 def test_flip_recovery_is_skipped_below_the_tello_move_floor(fake_tello):
@@ -106,6 +128,32 @@ def test_flip_recovery_is_skipped_below_the_tello_move_floor(fake_tello):
     TelloDrone(FlightConfig(flip_recover_cm=0)).flip("back")
     TelloDrone(FlightConfig(flip_recover_cm=15)).flip("back")
     assert calls == ["flip b", "flip b"]
+
+
+def test_emergency_does_not_wait_its_turn(fake_tello):
+    """An emergency stop issued during a long move cannot queue behind it."""
+    calls, TelloDrone = fake_tello
+    d = TelloDrone()
+    d.emergency()
+    assert calls == ["emergency"]
+
+
+def test_a_refusal_is_not_a_lost_link(fake_tello):
+    """The aircraft answered, so the link is up; reconnecting would only throw
+    away a working session."""
+    from comp1.drone.tello_link import TelloError
+
+    calls, TelloDrone = fake_tello
+    d = TelloDrone()
+    d.link_ok = True
+
+    def refuse(command):
+        raise TelloError("the drone refused 'flip b'")
+
+    d._link.send = refuse
+    with pytest.raises(TelloError):
+        d.flip("back")
+    assert d.link_ok is True
 
 
 # --- surviving a Tello that goes away -------------------------------------
@@ -187,55 +235,22 @@ def reconnectable_tello(monkeypatch):
     import comp1.drone.tello as t
 
     instances = []
-    # djitellopy keys its response queue by aircraft IP, so every Tello object
-    # pointed at the same drone reads the same one
-    queue = {"responses": [], "state": {}}
     stream = FakeStream()
     monkeypatch.setattr(t, "_open_container", stream.open)
 
-    class FakeTello:
-        def __init__(self):
-            self.log = []
-            self.is_flying = False
-            self.stream_on = False
-            self.background_frame_read = None
-            self.address = ("192.168.10.1", 8889)
-            self.queue = queue
-            self.queued_at_connect = None
-            instances.append(self)
+    def new_link():
+        link = FakeLink()
+        instances.append(link)
+        return link
 
-        def connect(self):
-            self.queued_at_connect = len(self.queue["responses"])
-            self.log.append("connect")
-
-        def streamon(self):
-            self.log.append("streamon")
-            self.stream_on = True
-
-        def takeoff(self):
-            self.log.append("takeoff")
-            self.is_flying = True
-
-        def land(self):
-            self.log.append("land")
-
-        def get_udp_video_address(self):
-            return "udp://@0.0.0.0:11111"
-
-        def send_command_without_return(self, command):
-            self.log.append(command)
-
-        def get_own_udp_object(self):
-            return self.queue
-
-    monkeypatch.setattr(t, "Tello", FakeTello)
+    monkeypatch.setattr(t, "TelloLink", new_link)
     return instances, t.TelloDrone, stream
 
 
 def test_closing_releases_the_video_port(reconnectable_tello):
-    """A flag alone would not do it: djitellopy's decode thread only reads one
-    after the *next* frame arrives, which never happens once the drone is gone,
-    so the port would be held for the life of the process."""
+    """A flag alone would not do it: a decode thread that only reads one after
+    the *next* frame arrives never reads it once the drone is gone, so the port
+    would be held for the life of the process."""
     instances, TelloDrone, stream = reconnectable_tello
     drone = TelloDrone()
     drone.connect()
@@ -245,7 +260,22 @@ def test_closing_releases_the_video_port(reconnectable_tello):
     assert drone.close() is None
     assert not reader.alive
     assert all(c.closed for c in stream.containers)
-    assert "streamoff" in instances[-1].log
+    assert instances[-1].closed
+
+
+def test_neither_close_nor_reconnect_ever_turns_the_video_off(reconnectable_tello):
+    """After 'streamoff', a Tello answers the next 'streamon' with 'ok' and then
+    sends no video until it is rebooted (field test, 2026-10-12). So a
+    reconnect that turned the stream off would lose the camera for good, and
+    that would be reported as a firewall problem."""
+    instances, TelloDrone, stream = reconnectable_tello
+    drone = TelloDrone()
+    drone.connect()
+    drone.reconnect()
+    drone.close()
+    for link in instances:
+        assert "streamoff" not in link.log
+    assert instances[-1].log[:2] == ["command", "streamon"]
 
 
 def test_the_container_is_only_ever_closed_by_its_own_decode_thread(
@@ -297,13 +327,13 @@ def test_closing_never_flies_the_aircraft(reconnectable_tello):
 
     drone.close()
     assert "land" not in instances[-1].log
-    # ...and djitellopy's own __del__ must not do it later either
-    assert instances[-1].is_flying is False
+    assert instances[-1].closed
 
 
 def test_reconnect_starts_a_whole_new_session(reconnectable_tello):
-    """The old session died with the reboot; its queued responses are answers
-    to commands from before it."""
+    """The old session died with the reboot. A fresh link is a fresh socket on
+    a fresh port, so anything the old session still had to say lands where
+    nobody is listening instead of being read as the answer to a new command."""
     instances, TelloDrone, stream = reconnectable_tello
     drone = TelloDrone()
     drone.connect()
@@ -311,11 +341,9 @@ def test_reconnect_starts_a_whole_new_session(reconnectable_tello):
 
     drone.reconnect()
     assert instances[-1] is not first
-    assert instances[-1].log[:2] == ["connect", "streamon"]
+    assert first.closed
+    assert instances[-1].log[:2] == ["command", "streamon"]
     assert drone.link_ok
-    # the retired object can no longer delete the live one's entry in
-    # djitellopy's global `drones` dict when it is garbage collected
-    assert first.address[0] != "192.168.10.1"
 
 
 def test_a_silent_camera_is_a_lost_link(reconnectable_tello):
@@ -352,32 +380,40 @@ def test_a_command_failure_marks_the_link_down(reconnectable_tello):
     drone = TelloDrone()
     drone.connect()
 
-    def boom():
+    def boom(command):
         raise RuntimeError("no response after 7 seconds")
 
-    instances[-1].takeoff = boom
+    instances[-1].send = boom
     with pytest.raises(RuntimeError):
         drone.takeoff()
     assert drone.link_ok is False
 
 
-def test_a_reconnect_starts_with_an_empty_response_queue(
-    reconnectable_tello, monkeypatch
+def test_a_camera_that_never_starts_is_blocked_video_not_a_lost_link(
+    reconnectable_tello,
 ):
-    """djitellopy pairs replies with commands *positionally* — a command takes
-    whatever datagram is at the head of the queue. One stray "ok" left over from
-    a dead session therefore offsets every reply from then on, and a command
-    reads the answer to the one before it: which is how the aircraft's "error
-    Not joystick" ends up reported against an innocent command."""
-    import comp1.drone.tello as tello_module
-
-    monkeypatch.setattr(tello_module, "_STALE_RESPONSE_SETTLE_S", 0)
+    """The aircraft answered the handshake but not one frame has arrived: that
+    is a firewall dropping :11111, which no reconnect can cure. Calling the
+    link dead would have the watchdog reconnect forever."""
     instances, TelloDrone, stream = reconnectable_tello
-    drone = TelloDrone()
+    stream._frames = 0  # the stream opens and never delivers a picture
+    drone = TelloDrone(FlightConfig(link_timeout_s=0))
     drone.connect()
 
-    # a late answer from the session we are retiring, or from before a reboot
-    instances[-1].queue["responses"].append(b"ok")
-    drone.reconnect()
+    assert drone.get_frame() is None
+    assert drone.video_blocked is True
+    assert drone.link_ok is True
+    for container in stream.containers:
+        container.release.set()  # let the parked read give up, so close is quick
+    drone.close()
 
-    assert instances[-1].queued_at_connect == 0
+
+def test_video_blocked_clears_once_a_frame_arrives(reconnectable_tello):
+    instances, TelloDrone, stream = reconnectable_tello
+    drone = TelloDrone(FlightConfig(link_timeout_s=60))
+    drone.connect()
+    drone.video_blocked = True  # as if reported earlier this session
+
+    _wait_for_frame(drone)
+    assert drone.video_blocked is False
+    drone.close()

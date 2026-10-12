@@ -320,9 +320,9 @@ def main():
     )
 
     def new_tello():
-        # Kept lazy for the same reason server._new_tello is: importing
-        # djitellopy on a simulator launch touches the hardware pathway for
-        # nothing. This closure exists so a mid-session switch to Tello in the
+        # Kept lazy for the same reason server._new_tello is: importing the
+        # Tello adapter (and PyAV with it) on a simulator launch touches the
+        # hardware pathway for nothing. This closure exists so a mid-session switch to Tello in the
         # browser gets the same --flight-config the CLI was given.
         from .drone.tello import TelloDrone
 
