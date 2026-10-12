@@ -2,11 +2,17 @@
 
 **Status:** Approved 2026-10-12 · **Prompted by:** field feedback (university laptop could not fly) and recurring `error Not joystick`
 
-**Progress (2026-10-12):** Parts A and B, C.3 (README section for IT) and C.4
-(`video_blocked`) are done, and djitellopy is removed (`av` is now a direct dependency).
-Still open:
+**Progress (2026-10-12):** Parts A, B and C are implemented, and djitellopy is
+removed (`av` is now a direct dependency). The hole-punch (C.1) became part of
+`FrameReader`, proven on Linux with ufw (field tests 3 and 4 below). Still open:
 
-- **C.1 (UDP hole-punch)** needs a real Tello to find the video source port.
+- **Windows Defender Firewall** has not been tested against the punch yet. This
+  dev laptop's firewall is Bitdefender, so Windows rules aren't enforced on it.
+- **C.2 (installer rule): not built, and probably not needed.** `installer/comp1.iss`
+  installs with `PrivilegesRequired=lowest` (deliberately not admin), so it can't add a
+  firewall rule without a UAC prompt, and silent in-app updates must never raise one.
+  Revisit only if the punch fails under Windows Defender Firewall.
+- **The volunteer's university laptop** is the final check.
 
 **Field test 1 (2026-10-12, Tello EDU, `sdk?` = 30, `tools/tello_field_check.py`):**
 
@@ -65,11 +71,14 @@ Still open:
   demuxer. Tests cover real chunked H.264, recovery from garbage, the punch
   leaving from the video socket, and a prompt port release.
 - Still unproven: the punch through **Windows Defender Firewall** (expected to
-  behave the same, since it is also stateful for UDP), and the full app under ufw.
-- **C.2 (installer rule)** rested on a wrong premise. `installer/comp1.iss` installs with
-  `PrivilegesRequired=lowest` (deliberately not admin), so it can't add a firewall rule
-  without a UAC prompt, and silent in-app updates must never raise one. This needs a
-  decision before anything is built.
+  behave the same, since it is also stateful for UDP).
+
+**Field test 4 (2026-10-12, Linux, ufw on, the full app):** `python -m comp1
+--drone tello` connected, showed video, and flew with no errors, so a locked-down
+laptop now gets the whole app with no firewall rule. As a result, C.2 (an
+installer rule) and the "Fix camera" button are no longer needed unless Windows
+Defender Firewall behaves differently. The README entry for IT stays as the
+fallback.
 
 ## Context
 
