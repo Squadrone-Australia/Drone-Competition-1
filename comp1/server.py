@@ -13,7 +13,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import __version__
+from . import __version__, hints
 from . import settings as settings_store
 from . import update as updater
 from .api import ScriptRun
@@ -59,13 +59,48 @@ BATTERY_INTERVAL = 5.0
 #: arrives. Two causes, in the order to try them: the drone was told
 #: "streamoff" by some other program (a notebook, another app) and only a
 #: reboot brings its video back; or the laptop's firewall drops :11111, which
-#: on a managed laptop is somebody else's job, so it says whose and what to ask.
+#: on a managed laptop is somebody else's job. The steps for both are the
+#: ``hint`` that ``comp1.hints`` attaches, so they are written in one place.
 VIDEO_BLOCKED_MESSAGE = (
-    "Connected to the drone, but no video is arriving. The drone can still fly. "
-    "Turn the drone off and on again and press Reconnect. If there is still no "
-    "video, this laptop's firewall is blocking the camera: ask IT to allow "
-    "Drone Coder (incoming UDP port 11111)."
+    "Connected to the drone, but no video is arriving on UDP port 11111. "
+    "The drone can still fly."
 )
+#: The other way the camera stays dark, told apart because its cure is on this
+#: laptop: some other program already holds :11111, so the video has nowhere to
+#: land. Known at once (the bind fails), where a firewall is only ever inferred
+#: from silence.
+VIDEO_PORT_BUSY_MESSAGE = (
+    "Connected to the drone, but another program on this laptop is using the "
+    "video port (UDP 11111), so the camera can't be shown. The drone can still fly."
+)
+#: The console line for each camera state, as ``(video_blocked, port_busy)``.
+_VIDEO_MESSAGES = {
+    (True, True): VIDEO_PORT_BUSY_MESSAGE,
+    (True, False): VIDEO_BLOCKED_MESSAGE,
+}
+#: Message types the console shows as a failure, and so the ones that carry a
+#: ``hint``. A ``finished`` only when the mission ended in an error.
+_HINTED_TYPES = {"error", "estopped", "drone_link", "finished"}
+
+
+def _with_hint(data: dict) -> dict:
+    """``data`` plus the fix for its error, if :mod:`comp1.hints` knows one.
+
+    Done here, at the two doors every console message leaves through, rather
+    than at each of the dozens of places an error is raised — and rather than in
+    the browser, which would have to match English text this side wrote.
+    """
+    kind = data.get("type")
+    if kind not in _HINTED_TYPES or "hint" in data:
+        return data
+    if kind == "finished":
+        if data.get("reason") != "error":
+            return data
+        text = data.get("detail")
+    else:
+        text = data.get("message")
+    fix = hints.fix_for(text)
+    return {**data, "hint": fix} if fix else data
 #: How long the startup update check is allowed to hold anything up: nothing at
 #: all. It runs on a thread and reports itself whenever it finishes, which at a
 #: venue with no route to the internet is "never, quietly".
@@ -212,6 +247,8 @@ def create_app(
         # Last camera state broadcast: True while the aircraft answers but no
         # video has ever arrived — a laptop firewall dropping :11111.
         app.state.video_blocked = False
+        #: ...and whether that is because another program holds :11111.
+        app.state.video_port_busy = False
         app.state.latest_detection = Detection(found=False)
         app.state.latest_frame = None
         app.state.tracker = TargetTracker(cfg)
@@ -365,15 +402,17 @@ def create_app(
             if app.state.drone_switching:
                 continue
             blocked = bool(getattr(active_drone, "video_blocked", False))
-            if blocked != app.state.video_blocked:
+            busy = blocked and bool(getattr(active_drone, "video_port_busy", False))
+            if (blocked, busy) != (app.state.video_blocked, app.state.video_port_busy):
                 # Not a link state: the aircraft still answers and still flies,
                 # and reconnecting cannot open a firewall — so this is said
                 # once, plainly, and the watchdog below leaves the link alone.
                 app.state.video_blocked = blocked
+                app.state.video_port_busy = busy
                 await _publish_link(
                     app,
                     app.state.link_ok,
-                    VIDEO_BLOCKED_MESSAGE if blocked else "the drone's camera is working",
+                    _VIDEO_MESSAGES.get((blocked, busy), "the drone's camera is working"),
                 )
             if active_drone.link_ok:
                 if not app.state.link_ok:
@@ -769,6 +808,7 @@ def create_app(
                 app.state.clients.discard(ws)
 
     async def _broadcast_json(app, data: dict):
+        data = _with_hint(data)
         for ws in list(app.state.clients):
             try:
                 await ws.send_text(json.dumps(data))
@@ -821,7 +861,7 @@ def create_app(
     async def _reply_error(ws, message: str):
         """Tell one client something went wrong, without killing its socket."""
         try:
-            await ws.send_text(json.dumps({"type": "error", "message": message}))
+            await ws.send_text(json.dumps(_with_hint({"type": "error", "message": message})))
         except Exception:
             app.state.clients.discard(ws)
 
@@ -1044,13 +1084,15 @@ def create_app(
         )
         await ws.send_text(
             json.dumps(
-                {
-                    "type": "drone_link",
-                    "ok": app.state.link_ok,
-                    "mode": active_drone.mode,
-                    "message": app.state.link_message,
-                    "video_blocked": app.state.video_blocked,
-                }
+                _with_hint(
+                    {
+                        "type": "drone_link",
+                        "ok": app.state.link_ok,
+                        "mode": active_drone.mode,
+                        "message": app.state.link_message,
+                        "video_blocked": app.state.video_blocked,
+                    }
+                )
             )
         )
         await ws.send_text(json.dumps(_battery_message(app)))

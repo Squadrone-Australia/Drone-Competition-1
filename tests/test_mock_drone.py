@@ -362,6 +362,34 @@ def test_video_blocked_clears_once_a_frame_arrives(reconnectable_tello):
     drone.close()
 
 
+def test_a_video_port_held_elsewhere_is_reported_at_once(reconnectable_tello, monkeypatch):
+    """A failed bind is certain, unlike silence: no need to wait out
+    link_timeout_s, and the link is not what is broken."""
+    import comp1.drone.tello as t
+
+    monkeypatch.setattr(t, "_REOPEN_INTERVAL_S", 0)
+    links, TelloDrone, readers = reconnectable_tello
+    opener = t.FrameReader.open
+
+    def held(cls, **kwargs):
+        raise OSError("address already in use")
+
+    monkeypatch.setattr(t.FrameReader, "open", classmethod(held))
+    drone = TelloDrone(FlightConfig(link_timeout_s=60))
+    drone.connect()
+    assert drone.link_ok is True
+    assert drone.video_blocked is True
+    assert drone.video_port_busy is True
+
+    # the other program lets go: the next retry opens it and the report clears
+    monkeypatch.setattr(t.FrameReader, "open", opener)
+    drone.get_frame()
+    assert len(readers) == 1
+    assert drone.video_port_busy is False
+    assert drone.video_blocked is False
+    drone.close()
+
+
 # --- the video reader, over real sockets ------------------------------------
 #
 # A fake aircraft on loopback: one socket standing in for the Tello's video

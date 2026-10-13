@@ -231,8 +231,14 @@ class TelloDrone(DroneAdapter):
         self.link_ok = False
         #: True when the aircraft answers commands but no video frame has ever
         #: arrived this session: a firewall the punch did not get through, or
-        #: a drone some other program told ``streamoff``.
+        #: a drone some other program told ``streamoff`` — or, at once, a video
+        #: port some other program holds (``video_port_busy``).
         self.video_blocked = False
+        #: True while :11111 is held by some other program on this laptop, so
+        #: there is nowhere for the video to land. Known the moment the bind
+        #: fails, so ``video_blocked`` is raised at once rather than after a
+        #: silence — and the student is pointed at this laptop, not at IT.
+        self.video_port_busy = False
         self._seen_frame = False
         self._last_frame = None  # identity of the last *decoded* frame
         self._frame_at = 0.0
@@ -260,6 +266,7 @@ class TelloDrone(DroneAdapter):
         self._link = link
         self.link_ok = True
         self.video_blocked = False
+        self.video_port_busy = False
         self._seen_frame = False
         self._last_frame = None
         self._frame_at = time.monotonic()
@@ -293,9 +300,23 @@ class TelloDrone(DroneAdapter):
             return None
         try:
             self._reader = FrameReader.open()
+        except OSError:
+            # the bind failed: another program holds the video port
+            self._reader = None
+            self._reopen_at = time.monotonic() + _REOPEN_INTERVAL_S
+            self.video_port_busy = True
+            self.video_blocked = True
+            return None
         except Exception:
             self._reader = None
             self._reopen_at = time.monotonic() + _REOPEN_INTERVAL_S
+            return None
+        if self.video_port_busy:
+            # The port came free. Give the stream a full link_timeout_s to
+            # start before its silence is read as anything.
+            self.video_port_busy = False
+            self.video_blocked = False
+            self._frame_at = time.monotonic()
         return self._reader
 
     def _release_reader(self):

@@ -242,10 +242,18 @@ aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column;
 #camera-window #cam-dock { margin-left: 4px; font-size: 13px; }
 #camera-window button:hover { color: var(--text); }
 #video { display: block; width: 100%; aspect-ratio: 4/3; object-fit: contain; background: #000; }
+/* Said over the black picture, where a student looks when the camera is dark:
+   it sits below the caption bar and covers only the picture. */
+#video-note { position: absolute; left: 0; right: 0; bottom: 0; top: 30px; margin: 0;
+  display: flex; flex-direction: column; justify-content: center; padding: 10px 14px;
+  text-align: center; color: var(--warn); font-size: 12px; line-height: 1.45;
+  background: rgba(0, 0, 0, .55); pointer-events: none; }
+#video-note[hidden] { display: none; }
 
 /* Docked: the camera view takes the bottom of the stage instead of floating.
    The stage is already a flex column, so it just has to leave the overlay. */
-#camera-window.docked { position: static; width: auto; border-radius: 0;
+#camera-window.docked { position: relative; right: auto; bottom: auto;
+  width: auto; border-radius: 0;
   border: 0; border-top: 1px solid var(--line); box-shadow: none; }
 #camera-window.docked figcaption { cursor: default; }
 

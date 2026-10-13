@@ -53,6 +53,10 @@ the README.
   launcher opens the system browser instead; `NativeWindow` owns the main thread and the
   two-way close protocol. Knows nothing about drones: close *policy* is `request_close` in
   `__main__.py`, where `app.state` is.
+- `comp1/hints.py` — the error → "how to fix" table. `server._with_hint` attaches the match
+  as a `hint` field on `error`/`estopped`/`drone_link`/failed `finished` messages, and
+  `app.js` prints it under the error. A reworded error message must still match its row
+  (`tests/test_hints.py` feeds it the real messages).
 - `comp1/paths.py`, `settings.py`, `update.py` — install-time concerns.
 - `docs/specs/` and `docs/plans/` — read the matching spec before changing vision, the
   protocol, or drone switching. `docs/ISSUES.md` is the 2026-09-14 fault-injection report.
