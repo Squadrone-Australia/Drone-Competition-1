@@ -174,3 +174,35 @@ def test_the_release_uploads_both_assets_or_none():
 
 def test_the_release_is_gated_on_the_tests():
     assert "pytest -q" in RELEASE_YML
+
+
+# ------------------------------------------------------ the camera's firewall
+
+
+def test_the_installer_lets_the_drone_camera_through_the_firewall():
+    # Video arrives on UDP 11111 unasked; a managed laptop drops it without a
+    # rule, and only an elevated installer can add one.
+    assert re.search(r"^PrivilegesRequired=admin$", ISS, re.MULTILINE)
+    add = re.search(r'firewall add rule name=""\{#FirewallRule\}""([^"\n]|"")*', ISS)
+    assert add, "comp1.iss must add the camera firewall rule"
+    rule = add.group(0)
+    for part in ("dir=in", "action=allow", "protocol=UDP", "localport=11111", "profile=any"):
+        assert part in rule, part
+
+
+def test_uninstalling_takes_the_firewall_rule_with_it():
+    uninstall = ISS.split("\n[UninstallRun]\n", 1)[1].split("\n[", 1)[0]
+    assert 'firewall delete rule name=""{#FirewallRule}""' in uninstall
+
+
+def test_the_installed_program_never_runs_elevated():
+    # An elevated installer starts the program as the admin unless told not
+    # to, and then its settings land in the wrong %LOCALAPPDATA%.
+    run = ISS.split("\n[Run]\n", 1)[1].split("\n[", 1)[0].replace("\\\n", " ")
+    launches = [
+        line for line in run.splitlines()
+        if line.startswith('Filename: "{app}\\{#AppExeName}"')
+    ]
+    assert len(launches) == 2  # the finish page and the updater's /RELAUNCH
+    for line in launches:
+        assert "runasoriginaluser" in line
