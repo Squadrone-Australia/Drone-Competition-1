@@ -176,33 +176,31 @@ def test_the_release_is_gated_on_the_tests():
     assert "pytest -q" in RELEASE_YML
 
 
-# ------------------------------------------------------ the camera's firewall
+# ------------------------------------------------------ no elevation, ever
 
 
-def test_the_installer_lets_the_drone_camera_through_the_firewall():
-    # Video arrives on UDP 11111 unasked; a managed laptop drops it without a
-    # rule, and only an elevated installer can add one.
-    assert re.search(r"^PrivilegesRequired=admin$", ISS, re.MULTILINE)
-    add = re.search(r'firewall add rule name=""\{#FirewallRule\}""([^"\n]|"")*', ISS)
-    assert add, "comp1.iss must add the camera firewall rule"
-    rule = add.group(0)
-    for part in ("dir=in", "action=allow", "protocol=UDP", "localport=11111", "profile=any"):
-        assert part in rule, part
+def _iss_directives() -> str:
+    """The installer script with its ``;`` comment lines removed.
+
+    The header explains *why* there is no firewall rule, and so names netsh;
+    only what the compiler would actually act on should be checked.
+    """
+    return "\n".join(line for line in ISS.splitlines() if not line.lstrip().startswith(";"))
 
 
-def test_uninstalling_takes_the_firewall_rule_with_it():
-    uninstall = ISS.split("\n[UninstallRun]\n", 1)[1].split("\n[", 1)[0]
-    assert 'firewall delete rule name=""{#FirewallRule}""' in uninstall
+def test_the_installer_never_asks_for_administrator():
+    # A school laptop rarely gives a teacher admin rights, and the in-app updater
+    # runs this same installer silently: an elevation prompt breaks both the
+    # first install and every update. 0.2.2 briefly asked for it (to add a
+    # firewall rule for the camera) and it was taken back out.
+    assert re.search(r"^PrivilegesRequired=lowest$", ISS, re.MULTILINE)
+    assert not re.search(r"^PrivilegesRequired=(admin|poweruser)", ISS, re.MULTILINE)
+    assert re.search(r"^DefaultDirName=\{localappdata\}", ISS, re.MULTILINE)
 
 
-def test_the_installed_program_never_runs_elevated():
-    # An elevated installer starts the program as the admin unless told not
-    # to, and then its settings land in the wrong %LOCALAPPDATA%.
-    run = ISS.split("\n[Run]\n", 1)[1].split("\n[", 1)[0].replace("\\\n", " ")
-    launches = [
-        line for line in run.splitlines()
-        if line.startswith('Filename: "{app}\\{#AppExeName}"')
-    ]
-    assert len(launches) == 2  # the finish page and the updater's /RELAUNCH
-    for line in launches:
-        assert "runasoriginaluser" in line
+def test_the_installer_changes_no_machine_wide_state():
+    # netsh/firewall rules, Program Files and HKLM all need elevation, and the
+    # camera's no-admin fallback lives in tello_link.py instead.
+    directives = _iss_directives().lower()
+    for needs_admin in ("netsh", "advfirewall", "{autopf}", "{commonpf", "hklm"):
+        assert needs_admin not in directives, needs_admin

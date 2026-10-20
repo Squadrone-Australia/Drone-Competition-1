@@ -130,7 +130,9 @@ contract.
   only the first port that spoke to it until it is rebooted. Video on :11111 gets through by
   a UDP hole-punch from `FrameReader`'s own socket. If it still never arrives, that is
   `video_blocked`, never a lost link. Never send `streamoff`: video won't come back until the
-  drone is rebooted.
+  drone is rebooted. Nor may the installer ask for administrator to add one: it stays
+  `PrivilegesRequired=lowest` (per-user), because a managed laptop may not grant elevation and
+  the updater runs the same installer silently. `tests/test_update_release.py` enforces it.
   `docs/plans/2026-10-12-tello-udp-client.md` has the investigation.
 - **Warn, don't raise, at runtime.** Out-of-range values are clamped with a warning to the
   student; a mission that dies mid-flight is worse than a nudged one.

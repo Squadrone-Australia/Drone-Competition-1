@@ -43,11 +43,8 @@ page.)
    installer is not signed by a paid certificate authority. Click **More info**, then **Run
    anyway**. (If you want to check the download first, the release page publishes a
    `SHA256SUMS.txt` you can compare against `Get-FileHash comp1-Setup-<version>.exe`.)
-3. Follow the prompts. Windows asks for an **administrator** password (or a Yes from an admin
-   account): the installer adds a firewall rule so the drone's camera video (UDP port 11111)
-   can reach the program. On a school laptop, that means someone from IT runs the installer.
-   An older copy installed by version 0.2.1 or earlier is removed automatically, and your
-   saved settings are kept.
+3. Follow the prompts. It installs for the current user only, so it does **not** ask for an
+   administrator password.
 4. Start it from the **Start Menu** entry (or the desktop shortcut, if you asked for one). The
    block-coding screen opens.
 
@@ -74,9 +71,7 @@ starting a second copy.
 
 When the computer has internet, the program quietly checks for a newer version as it starts. If
 there is one, a bar appears across the top of the page: click **Update and restart** and it
-downloads, installs and reopens itself. Nothing is downloaded until you click. Windows asks
-for an administrator password while it installs, so on a school laptop an update needs someone
-who has one.
+downloads, installs and reopens itself. Nothing is downloaded until you click.
 
 At a competition the laptop is usually joined to the drone's own Wi-Fi, which reaches nothing
 else — the check simply finds nothing and says nothing. You can also turn it off entirely under
@@ -175,10 +170,11 @@ Wi-Fi) — the Tello doesn't use the internet at all, it creates its own local n
 The drone is connected and will fly, but its video isn't reaching the laptop. First turn the
 drone off and on again, then click **Reconnect**. If another program (a Python notebook or
 another drone app) turned the drone's video off, it stays off until the drone restarts. If
-there's still no video, the laptop's firewall is blocking it. The installer adds a rule that
-lets the video in, but it can be overridden: an antivirus with its own firewall (Kaspersky,
-Bitdefender, Norton…) ignores Windows' rules and needs the same exception in its own settings,
-and a managed laptop's policy can ignore rules added on the laptop itself. On a school or
+there's still no video, the laptop's firewall is blocking it. The program tries to open the
+video path itself, but that doesn't get through every firewall. On your own computer, Windows may
+have asked whether to allow Drone Coder on networks: allow it on **Public** networks too, because
+the drone's Wi-Fi counts as public. An antivirus with its own firewall (Kaspersky, Bitdefender,
+Norton…) ignores Windows' rules and needs the same exception in its own settings. On a school or
 university laptop, ask IT to allow incoming video from the drone. The rule they need is:
 
 ```bat

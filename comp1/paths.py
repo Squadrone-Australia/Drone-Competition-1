@@ -1,11 +1,10 @@
 """Where the program lives, and where it is allowed to write.
 
-Installed, the application directory is under ``Program Files`` (it was
-``%LOCALAPPDATA%\\Programs`` up to 0.2.1) and is replaced wholesale by the next
-update — anything written there is both unreliable and temporary, and to the
-program, which never runs elevated, it is read-only anyway. Everything the
-*user* creates (tuned HSV bands, saved settings, logs, downloaded installers)
-therefore goes in :func:`data_dir`, which survives an upgrade and an uninstall.
+Installed, the application directory is under ``%LOCALAPPDATA%\\Programs`` and is
+replaced wholesale by the next update — anything written there is both
+unreliable and temporary. Everything the *user* creates (tuned HSV bands, saved
+settings, logs, downloaded installers) therefore goes in :func:`data_dir`, which
+survives an upgrade and an uninstall.
 
 Nothing here reads or writes on import.
 """
