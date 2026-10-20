@@ -174,3 +174,33 @@ def test_the_release_uploads_both_assets_or_none():
 
 def test_the_release_is_gated_on_the_tests():
     assert "pytest -q" in RELEASE_YML
+
+
+# ------------------------------------------------------ no elevation, ever
+
+
+def _iss_directives() -> str:
+    """The installer script with its ``;`` comment lines removed.
+
+    The header explains *why* there is no firewall rule, and so names netsh;
+    only what the compiler would actually act on should be checked.
+    """
+    return "\n".join(line for line in ISS.splitlines() if not line.lstrip().startswith(";"))
+
+
+def test_the_installer_never_asks_for_administrator():
+    # A school laptop rarely gives a teacher admin rights, and the in-app updater
+    # runs this same installer silently: an elevation prompt breaks both the
+    # first install and every update. 0.2.2 briefly asked for it (to add a
+    # firewall rule for the camera) and it was taken back out.
+    assert re.search(r"^PrivilegesRequired=lowest$", ISS, re.MULTILINE)
+    assert not re.search(r"^PrivilegesRequired=(admin|poweruser)", ISS, re.MULTILINE)
+    assert re.search(r"^DefaultDirName=\{localappdata\}", ISS, re.MULTILINE)
+
+
+def test_the_installer_changes_no_machine_wide_state():
+    # netsh/firewall rules, Program Files and HKLM all need elevation, and the
+    # camera's no-admin fallback lives in tello_link.py instead.
+    directives = _iss_directives().lower()
+    for needs_admin in ("netsh", "advfirewall", "{autopf}", "{commonpf", "hklm"):
+        assert needs_admin not in directives, needs_admin

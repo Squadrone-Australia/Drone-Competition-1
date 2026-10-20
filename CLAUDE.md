@@ -53,6 +53,10 @@ the README.
   launcher opens the system browser instead; `NativeWindow` owns the main thread and the
   two-way close protocol. Knows nothing about drones: close *policy* is `request_close` in
   `__main__.py`, where `app.state` is.
+- `comp1/hints.py` — the error → "how to fix" table. `server._with_hint` attaches the match
+  as a `hint` field on `error`/`estopped`/`drone_link`/failed `finished` messages, and
+  `app.js` prints it under the error. A reworded error message must still match its row
+  (`tests/test_hints.py` feeds it the real messages).
 - `comp1/paths.py`, `settings.py`, `update.py` — install-time concerns.
 - `docs/specs/` and `docs/plans/` — read the matching spec before changing vision, the
   protocol, or drone switching. `docs/ISSUES.md` is the 2026-09-14 fault-injection report.
@@ -85,7 +89,8 @@ Python against `api.Drone`. Both drive the same `DroneAdapter` and the same visi
 in the adapter or `vision/`.
 
 `DroneAdapter` has three implementations, picked by `--drone`: `mock` (nothing flies),
-`tello` (real hardware over `djitellopy`), `sim` (the `comp1/sim/` world, the default).
+`tello` (real hardware over our own SDK client, `drone/tello_link.py`), `sim` (the
+`comp1/sim/` world, the default).
 Switching between them at runtime is staged, not a swap — `_begin_switch` → `_activate` →
 `_abandon_switch` on failure — because a half-connected Tello must never become the thing
 a student's next block talks to. `docs/specs/2026-08-03-drone-mode-switching.md` is the
@@ -118,6 +123,17 @@ contract.
   launch. `--no-window`, `--no-browser` and plain `http://localhost:8765` must keep working:
   they are the Chromebook hub deployment (`docs/architecture/platform-options.md` §4) and the
   only recovery path a stuck venue has.
+- **Flying must not need a firewall rule.** A managed laptop drops unsolicited inbound UDP,
+  so `tello_link.py` only ever reads replies to its own datagrams — no :8890 telemetry,
+  battery is asked for — and never re-sends a manoeuvre (that is what `error Not joystick`
+  and double moves came from). Commands always leave from :8889, because the drone answers
+  only the first port that spoke to it until it is rebooted. Video on :11111 gets through by
+  a UDP hole-punch from `FrameReader`'s own socket. If it still never arrives, that is
+  `video_blocked`, never a lost link. Never send `streamoff`: video won't come back until the
+  drone is rebooted. Nor may the installer ask for administrator to add one: it stays
+  `PrivilegesRequired=lowest` (per-user), because a managed laptop may not grant elevation and
+  the updater runs the same installer silently. `tests/test_update_release.py` enforces it.
+  `docs/plans/2026-10-12-tello-udp-client.md` has the investigation.
 - **Warn, don't raise, at runtime.** Out-of-range values are clamped with a warning to the
   student; a mission that dies mid-flight is worse than a nudged one.
 - Ruff's version is pinned in both `.github/workflows/ci.yml` and pyproject's `dev` extra —

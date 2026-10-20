@@ -56,6 +56,7 @@ if (workspace.getBlocksByType("start", false).length === 0) {
 const statusEl = document.getElementById("status");
 const consoleEl = document.getElementById("console");
 const videoEl = document.getElementById("video");
+const videoNoteEl = document.getElementById("video-note");
 const foundEl = document.getElementById("found");
 const blockHelpEl = document.querySelector("#block-help span");
 const batteryEl = document.getElementById("battery");
@@ -113,6 +114,12 @@ const bus = window.COMP1_BUS = {
 function log(msg) {
   consoleEl.textContent += msg + "\n";
   consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+// The server attaches `hint` — what to try next — to the failures it knows a
+// cure for (comp1/hints.py), so it is printed straight under the error.
+function logHint(msg) {
+  if (msg && msg.hint) log("   💡 How to fix: " + msg.hint);
 }
 
 function showDebugProgram(program) {
@@ -300,6 +307,7 @@ function showDroneMode(msg) {
     : "Connect to a real DJI Tello";
   useTelloEl.disabled = missionRunning || droneSwitching || !droneMode;
   updateReconnect();
+  if (droneMode !== "tello") videoNoteEl.hidden = true;  // only a real camera can be blocked
   if (previousMode && previousMode !== droneMode) {
     foundEl.textContent = "Targets found: 0";
     missionState = null;
@@ -317,17 +325,32 @@ function updateReconnect() {
   reconnectEl.classList.toggle("needs-attention", droneMode === "tello" && !droneLinkOk);
 }
 
+// A camera the laptop's firewall is blocking is not a lost drone: it still
+// answers and still flies, so it gets its own status rather than "offline".
+let videoBlocked = false;
+let videoMessage = null;   // which camera problem was last reported
 function showDroneLink(msg) {
   const wasOk = droneLinkOk;
+  const wasBlocked = videoBlocked;
   droneLinkOk = msg.ok !== false;
+  videoBlocked = msg.video_blocked === true;
   updateReconnect();
-  if (msg.message && droneLinkOk !== wasOk) {
-    log((droneLinkOk ? "🔗 " : "⚠ ") + msg.message);
+  if (msg.message && (droneLinkOk !== wasOk || videoBlocked !== wasBlocked
+                      || (videoBlocked && msg.message !== videoMessage))) {
+    log((droneLinkOk && !videoBlocked ? "🔗 " : "⚠ ") + msg.message);
+    logHint(msg);
   }
+  videoMessage = msg.message;
+  // Said over the black picture too: the console scrolls away, and a dark
+  // camera is where a student actually looks when the video is missing.
+  videoNoteEl.hidden = !(droneLinkOk && videoBlocked);
   if (!droneLinkOk) {
     statusEl.textContent = "drone offline, reconnecting";
     statusEl.className = "status bad";
-  } else if (wasOk === false) {
+  } else if (videoBlocked) {
+    statusEl.textContent = "connected, no video";
+    statusEl.className = "status bad";
+  } else if (wasOk === false || wasBlocked) {
     statusEl.textContent = "connected";
     statusEl.className = "status ok";
   }
@@ -444,6 +467,7 @@ function connect() {
     else if (msg.type === "finished") {
       workspace.highlightBlock(null);
       log(`mission ${msg.reason}${msg.detail ? ": " + msg.detail : ""}`);
+      logHint(msg);
       appendDebugLine(`finished: ${msg.reason}${msg.detail ? ` (${msg.detail})` : ""}`);
       setRunning(false);
     }
@@ -476,6 +500,7 @@ function connect() {
     }
     else if (msg.type === "error") {
       log("⚠ " + msg.message);
+      logHint(msg);
       // A rejected plan never starts, so no `finished` is ever coming. Without
       // this the whole page stays latched in "running" for the rest of the
       // session and only EMERGENCY STOP -- which cuts a flying drone's motors
@@ -483,7 +508,10 @@ function connect() {
       if (runPending) setRunning(false);
     }
     else if (msg.type === "estopped") {
-      if (msg.ok === false) log("⚠ " + (msg.message || "EMERGENCY STOP did not reach the drone"));
+      if (msg.ok === false) {
+        log("⚠ " + (msg.message || "EMERGENCY STOP did not reach the drone"));
+        logHint(msg);
+      }
       else log("⛔ EMERGENCY STOP");
       setRunning(false);
     }

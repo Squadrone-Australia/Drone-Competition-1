@@ -1,106 +1,109 @@
+import socket
 import threading
 import time
 
 import av
 import numpy as np
-from djitellopy import Tello
 
 from .base import DroneAdapter
 from .config import DEFAULT_FLIGHT_CONFIG, FlightConfig
+from .tello_link import TELLO_ADDRESS, TelloError, TelloInterrupted, TelloLink
 
 TELLO_MIN_MOVE_CM = 20  # the aircraft refuses anything shorter
 _FLIP_CODE = {"forward": "f", "back": "b", "left": "l", "right": "r"}
 _OPPOSITE = {"forward": "back", "back": "forward", "left": "right", "right": "left"}
+#: Where the aircraft sends its H.264 stream once told ``streamon``. Fixed by
+#: the SDK on a standard Tello — only the EDU can be asked to use another port.
+VIDEO_PORT = 11111
+#: The ports the aircraft sends that stream *from*, as measured on a Tello EDU
+#: (field tests, 2026-10-12): 62512 every time but once, when it was 62513.
+#: Punching to a port it is not using costs one ignored datagram.
+VIDEO_SOURCE_PORTS = (62512, 62513)
 #: How long to wait after a failed video-stream open before trying again. The
-#: video loop asks for a frame ten times a second and re-opening the stream
-#: blocks for seconds, so without this a dead stream would stall the loop.
+#: video loop asks for a frame ten times a second, so without this a port that
+#: cannot be bound would be retried ten times a second.
 _REOPEN_INTERVAL_S = 2.0
-#: How long a reconnect pauses so the retiring session's last replies land in
-#: the queue that is about to be thrown away rather than the new one. Every
-#: command's own timeout is measured in seconds, so this is cheap insurance.
-_STALE_RESPONSE_SETTLE_S = 0.4
+#: How long the worker blocks in one receive before it looks at its stop flag
+#: again — and so the longest a close() normally waits.
+_RECV_TIMEOUT_S = 0.5
+#: While no video is arriving, how often to punch again. A punch is only needed
+#: until the stream flows (the stream itself keeps the firewall's entry alive),
+#: but an aircraft that reboots, or a stream that stalls long enough for the
+#: entry to expire, needs a fresh one.
+_PUNCH_INTERVAL_S = 1.0
+#: How long a teardown waits for the worker to notice. Longer than one
+#: receive timeout, so the normal path always joins.
+_VIDEO_JOIN_TIMEOUT_S = 2.0
+#: How many packets in a row may fail to decode before the decoder is replaced.
+#: About two seconds of video at the Tello's rate: one bad packet is normal on
+#: Wi-Fi, and only a decoder stuck in a bad state needs starting over.
+_MAX_DECODE_FAILURES = 60
 
 
-def _drain_responses(t) -> None:
-    """Throw away datagrams queued for this aircraft. Never raises.
-
-    They can only be answers to commands from a session that no longer exists —
-    a reboot, or the adapter we just retired — and djitellopy would hand the
-    first of them to the next command as if it were its own reply.
-    """
-    try:
-        t.get_own_udp_object()["responses"].clear()
-    except Exception:
-        pass
-
-
-#: How long a stalled video read blocks before PyAV abandons it. This is the
-#: whole reason a teardown can be safe: djitellopy opens the stream with *no*
-#: read timeout, so once the aircraft stops sending, its decode thread parks
-#: inside ``av_read_frame()`` for good and the only way to get the UDP port
-#: back is to free the container out from under it — which segfaults the
-#: process. A finite timeout means the thread always comes back to check
-#: whether it has been asked to stop.
-_VIDEO_READ_TIMEOUT_S = 1.0
-#: How long the *first* open may take. A stream that needs a moment to come up
-#: is not a failure, so this is generous — it is only ever paid on connect,
-#: where the caller is already waiting.
-_VIDEO_OPEN_TIMEOUT_S = float(Tello.FRAME_GRAB_TIMEOUT)
-#: How long a *reopen* on the decoder thread may take. Much shorter than the
-#: first open, because this one is paid where nobody is waiting and a teardown
-#: cannot interrupt an open in flight — it is the longest a close() can block.
-#: Giving up here is cheap: the worker exits, ``alive`` goes False and the
-#: adapter opens a fresh reader on its own retry interval.
-_VIDEO_REOPEN_TIMEOUT_S = 1.5
-#: How long a teardown waits for the decoder thread to notice. Longer than the
-#: worst single blocking call the worker can be inside — a read or a reopen —
-#: so the normal path always joins.
-_VIDEO_JOIN_TIMEOUT_S = 4.0
-
-
-def _open_container(address: str, open_timeout: float = _VIDEO_OPEN_TIMEOUT_S):
-    """Open the video stream with both timeouts set. Raises like ``av.open``."""
-    return av.open(address, timeout=(open_timeout, _VIDEO_READ_TIMEOUT_S))
+def _h264_decoder():
+    return av.CodecContext.create("h264", "r")
 
 
 class FrameReader:
-    """Decodes the Tello's H.264 stream on a thread that *owns* its container.
+    """Receives the Tello's video on a socket it owns, and decodes it.
 
-    The ownership rule is the point, and it is not decoration: an
-    ``AVFormatContext`` freed by one thread while another sits inside
-    ``av_read_frame()`` is a use-after-free, and it lands as
-    ``SIGSEGV`` in ``avio_read_partial`` — the process dies with no Python
-    traceback at all. djitellopy's ``BackgroundFrameRead`` invites exactly
-    that: ``stop()`` only sets a flag its worker reads *after the next frame
-    arrives*, which never happens once the aircraft is gone, so releasing the
-    port means closing the container behind the worker's back.
+    **Owning the socket is what gets video through a firewall.** The stream is
+    pushed to :11111 unasked, so a laptop firewall that drops unsolicited
+    inbound UDP (a university-managed laptop on the Tello's *Public* Wi-Fi)
+    drops all of it. But a firewall lets in *replies*: traffic from an address
+    and port this socket has itself sent to. So while no video is arriving, the
+    worker sends a one-byte datagram from :11111 to each port the aircraft
+    streams from — a UDP hole-punch — and the stream that follows is filed as
+    the reply. Field test (2026-10-12, Linux, ufw on): no punch, nothing
+    arrived; punched, the full stream did. That only works if the punch leaves
+    from the very socket the video arrives on, which is why this reads the
+    datagrams itself instead of handing ``udp://@:11111`` to FFmpeg.
 
-    Here only :meth:`_run` ever touches the container, and it always returns
-    within ``_VIDEO_READ_TIMEOUT_S``. A teardown sets an event and joins; no
-    other thread closes anything.
+    **Only the worker thread touches the socket or the decoder.** The reader
+    this replaced let FFmpeg own the socket inside a container, and freeing an
+    ``AVFormatContext`` from one thread while another sat in
+    ``av_read_frame()`` was a use-after-free that killed the process with no
+    traceback. Here a receive always returns within ``_RECV_TIMEOUT_S``, and a
+    teardown just sets an event and joins.
+
+    The Tello sends raw H.264 (Annex B) cut into ~1460-byte datagrams with no
+    framing of its own, so datagrams go straight into the decoder's parser,
+    which finds the frame boundaries.
     """
 
-    def __init__(self, address: str, opener=None):
-        self._address = address
-        # resolved here rather than as a default argument so that tests (and a
-        # future transport) can substitute the av layer wholesale
-        self._opener = opener or _open_container
+    def __init__(
+        self,
+        port: int = VIDEO_PORT,
+        host: str = TELLO_ADDRESS[0],
+        source_ports=VIDEO_SOURCE_PORTS,
+        decoder_factory=None,
+    ):
+        self._host = host
+        self._punch_to = [(host, p) for p in source_ports]
+        # resolved here rather than as a default argument so that tests can
+        # substitute the av layer wholesale
+        self._new_decoder = decoder_factory or _h264_decoder
         self._lock = threading.Lock()
         self._frame = None
         self._stop = threading.Event()
-        # Opened here rather than on the thread so that a stream which never
-        # comes up is reported to the caller instead of dying in the worker.
-        # Once :meth:`start` runs, this reference is stale by design — the
-        # worker reopens as needed and nobody else may close it.
-        self._container = self._opener(address)
+        # Bound here rather than on the thread so that a port someone else
+        # holds is reported to the caller instead of dying in the worker.
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            self._sock.bind(("", port))
+        except OSError:
+            self._sock.close()
+            raise
+        self._sock.settimeout(_RECV_TIMEOUT_S)
+        self.port = self._sock.getsockname()[1]
         self._worker = threading.Thread(target=self._run, name="tello-video",
                                         daemon=True)
         self._started = False
 
     @classmethod
-    def open(cls, tello, **kwargs) -> FrameReader:
-        """Start a reader on ``tello``'s video port."""
-        reader = cls(tello.get_udp_video_address(), **kwargs)
+    def open(cls, **kwargs) -> FrameReader:
+        """Start a reader on the aircraft's video port."""
+        reader = cls(**kwargs)
         reader.start()
         return reader
 
@@ -116,90 +119,127 @@ class FrameReader:
 
     @property
     def alive(self) -> bool:
-        """False once the worker has given up — the stream needs reopening."""
+        """False once the worker has stopped — the reader needs reopening."""
         return self._started and self._worker.is_alive()
 
     def close(self, timeout: float = _VIDEO_JOIN_TIMEOUT_S) -> bool:
         """Stop decoding and give the UDP port back. Idempotent.
 
         Returns whether the worker actually finished. It normally does; if it
-        somehow did not, the container is deliberately *leaked* rather than
-        closed, because leaking a port is a bug and closing it is a crash.
+        somehow did not, its socket is left for it to close on its way out.
         """
         self._stop.set()
         if not self._started:
-            self._discard(self._container)
+            self._sock.close()
             return True
-        self._worker.join(timeout)
+        if threading.current_thread() is not self._worker:
+            self._worker.join(timeout)
         return not self._worker.is_alive()
 
     # --- worker thread only ------------------------------------------------
 
+    def _punch(self) -> None:
+        for target in self._punch_to:
+            try:
+                self._sock.sendto(b"\x00", target)
+            except OSError:
+                pass  # no route yet (Wi-Fi still joining): the next punch will do
+
     def _run(self) -> None:
-        container = self._container
+        decoder = self._new_decoder()
+        failures = 0
+        last_data = last_punch = float("-inf")
         try:
-            while container is not None and not self._stop.is_set():
+            while not self._stop.is_set():
+                now = time.monotonic()
+                if (
+                    now - last_data >= _PUNCH_INTERVAL_S
+                    and now - last_punch >= _PUNCH_INTERVAL_S
+                ):
+                    self._punch()
+                    last_punch = now
                 try:
-                    for frame in container.decode(video=0):
-                        with self._lock:
-                            self._frame = frame.to_ndarray(format="rgb24")
-                        if self._stop.is_set():
-                            break
+                    data, source = self._sock.recvfrom(65536)
+                except TimeoutError:
+                    continue
+                except ConnectionResetError:
+                    # Windows reports an ICMP "port unreachable" from an earlier
+                    # punch as a failed receive. The socket is fine.
+                    continue
+                except OSError:
+                    return  # closed under us
+                if source[0] != self._host:
+                    continue
+                last_data = time.monotonic()
+                try:
+                    packets = decoder.parse(data)
                 except Exception:
-                    # A read timeout, a decoder hiccup and an aircraft that
-                    # went away all arrive here as av.error.ExitError, and a
-                    # container that has raised once never yields another
-                    # frame — reopening is the only cure, not retrying.
-                    pass
-                if self._stop.is_set():
-                    break
-                container = self._reopen(container)
+                    decoder, failures = self._new_decoder(), 0
+                    continue
+                for packet in packets:
+                    try:
+                        frames = decoder.decode(packet)
+                    except Exception:
+                        # A lost datagram leaves a frame the decoder cannot
+                        # use. Skip it: the decoder resynchronises by itself at
+                        # the next keyframe. Throwing it away instead would also
+                        # throw away the good stream its parser has buffered.
+                        # Only a decoder that keeps failing is replaced.
+                        failures += 1
+                        if failures >= _MAX_DECODE_FAILURES:
+                            decoder, failures = self._new_decoder(), 0
+                            break
+                        continue
+                    failures = 0
+                    for frame in frames:
+                        image = frame.to_ndarray(format="rgb24")
+                        with self._lock:
+                            self._frame = image
         finally:
-            self._discard(container)
+            try:
+                self._sock.close()
+            except OSError:
+                pass
 
-    def _reopen(self, old):
-        self._discard(old)
-        try:
-            return self._opener(self._address, _VIDEO_REOPEN_TIMEOUT_S)
-        except Exception:
-            return None  # `alive` goes False; the adapter retries from scratch
-
-    @staticmethod
-    def _discard(container) -> None:
-        if container is None:
-            return
-        try:
-            container.close()
-        except Exception:
-            pass
 
 class TelloDrone(DroneAdapter):
-    """Adapter for a real DJI Tello, built to survive the aircraft going away.
+    """Adapter for a real DJI Tello, built to survive the aircraft going away
+    and a laptop firewall that will not let it talk back.
 
-    Every connection is a *fresh* ``djitellopy.Tello`` and every disconnection
-    is explicit. Both halves matter on competition day:
+    Commands go over :class:`~comp1.drone.tello_link.TelloLink`, which needs no
+    firewall rule because it only ever reads replies to what it sent — see that
+    module for why djitellopy was replaced. Every connection is a *fresh* link
+    on a fresh socket and every disconnection is explicit: a rebooted Tello is a
+    new SDK session, and anything the old one still had to say lands on a port
+    nobody is listening on any more.
 
-    * A rebooted Tello is a new SDK session with an empty response buffer. The
-      old object's queued responses would be answers to commands from before the
-      reboot, so it is retired rather than reused.
-    * The video decoder holds a UDP port until its container is closed, so the
-      stream is read through :class:`FrameReader` rather than djitellopy's
-      ``BackgroundFrameRead`` — see that class for why closing it is otherwise
-      a segfault. Releasing the port here is what makes a later reconnect (or
-      a round trip through the simulator) possible without restarting.
+    Video is pushed to :11111 unasked, which a laptop firewall drops;
+    :class:`FrameReader` punches a hole for it from its own socket. A stream
+    that still never delivers a single frame (a firewall the punch did not get
+    through, or a drone another program told ``streamoff``) is reported as
+    ``video_blocked`` rather than as a lost drone, because the aircraft is still
+    answering and still flies.
     """
 
     mode = "tello"
 
     def __init__(self, flight: FlightConfig = DEFAULT_FLIGHT_CONFIG):
-        self._t = Tello()
+        self._link: TelloLink | None = None
         self._reader = None
         self.flight = flight
         self.command_timeout_s = flight.command_timeout_s
         self.link_ok = False
-        #: whether a session has actually been opened on the aircraft — a
-        #: teardown only has replies to outrun if there was one
-        self._session_live = False
+        #: True when the aircraft answers commands but no video frame has ever
+        #: arrived this session: a firewall the punch did not get through, or
+        #: a drone some other program told ``streamoff`` — or, at once, a video
+        #: port some other program holds (``video_port_busy``).
+        self.video_blocked = False
+        #: True while :11111 is held by some other program on this laptop, so
+        #: there is nowhere for the video to land. Known the moment the bind
+        #: fails, so ``video_blocked`` is raised at once rather than after a
+        #: silence — and the student is pointed at this laptop, not at IT.
+        self.video_port_busy = False
+        self._seen_frame = False
         self._last_frame = None  # identity of the last *decoded* frame
         self._frame_at = 0.0
         self._reopen_at = 0.0
@@ -207,78 +247,76 @@ class TelloDrone(DroneAdapter):
     # --- connection lifecycle --------------------------------------------
 
     def connect(self):
-        """Enter SDK mode on a clean object, then start the video stream.
+        """Enter SDK mode on a fresh link, then start the video stream.
 
         Tears down whatever came before, so this doubles as the reconnect path
         (see :meth:`DroneAdapter.reconnect`) and can be called any number of
-        times.
+        times. Waits for no telemetry: the handshake's own reply is the proof
+        that the aircraft is there, and telemetry is exactly what a firewall
+        drops.
         """
-        had_session = self._session_live
         self.close()
-        if had_session:
-            # Let the dying session's last answers arrive before the new one
-            # starts listening. djitellopy pairs replies with commands
-            # *positionally* — a command takes whatever datagram is at the head
-            # of the queue — so one stray "ok" left over from the old session
-            # offsets every reply from then on, and a command reads the answer
-            # to the one before it. That mis-pairing is how an innocent command
-            # ends up reporting the aircraft's "error Not joystick".
-            time.sleep(_STALE_RESPONSE_SETTLE_S)
-        self._t = Tello()  # installs a fresh, empty response queue
-        _drain_responses(self._t)  # ...and anything that beat us to it
-        self._t.connect()
-        self._t.streamon()
-        self._session_live = True
+        link = TelloLink()
+        try:
+            link.handshake()
+            link.send("streamon")
+        except Exception:
+            link.close()
+            raise
+        self._link = link
         self.link_ok = True
+        self.video_blocked = False
+        self.video_port_busy = False
+        self._seen_frame = False
         self._last_frame = None
         self._frame_at = time.monotonic()
         self._reopen_at = 0.0
         # Best effort: the control link is what "connected" means, and a stream
         # that needs another second is not a failed connection. get_frame()
-        # retries, and the watchdog reconnects if it never comes up.
+        # retries, and reports video_blocked if it never comes up at all.
         self._open_reader()
 
     def close(self):
-        """Drop the video stream and retire the aircraft object. Never flies."""
+        """Stop reading video and drop the command link. Never flies.
+
+        Deliberately sends no ``streamoff``. Once the aircraft has been told
+        ``streamoff``, a later ``streamon`` answers ``ok`` but no video comes
+        until the drone is rebooted (field test, 2026-10-12, Tello EDU: three
+        out of three runs). So a reconnect, or a round trip through the
+        simulator, would have lost the camera, and it would have been
+        reported as a firewall problem. Leaving the stream running costs nothing:
+        with nobody reading :11111 the datagrams are simply dropped, and the
+        next connect's ``streamon`` is harmless.
+        """
         self._release_reader()
-        old, self._t = self._t, None
-        self._session_live = False
+        link, self._link = self._link, None
         self.link_ok = False
-        if old is None:
-            return
-        try:
-            # fire-and-forget: a Tello that has gone away would make the normal
-            # retrying command wait tens of seconds for answers that never come
-            old.send_command_without_return("streamoff")
-        except Exception:
-            pass
-        # Neutralise the retired object. djitellopy's __del__ calls end(), which
-        # lands a drone it believes is flying and deletes the global `drones`
-        # entry by host — and that entry now belongs to the *new* instance, so a
-        # late garbage collection would break the live connection.
-        for attr, value in (
-            ("is_flying", False),
-            ("stream_on", False),
-            ("background_frame_read", None),
-        ):
-            try:
-                setattr(old, attr, value)
-            except Exception:
-                pass
-        try:
-            old.address = (f"retired-{id(old)}", 0)
-        except Exception:
-            pass
+        if link is not None:
+            link.close()
 
     def _open_reader(self):
         """Start the background decoder, or arm a retry. Never raises."""
-        if self._t is None:
+        if self._link is None:
             return None
         try:
-            self._reader = FrameReader.open(self._t)
+            self._reader = FrameReader.open()
+        except OSError:
+            # the bind failed: another program holds the video port
+            self._reader = None
+            self._reopen_at = time.monotonic() + _REOPEN_INTERVAL_S
+            self.video_port_busy = True
+            self.video_blocked = True
+            return None
         except Exception:
             self._reader = None
             self._reopen_at = time.monotonic() + _REOPEN_INTERVAL_S
+            return None
+        if self.video_port_busy:
+            # The port came free. Give the stream a full link_timeout_s to
+            # start before its silence is read as anything.
+            self.video_port_busy = False
+            self.video_blocked = False
+            self._frame_at = time.monotonic()
         return self._reader
 
     def _release_reader(self):
@@ -290,20 +328,22 @@ class TelloDrone(DroneAdapter):
         except Exception:
             pass
 
-    def _cmd(self, name: str, *args):
-        """Run an aircraft command, noting a link loss before re-raising.
+    def _send(self, command: str) -> str:
+        """Run one aircraft command, noting a link loss before re-raising.
 
-        Looked up by name rather than taken as a bound method so that a command
-        issued between a close and the next connect reports what is actually
-        wrong instead of an AttributeError on None. The interpreter turns the
-        exception into a finished-with-error mission; the cleared flag is what
-        lets the server reconnect once it stops.
+        A *refusal* is not a link loss: the aircraft answered, so the link is
+        demonstrably up and reconnecting would only throw away a working
+        session. Silence and transport errors are. The interpreter turns either
+        into a finished-with-error mission; the cleared flag is what lets the
+        server reconnect once it stops.
         """
-        aircraft = self._t
-        if aircraft is None:
+        link = self._link
+        if link is None:
             raise RuntimeError("the Tello is not connected")
         try:
-            return getattr(aircraft, name)(*args)
+            return link.send(command)
+        except (TelloError, TelloInterrupted):
+            raise
         except Exception:
             self.link_ok = False
             raise
@@ -311,24 +351,36 @@ class TelloDrone(DroneAdapter):
     # --- flight ----------------------------------------------------------
 
     def takeoff(self):
-        self._cmd("takeoff")
+        self._send("takeoff")
 
     def land(self):
-        self._cmd("land")
+        self._send("land")
 
     def emergency(self):
-        self._cmd("emergency")
+        """Cut the motors *now*, even while a long move is still waiting.
+
+        Ordinary commands take turns on the link; this one cannot queue behind
+        a 30-second move, so it goes through :meth:`TelloLink.interrupt`.
+        """
+        link = self._link
+        if link is None:
+            raise RuntimeError("the Tello is not connected")
+        try:
+            link.interrupt("emergency")
+        except TelloError:
+            raise
+        except Exception:
+            self.link_ok = False
+            raise
 
     def move(self, direction, cm):
-        self._cmd(f"move_{direction}", cm)
+        self._send(f"{direction} {int(cm)}")
 
     def rotate(self, direction, deg):
-        self._cmd(
-            "rotate_clockwise" if direction == "cw" else "rotate_counter_clockwise", deg
-        )
+        self._send(f"{'cw' if direction == 'cw' else 'ccw'} {int(deg)}")
 
     def flip(self, direction):
-        self._cmd("flip", _FLIP_CODE[direction])
+        self._send(f"flip {_FLIP_CODE[direction]}")
         # The aircraft throws itself along the flip direction and stays there.
         # An opposite move undoes that, but it also costs altitude the flip has
         # already taken, so flip_recover_cm defaults to 0 and the recovery is
@@ -375,6 +427,8 @@ class TelloDrone(DroneAdapter):
         if frame is not self._last_frame:
             self._last_frame = frame
             self._frame_at = now
+            self._seen_frame = True
+            self.video_blocked = False
         elif self._note_silence(now):
             # a frozen picture reads as a working camera pointed at nothing;
             # showing no picture at all is the honest report
@@ -382,11 +436,32 @@ class TelloDrone(DroneAdapter):
         return frame[:, :, ::-1].copy()  # RGB→BGR
 
     def _note_silence(self, now: float) -> bool:
-        """Clear ``link_ok`` once the stream has been quiet for too long."""
+        """Decide what a quiet stream means, once it has been quiet too long.
+
+        A stream that delivered frames and then stopped is a lost aircraft:
+        clear ``link_ok`` and let the watchdog reconnect. A stream that has
+        *never* delivered a frame this session, from an aircraft that answered
+        the handshake, is a firewall or a drone whose video was switched off
+        elsewhere — reconnecting cannot fix either and would loop forever, so it
+        is reported as ``video_blocked`` and the link stays up. If the aircraft
+        really is gone as well, the next command or battery poll goes
+        unanswered and clears ``link_ok`` anyway.
+        """
         if now - self._frame_at < self.flight.link_timeout_s:
             return False
-        self.link_ok = False
+        if self._seen_frame:
+            self.link_ok = False
+        else:
+            self.video_blocked = True
         return True
 
     def battery(self) -> int:
-        return self._cmd("get_battery")
+        # Asked for, not read from telemetry: telemetry is pushed to :8890
+        # unasked, and that is exactly what a managed laptop's firewall drops.
+        reply = self._send("battery?")
+        try:
+            return int(reply)
+        except ValueError:
+            raise TelloError(
+                f"the drone sent an unreadable battery level: {reply!r}"
+            ) from None

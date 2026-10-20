@@ -517,6 +517,76 @@ def test_a_dropped_link_reconnects_by_itself(monkeypatch):
     assert ("reconnect",) in tello.log
 
 
+def test_a_firewalled_camera_is_reported_without_a_reconnect_loop(monkeypatch):
+    """The aircraft answers but its video never arrives: a laptop firewall
+    dropping :11111. Reconnecting cannot open a firewall, so the student is
+    told what to ask for and the working link is left alone."""
+    import comp1.server as server_module
+    from comp1.sim.drone import SimDrone
+
+    monkeypatch.setattr(server_module, "LINK_CHECK_INTERVAL", 0.01)
+
+    class FirewalledTello(ClosableTello):
+        video_blocked = False
+
+        def reconnect(self):
+            self.log.append(("reconnect",))
+
+    tello = FirewalledTello()
+    app = create_app(SimDrone(seed=2, delay=0), tello_factory=lambda: tello)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "drone_mode")
+        ws.send_json({"type": "switch_drone", "mode": "tello"})
+        collect_where(ws, "drone_mode", lambda m: m["mode"] == "tello" and not m["switching"])
+
+        tello.video_blocked = True
+        link = collect_where(ws, "drone_link", lambda m: m["video_blocked"], limit=800)
+        assert link["ok"] is True
+        assert "11111" in link["message"]
+        assert "firewall" in link["hint"] and "11111" in link["hint"]
+
+        tello.video_blocked = False
+        collect_where(ws, "drone_link", lambda m: not m["video_blocked"], limit=800)
+    assert ("reconnect",) not in tello.log
+
+
+def test_a_video_port_held_by_another_program_is_told_apart_from_a_firewall(monkeypatch):
+    """Its cure is on this laptop, not with IT: close the notebook (or the
+    second copy of Drone Coder) that is sitting on :11111."""
+    import comp1.server as server_module
+    from comp1.sim.drone import SimDrone
+
+    monkeypatch.setattr(server_module, "LINK_CHECK_INTERVAL", 0.01)
+
+    class PortlessTello(ClosableTello):
+        video_blocked = False
+        video_port_busy = False
+
+        def reconnect(self):
+            self.log.append(("reconnect",))
+
+    tello = PortlessTello()
+    app = create_app(SimDrone(seed=2, delay=0), tello_factory=lambda: tello)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        collect_until(ws, "drone_mode")
+        ws.send_json({"type": "switch_drone", "mode": "tello"})
+        collect_where(ws, "drone_mode", lambda m: m["mode"] == "tello" and not m["switching"])
+
+        tello.video_port_busy = tello.video_blocked = True
+        link = collect_where(ws, "drone_link", lambda m: m["video_blocked"], limit=800)
+        assert "another program" in link["message"]
+        assert "Jupyter" in link["hint"] and "firewall" not in link["hint"]
+
+        # the port comes free, but the stream still does not arrive: now it is
+        # the firewall, and the student is told so
+        tello.video_port_busy = False
+        link = collect_where(
+            ws, "drone_link", lambda m: "firewall" in (m.get("hint") or ""), limit=800
+        )
+        assert link["video_blocked"] is True
+    assert ("reconnect",) not in tello.log
+
+
 def test_a_disconnected_drone_refuses_to_fly(monkeypatch):
     """Better than a mission that dies on its first unanswered command."""
     from comp1.sim.drone import SimDrone
@@ -534,7 +604,9 @@ def test_a_disconnected_drone_refuses_to_fly(monkeypatch):
                 "program": {"version": 1, "blocks": [{"id": "a", "op": "takeoff"}]},
             }
         )
-        assert "not connected" in collect_until(ws, "error", limit=200)["message"]
+        error = collect_until(ws, "error", limit=200)
+        assert "not connected" in error["message"]
+        assert "Wi-Fi" in error["hint"]  # and what to do about it
     assert ("takeoff",) not in tello.log
 
 
@@ -552,6 +624,21 @@ def test_a_launch_with_the_drone_missing_still_starts_the_server():
         link = collect_until(ws, "drone_link")
         assert link["ok"] is False
         assert "could not connect" in link["message"]
+
+
+def test_only_failures_carry_a_hint():
+    """A clean finish or a stop gets no advice, and a failure with no known cure
+    gets none rather than a guess."""
+    from comp1.server import _with_hint
+
+    refused = {"type": "finished", "reason": "error",
+               "detail": "the drone refused 'takeoff' (error)"}
+    assert "battery" in _with_hint(refused)["hint"]
+    assert "hint" not in _with_hint({"type": "finished", "reason": "done", "detail": ""})
+    assert "hint" not in _with_hint({"type": "finished", "reason": "stopped", "detail": ""})
+    assert "hint" not in _with_hint({"type": "error", "message": "already running"})
+    assert "hint" not in _with_hint({"type": "warning", "message": "lost contact"})
+    assert "hint" not in _with_hint({"type": "pose", "x": 0})
 
 
 # --- choosing and editing the arena ---------------------------------------

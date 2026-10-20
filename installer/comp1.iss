@@ -9,7 +9,13 @@
 ;
 ;   PrivilegesRequired=lowest — a school laptop rarely gives a teacher admin
 ;   rights, and asking for them turns an installer into a support ticket. This
-;   installs per-user under %LOCALAPPDATA%\Programs.
+;   installs per-user under %LOCALAPPDATA%\Programs. The in-app updater runs this
+;   same installer silently, so an elevation prompt here would also break updates
+;   on a managed laptop. 0.2.2 briefly asked for admin in order to add a firewall
+;   rule for the drone's camera (UDP 11111); it was taken back out. Do not add
+;   netsh, [Run] rules or anything else that needs elevation: the video path has
+;   its own no-admin fallback (see "Flying must not need a firewall rule" in
+;   CLAUDE.md), and a blocked camera is something IT fixes, not the installer.
 ;
 ;   AppId is a fixed GUID — it is how Windows knows version 0.2 replaces
 ;   version 0.1 rather than installing beside it. Never change it. Changing it

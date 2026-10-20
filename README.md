@@ -166,6 +166,24 @@ into File Explorer's address bar. Send that file to whoever is supporting you.
 Make sure the computer is connected to the Tello's own Wi-Fi network (not your normal home/school
 Wi-Fi) — the Tello doesn't use the internet at all, it creates its own local network.
 
+**It says "connected, no video".**
+The drone is connected and will fly, but its video isn't reaching the laptop. First turn the
+drone off and on again, then click **Reconnect**. If another program (a Python notebook or
+another drone app) turned the drone's video off, it stays off until the drone restarts. If
+there's still no video, the laptop's firewall is blocking it. The program tries to open the
+video path itself, but that doesn't get through every firewall. On your own computer, Windows may
+have asked whether to allow Drone Coder on networks: allow it on **Public** networks too, because
+the drone's Wi-Fi counts as public. An antivirus with its own firewall (Kaspersky, Bitdefender,
+Norton…) ignores Windows' rules and needs the same exception in its own settings. On a school or
+university laptop, ask IT to allow incoming video from the drone. The rule they need is:
+
+```bat
+netsh advfirewall firewall add rule name="Drone Coder camera" dir=in action=allow protocol=UDP localport=11111 profile=any
+```
+
+The rule only accepts the drone's video on port 11111. Flying doesn't need it. If the policy
+ignores rules added on the laptop itself, IT can push the same rule through Group Policy or Intune.
+
 **I want to start fresh.**
 Close the program and delete the folder `%LOCALAPPDATA%\comp1` — that holds the saved settings
 and the venue colour calibration, nothing else. The program rebuilds it on the next start.
