@@ -234,8 +234,14 @@ aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column;
   box-shadow: 0 0 6px var(--danger); }
 #camera-window button { margin-left: auto; background: none; border: 0; color: var(--text-3);
   cursor: pointer; font-size: 12px; padding: 2px 5px; border-radius: var(--r-sm); }
+#camera-window #vision-detector {
+  margin-left: auto; background: var(--surface-2); color: var(--text-2);
+  border: 1px solid var(--brand-line); border-radius: var(--r-sm); padding: 2px 4px;
+  font: 600 11px/1.2 var(--ui); text-transform: none; letter-spacing: normal; cursor: pointer;
+}
+#camera-window #vision-detector:disabled { opacity: .45; cursor: default; }
 #camera-window #vision-calibrate {
-  margin-left: auto; color: var(--brand); text-transform: none; letter-spacing: normal;
+  margin-left: 0; color: var(--brand); text-transform: none; letter-spacing: normal;
   font: 600 11px/1 var(--ui); border: 1px solid var(--brand-line); padding: 4px 8px;
 }
 #camera-window #vision-calibrate:hover { background: var(--brand-wash); color: var(--brand-hi); }

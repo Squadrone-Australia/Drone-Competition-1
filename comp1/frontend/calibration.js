@@ -3,6 +3,8 @@
 
   const dialog = document.getElementById("vision-dialog");
   const openButton = document.getElementById("vision-calibrate");
+  const detectorSelect = document.getElementById("vision-detector");
+  const tuneTitle = openButton.title;
   const frame = document.getElementById("vision-frame");
   const preview = document.getElementById("vision-preview");
   const video = document.getElementById("video");
@@ -27,6 +29,23 @@
   let selection = null;
   let running = false;
   let previewTimer = null;
+  // What the server says is live. The select is only ever moved to this, never
+  // left where the student put it: a refused switch has to snap back.
+  let detector = "hsv";
+
+  /**
+   * Colour tuning only means something for the colour detector -- the AI model
+   * has no bands to tune -- so Tune colour greys out while it is live, and
+   * says why. Both controls lock for a mission, like the server does.
+   */
+  function syncControls() {
+    detectorSelect.value = detector;
+    detectorSelect.disabled = running;
+    openButton.disabled = running || detector !== "hsv";
+    openButton.title = detector === "hsv"
+      ? tuneTitle
+      : "Colour tuning is only for the Colour detector";
+  }
 
   function tell(message, kind = "") {
     status.textContent = message;
@@ -153,8 +172,14 @@
     clearTimeout(previewTimer);
     if (dialog.open) previewTimer = setTimeout(requestPreview, 250);
   }));
+  detectorSelect.addEventListener("change", () => {
+    const wanted = detectorSelect.value;
+    // Shown as the live choice only once the server confirms it.
+    detectorSelect.value = detector;
+    window.COMP1_SEND({ type: "vision_detector", detector: wanted });
+  });
   openButton.onclick = () => {
-    if (running) return;
+    if (running || detector !== "hsv") return;
     dialog.showModal();
     requestAnimationFrame(captureFrame);
   };
@@ -205,8 +230,15 @@
   window.COMP1_BUS.on((message) => {
     if (message.type === "running") {
       running = message.running;
-      openButton.disabled = running;
+      syncControls();
       if (running && dialog.open) dialog.close();
+    } else if (message.type === "vision_detector") {
+      detector = message.detector;
+      const ai = detectorSelect.querySelector('option[value="yolo"]');
+      ai.disabled = !message.yolo_available;
+      ai.title = message.yolo_available ? "" : `Not available: ${message.yolo_reason}`;
+      syncControls();
+      if (detector !== "hsv" && dialog.open) dialog.close();
     } else if (message.type === "vision_config") {
       configToControls(message.config);
       tell("These settings are active in the detector.", "ok");

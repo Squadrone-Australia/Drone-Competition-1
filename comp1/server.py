@@ -23,6 +23,7 @@ from .paths import is_frozen
 from .protocol import Program
 from .sim import scenery
 from .sim.mission import MissionScorer
+from .vision import yolo as yolo_vision
 from .vision.calibration import (
     CalibrationError,
     auto_suggest_hsv,
@@ -348,12 +349,18 @@ def create_app(
                 # detection runs on the raw sensor frame; every overlay below is
                 # applied to a copy, so nothing we draw can be detected
                 app.state.latest_frame = frame.copy()
-                det = app.state.tracker.update(frame)
+                # Off the event loop: the AI detector costs ~40 ms a frame on a
+                # laptop CPU, and run inline that is 40 ms in every 100 during
+                # which this socket's receive loop -- EMERGENCY STOP included --
+                # cannot run. The tracker is read once, so a detector switch
+                # landing mid-frame swaps the next frame's tracker, not this one.
+                tracker = app.state.tracker
+                det = await asyncio.to_thread(tracker.update, frame)
                 app.state.latest_detection = det
                 small = (
                     cv2.resize(frame, (640, 480)) if frame.shape[1] != 640 else frame
                 )
-                display = active_drone.annotate(draw_overlay(small, det))
+                display = active_drone.annotate(draw_overlay(small, det, cfg.detector))
                 ok, jpeg = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 if ok:
                     await _broadcast_bytes(app, jpeg.tobytes())
@@ -782,6 +789,26 @@ def create_app(
     def _vision_message(message_type: str, active_cfg: VisionConfig) -> dict:
         return {"type": message_type, "config": hsv_values(active_cfg)}
 
+    def _detector_message() -> dict:
+        """Which marker finder is live, and whether the AI one could be.
+
+        ``yolo_reason`` travels with it so the browser can say *why* the AI
+        option is greyed out, rather than offering a choice that is refused.
+        """
+        ok, reason = yolo_vision.available()
+        return {
+            "type": "vision_detector",
+            "detector": cfg.detector,
+            "yolo_available": ok,
+            "yolo_reason": reason,
+        }
+
+    def _set_detector(name: str) -> None:
+        cfg.detector = name
+        # A lock taken by one finder means nothing to the other.
+        app.state.tracker = TargetTracker(cfg)
+        app.state.latest_detection = Detection(found=False)
+
     def _vision_preview(active_cfg: VisionConfig) -> str:
         frame = app.state.latest_frame
         if frame is None:
@@ -1097,6 +1124,7 @@ def create_app(
         )
         await ws.send_text(json.dumps(_battery_message(app)))
         await ws.send_text(json.dumps(_vision_message("vision_config", cfg)))
+        await ws.send_text(json.dumps(_detector_message()))
         await ws.send_text(json.dumps(_settings_message()))
         # The check may well have finished before this client connected — a
         # browser opened late, or reloaded — so replay the result rather than
@@ -1279,6 +1307,18 @@ def create_app(
                                     }
                                 )
                             )
+                        elif cfg.detector != "hsv":
+                            # The AI model has no colour bands to tune. The
+                            # button is greyed out too; this is for a stale page.
+                            await ws.send_text(
+                                json.dumps(
+                                    {
+                                        "type": "vision_error",
+                                        "message": "colour tuning only applies to the "
+                                        "Colour detector",
+                                    }
+                                )
+                            )
                         else:
                             try:
                                 if msg["type"] in ("vision_sample", "vision_auto"):
@@ -1329,6 +1369,30 @@ def create_app(
                                         {"type": "vision_error", "message": str(exc)}
                                     )
                                 )
+                    elif msg["type"] == "vision_detector":
+                        name = msg.get("detector")
+                        problem = None
+                        if name not in settings_store.DETECTORS:
+                            problem = "unknown detector"
+                        elif app.state.drone_switching:
+                            problem = "wait for the drone connection"
+                        elif app.state.interp is not None:
+                            # A mission mid-approach is steering on this
+                            # detector's ranges; swapping it would change what
+                            # the controller sees between two moves.
+                            problem = "stop the mission before changing the detector"
+                        elif name == "yolo":
+                            ok, reason = yolo_vision.available()
+                            if not ok:
+                                problem = f"the AI model is not available: {reason}"
+                        if problem:
+                            await _reply_error(ws, problem)
+                            # Re-sync the selector the student just changed.
+                            await ws.send_text(json.dumps(_detector_message()))
+                        else:
+                            _set_detector(name)
+                            _remember({"detector": name})
+                            await _broadcast_json(app, _detector_message())
                     elif msg["type"] == "estop":
                         if app.state.interp:
                             app.state.interp.request_stop(emergency=True)

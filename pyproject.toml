@@ -29,6 +29,10 @@ dependencies = [
     # absent, so a macOS or Linux checkout that installs it by hand gets the
     # window anyway, and one that does not loses nothing.
     "pywebview>=6.2; sys_platform == 'win32'",
+    # Runs the AI marker detector (comp1/vision/yolo.py), exported to ONNX so
+    # the shipped program carries neither torch nor ultralytics. Optional at
+    # runtime: without it the detector is greyed out and colour still works.
+    "onnxruntime>=1.23",
 ]
 
 [project.optional-dependencies]
@@ -52,3 +56,6 @@ version = {attr = "comp1.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["comp1*"]
+
+[tool.setuptools.package-data]
+"comp1.vision" = ["models/*.onnx"]

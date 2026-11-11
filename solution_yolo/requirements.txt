@@ -1,0 +1,9 @@
+# On top of solution/requirements.txt (numpy, opencv) and, for synth.py only,
+# the comp2 package itself (python -m pip install -e .).
+#
+# Install PyTorch with CUDA FIRST, from PyTorch's own index, or pip pulls a
+# CPU-only build. An RTX 50-series card needs CUDA 12.8 or newer:
+#   python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+# Then:
+#   python -m pip install -r solution_yolo/requirements.txt
+ultralytics>=8.4

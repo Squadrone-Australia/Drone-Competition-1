@@ -45,6 +45,9 @@ the README.
 - `comp1/drone/` — `base.DroneAdapter` ABC plus `tello`/`mock`; `config.FlightConfig`.
 - `comp1/sim/` — the hardware-free simulator: world, scene, scenery, render, mission scoring.
 - `comp1/vision/` — HSV marker detection, distance/bearing estimation, obstacles, auto-calibration.
+  `vision/yolo.py` is the alternative AI marker finder: `models/fire_pose.onnx` (trained in
+  `solution_fire/`) on onnxruntime, never torch. `VisionConfig.detector` (`hsv`|`yolo`) picks the
+  finder inside `TargetTracker`, so every tracker call site follows the live switch.
 - `comp1/frontend/` — plain JS with Blockly and three.js vendored under `vendor/`. No build step.
   `buffer.js` auto-saves the Blockly workspace to `localStorage` and restores it as
   `app.js` injects. Deliberately client-side: no socket message, nothing in
@@ -66,7 +69,7 @@ the README.
 The HTTP surface is two things: `StaticFiles` mounted at `/`, and a single WebSocket at
 `/ws`. There is no REST API — every runtime interaction is a message on that socket, so
 tracing a feature means finding its `msg["type"]` branch in the receive loop
-(`run`, `stop`, `estop`, `reset`, `scenery`, `vision_*`, `switch_drone`, `reconnect_drone`,
+(`run`, `stop`, `estop`, `reset`, `scenery`, `vision_*` (incl. `vision_detector`), `switch_drone`, `reconnect_drone`,
 `save_settings`, `install_update`, `quit`) and the matching `ws.send`/`onmessage` in
 `comp1/frontend/app.js`. The server pushes the other way by fanning out over
 `app.state.clients`: `_broadcast_json` for telemetry, pose, link, battery, mission and
