@@ -80,9 +80,22 @@ class FakeAircraft:
             else:
                 duration = self.durations.get(verb, 0.1)
                 self.busy_until = time.monotonic() + duration
-                timer = threading.Timer(duration, self._reply, ("ok", addr))
+                timer = threading.Timer(duration, self._finish, (addr,))
                 timer.daemon = True
                 timer.start()
+
+    def _finish(self, addr):
+        """The manoeuvre is over: stop being busy, *then* say so.
+
+        The firmware's "ok" is itself the proof that it is idle again. Leaving
+        ``busy_until`` to expire on its own raced the timer: Timer waits and
+        ``time.monotonic()`` tick differently on Windows, so the "ok" could
+        leave a few ms before ``busy_until`` passed, and the next command --
+        sent the instant that "ok" arrived -- was refused as busy. That made
+        the long-manoeuvre test fail on a loaded machine, never the link.
+        """
+        self.busy_until = 0.0
+        self._reply("ok", addr)
 
     def close(self):
         self._stop.set()
