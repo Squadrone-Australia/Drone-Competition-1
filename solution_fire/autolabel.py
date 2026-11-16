@@ -6,6 +6,9 @@
     # negatives: footage with no red disc in it at all
     python -m solution_fire.autolabel solution_yolo/data/raw/notredcircle \
         solution_yolo/data/raw/empetystand --out solution_fire/data/real --empty
+    # competition boards, which carry no marker: see markerless_draft
+    python -m solution_fire.autolabel solution_yolo/data/raw/redcircle_positive \
+        --out solution_fire/data/real --markerless --model solution_fire/models/fire_pose_s.pt
 
 How a positive frame is labelled
 --------------------------------
@@ -285,6 +288,156 @@ def twin_discs(frame: np.ndarray, discs: list) -> list:
     return out
 
 
+# --- footage without a marker -----------------------------------------------------------
+#
+# The drone-cage footage (2026-11-11) is the competition's own boards: no ArUco
+# marker, held by hand or hung in the red-and-white stand. With no pose to
+# project, a label has to come from the image, so two independent guesses are
+# made and only their agreement is trusted without a look.
+
+
+def chroma_mask(frame: np.ndarray, ratio: float = 1.8, min_red: int = 14,
+                local: bool = False) -> np.ndarray:
+    """Red by channel *ratio*, not by HSV brightness.
+
+    Backlit against the cage's windows, the disc comes out at V 28-67 with
+    G and B near zero (BGR 0, 4, 28): far below ``red_mask``'s V 60 floor, yet
+    unmistakably red, because red still dwarfs the other two channels. The
+    black print it must be told from is (0, 30, 35): dark too, but G is close
+    to R. ``min_red`` keeps sensor noise in crushed blacks (0, 1, 9) out.
+
+    ``local`` is for a crop around one disc: the cage's varnished wood is as
+    red *by ratio* as a backlit disc (0, 15, 70), so there the chroma
+    ``R - max(G, B)`` must also clear an Otsu split of the crop. The disc is
+    the strongest red in its own neighbourhood whatever the light: about
+    twice the wood's chroma in daylight, well above the shaded sheet's when
+    backlit.
+
+    The cage netting draws dark lines across the disc, so the mask is closed
+    to bridge them back into one blob."""
+    b, g, r = (c.astype(np.int16) for c in cv2.split(frame))
+    top = np.maximum(g, b)
+    keep = (r >= min_red) & (r * 10 >= int(ratio * 10) * top + 20)
+    if local:
+        chroma = np.clip(r - top, 0, 255).astype(np.uint8)
+        split, _ = cv2.threshold(chroma, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        keep &= chroma > max(split, 10)
+    mask = keep.astype(np.uint8) * 255
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+
+def chroma_discs(frame: np.ndarray, min_area: float = 120.0, circ_min: float = 0.75,
+                 solid_min: float = 0.8, roi=None, open_px: int = 0):
+    """Round, solid blobs of ``chroma_mask``, roundest first: (contour, circ, solid).
+
+    A hand over the rim takes a bite out of the blob, so roundness is judged
+    on the hull and the gates are looser than ``disc_like``'s; agreement with
+    the network is what makes a frame ``auto``.
+
+    ``roi`` (x0, y0, x1, y1) looks only there. Over the whole frame, the
+    cage's varnished beams pass the ratio test too (wood is a dull red) and
+    the closing welds them to the disc; just around a detection, the disc's
+    neighbours are the white sheet, and it comes out clean.
+
+    ``open_px`` (with ``roi``) opens the mask with a disc that wide: the
+    stand's red pole runs close past the sheet's edge and the closing can
+    weld it to the disc by a thin bridge. Both are far narrower than the
+    disc, so an opening a fraction of its size cuts them off."""
+    ox = oy = 0
+    if roi is not None:
+        h, w = frame.shape[:2]
+        ox, oy = max(0, int(roi[0])), max(0, int(roi[1]))
+        frame = frame[oy:min(h, int(math.ceil(roi[3]))), ox:min(w, int(math.ceil(roi[2])))]
+        if frame.size == 0:
+            return []
+    mask = chroma_mask(frame, local=roi is not None)
+    if open_px >= 3:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (open_px, open_px))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE,
+                                   offset=(ox, oy))
+    out = []
+    for c in contours:
+        if cv2.contourArea(c) < min_area or len(c) < 5:
+            continue
+        circ, solid = roundness(c)
+        _, _, bw, bh = cv2.boundingRect(c)
+        if circ >= circ_min and solid >= solid_min and 0.35 < bw / bh < 2.8:
+            out.append((c, circ, solid))
+    out.sort(key=lambda t: -t[1] * t[2])
+    return out
+
+
+def _ellipse_outline(box, n: int = 72) -> np.ndarray:
+    x0, y0, x1, y1 = box
+    t = np.linspace(0, 2 * math.pi, n, endpoint=False)
+    return np.column_stack(((x0 + x1) / 2 + (x1 - x0) / 2 * np.cos(t),
+                            (y0 + y1) / 2 + (y1 - y0) / 2 * np.sin(t)))
+
+
+def _hull5(contour: np.ndarray) -> np.ndarray:
+    """The blob's hull for an ellipse fit, or the contour itself when the hull
+    is too few points for one (a blob with straight sides)."""
+    hull = cv2.convexHull(contour)
+    return hull if len(hull) >= 5 else contour
+
+
+def _blob_outline(contour: np.ndarray, n: int = 72) -> np.ndarray:
+    (cx, cy), (a, b), angle = cv2.fitEllipse(_hull5(contour))
+    t = np.linspace(0, 2 * math.pi, n, endpoint=False)
+    ca, sa = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+    return np.column_stack((cx + a / 2 * np.cos(t) * ca - b / 2 * np.sin(t) * sa,
+                            cy + a / 2 * np.cos(t) * sa + b / 2 * np.sin(t) * ca))
+
+
+def markerless_draft(frame: np.ndarray, model, iou_min: float, score_auto: float = 0.5):
+    """(discs, status, info) for a frame of footage with no marker.
+
+    The network's best detection is matched to the chroma blob whose fitted
+    ellipse overlaps it most. The label is that ellipse when the blob is whole
+    (its rim is pixel-exact, where the network's keypoints are a regression),
+    else the network's own. ``auto`` needs a confident detection *and* a blob
+    that agrees with it; everything else is ``pending``, drafted from whichever
+    guess exists, for a human to settle -- including frames where neither
+    found anything, which may yet hold a disc too dark for both."""
+    h, w = frame.shape[:2]
+    dets = model.detect(frame) if model is not None else []
+    info: dict = {}
+    if dets:
+        d = dets[0]
+        x0, y0, x1, y1 = d.box
+        gx, gy = 0.125 * (x1 - x0), 0.125 * (y1 - y0)
+        roi = (x0 - gx, y0 - gy, x1 + gx, y1 + gy)
+        blobs_ = chroma_discs(frame, roi=roi) or chroma_discs(
+            frame, roi=roi, open_px=int(0.12 * min(x1 - x0, y1 - y0)))
+        target = _ellipse_outline(d.box)
+        best, iou = None, 0.0
+        for c, _, _ in blobs_:
+            v = polygon_iou(_blob_outline(c), target, w, h)
+            if v > iou:
+                best, iou = c, v
+        info.update(score=round(d.score, 3), iou=round(iou, 3))
+        draft = None
+        if best is not None and iou >= 0.6 and not touches_border(best, w, h):
+            draft = ellipse_label(_hull5(best), w, h)
+        if draft is None:
+            draft = (d.box, d.keypoints_labelled())
+        discs = [draft]
+        # A second confident disc (two boards in shot) is drafted too, but
+        # always looked at.
+        extra = [(s.box, s.keypoints_labelled()) for s in dets[1:] if s.score >= score_auto]
+        status = "auto" if d.score >= score_auto and iou >= iou_min and not extra else "pending"
+        return discs + extra, status, info
+    for c, circ, solid in chroma_discs(frame):
+        if circ > 0.88 and solid > 0.92 and not touches_border(c, w, h):
+            draft = ellipse_label(_hull5(c), w, h)
+            if draft is not None:
+                return [draft], "pending", info
+    return [], "pending", info
+
+
 # --- per-clip board estimate ------------------------------------------------------------
 
 
@@ -357,6 +510,9 @@ def main(argv=None) -> None:
                         help="draft frames the marker cannot label with trained weights")
     parser.add_argument("--keep-marker", action="store_true",
                         help="do not paint the ArUco marker out (debugging only)")
+    parser.add_argument("--markerless", action="store_true",
+                        help="the boards carry no marker (the competition prints): draft "
+                        "from --model and the red-chroma blob, paint nothing out")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args(argv)
 
@@ -367,7 +523,12 @@ def main(argv=None) -> None:
     if args.model:
         from solution_fire.detector import FireDetector
 
-        model = FireDetector(args.model, calibration=calibration, score_min=0.3)
+        # Markerless drafting wants the network's weak guesses too: a 0.15
+        # detection that a chroma blob agrees with is still a useful draft.
+        model = FireDetector(args.model, calibration=calibration,
+                             score_min=0.15 if args.markerless else 0.3)
+    if args.markerless and args.empty:
+        parser.error("--markerless is for footage with discs; --empty already needs no marker")
     rng = np.random.default_rng(args.seed)
 
     for sub in ("images", "labels", "meta"):
@@ -382,7 +543,9 @@ def main(argv=None) -> None:
         clip = _slug(video.stem)
         fps = video_fps(video)
         offset, radius = np.array(DISC_OFFSET_M), DISC_DIAMETER_M / 2
-        if not args.empty:
+        if args.markerless:
+            manifest["clips"][clip] = {"source": "markerless"}
+        elif not args.empty:
             est_o, est_r, used = estimate_board(video, truth)
             offset, radius, why = choose_board(est_o, est_r, used)
             manifest["clips"][clip] = {
@@ -417,6 +580,9 @@ def main(argv=None) -> None:
             if args.empty:
                 counts["alarms"] += disc_like(frame) is not None
                 status = "empty"
+            elif args.markerless:
+                discs, status, info = markerless_draft(frame, model, args.iou_min)
+                entry.update(info)
             else:
                 pose = truth.pose(frame)
                 status = "pending"
@@ -449,13 +615,15 @@ def main(argv=None) -> None:
                         blob = disc_like(frame)
                         draft = None if blob is None else ellipse_label(blob, w, h)
                         discs = [] if draft is None else [draft]
-            twins = [] if args.empty else twin_discs(frame, discs)
+            twins = [] if args.empty or args.markerless else twin_discs(frame, discs)
             if twins:
                 discs = discs + twins
                 entry["twins"] = len(twins)
                 if status == "auto":
                     status = "pending"
-            if not args.keep_marker:
+            if args.markerless:
+                entry["painted"] = "none"
+            elif not args.keep_marker:
                 found = truth.detect_all(frame)
                 for corners in found:
                     paint_out(frame, corners, rng=rng)

@@ -58,12 +58,20 @@ NEGATIVES = (
     ("green_triangle", 3.0),
     ("black_square", 3.0),
     ("black_triangle", 3.0),
+    # Filmed in the cage (2026-11-11): the old model called it a fire in 73%
+    # of frames. Backlit, a red disc is nearly as dark, so this is the decoy
+    # that teaches "dark is not red".
+    ("black_circle", 3.0),
     ("green_ring", 1.0),
     ("red_ring", 3.0),
     ("red_square", 2.0),
     ("red_triangle", 2.0),
     ("blank", 1.0),
 )
+#: Share of sheets lit from behind (see ``composite``), and of sheets seen
+#: through the cage's net. Both are the drone cage of 2026-11-11.
+BACKLIT_P = 0.3
+NET_P = 0.3
 SHEETS_M = ((0.21, 0.297), (0.297, 0.21), (0.297, 0.42), (0.30, 0.30), (0.25, 0.25), (0.42, 0.42))
 
 
@@ -86,7 +94,12 @@ def ink(kind: str, rng) -> tuple:
         return hsv_colour(rng, (40, 85), (0.35, 1.0), (0.3, 0.85))
     if kind.startswith("black"):
         v = rng.uniform(0.04, 0.22)
-        return hsv_colour(rng, (0, 180), (0, 0.3), (v, v))
+        if rng.random() < 0.5:
+            return hsv_colour(rng, (0, 180), (0, 0.3), (v, v))
+        # The Tello renders black print warm: (0, 30, 35) in the cage, H 26,
+        # S 255: green is 0.7-1x its red (H 20-32), which is what still tells it
+        # from a backlit red disc (0, 4, 28) at the same brightness.
+        return hsv_colour(rng, (20, 32), (0.4, 1.0), (v, v))
     raise ValueError(kind)
 
 
@@ -259,7 +272,14 @@ def composite(frame, sheet, alpha, rng) -> None:
     around = frame[max(0, y0 - pad):y1 + pad, max(0, x0 - pad):x1 + pad].reshape(-1, 3)
     ambient = around.mean(axis=0).astype(np.float32) + 1
     tint = ambient / ambient.mean()
-    gain = rng.uniform(0.55, 1.1) * (0.6 + 0.4 * ambient.mean() / 160)
+    if rng.random() < BACKLIT_P:
+        # Backlit: the sheet hangs in front of a bright window and the
+        # Tello's auto-exposure meters for the window, so the print comes
+        # out a quarter of its brightness whatever the room around it. Every
+        # kind gets this, decoys too, or "dark" would come to mean "red".
+        gain = rng.uniform(0.12, 0.45)
+    else:
+        gain = rng.uniform(0.55, 1.1) * (0.6 + 0.4 * ambient.mean() / 160)
     sheet *= gain * (1 + rng.uniform(0.2, 0.6) * (tint - 1))
     # Light falls off across the sheet a little.
     gy, gx = np.mgrid[0:frame.shape[0], 0:frame.shape[1]].astype(np.float32)
@@ -270,7 +290,35 @@ def composite(frame, sheet, alpha, rng) -> None:
     sheet = cv2.GaussianBlur(sheet, (0, 0), sigma)
     a = cv2.GaussianBlur(alpha, (0, 0), max(0.5, sigma))[..., None]
     out = frame.astype(np.float32) * (1 - a) + sheet * a
+    if rng.random() < NET_P:
+        out = netting(out, a[..., 0], rng)
     frame[:] = np.clip(out, 0, 255).astype(np.uint8)
+
+
+def netting(image, where, rng):
+    """The drone cage's net between the camera and the sheet: a dark,
+    slightly rotated square mesh drawn over the print (the background frame
+    already has its own net, or none). In the cage footage it crosses every
+    disc, breaking its outline into cells."""
+    h, w = image.shape[:2]
+    pitch = rng.uniform(12, 40)
+    width = int(rng.integers(1, 4))
+    angle = rng.uniform(-0.35, 0.35)
+    mesh = np.zeros((h, w), np.uint8)
+    reach = int(math.hypot(w, h))
+    c, s = math.cos(angle), math.sin(angle)
+    ox, oy = rng.uniform(0, pitch, 2)
+    for k in np.arange(-reach, reach, pitch):
+        for (dx, dy), (px, py) in (((c, s), (-s, c)), ((-s, c), (c, s))):
+            x0, y0 = w / 2 + (k + ox) * px - reach * dx, h / 2 + (k + oy) * py - reach * dy
+            x1, y1 = w / 2 + (k + ox) * px + reach * dx, h / 2 + (k + oy) * py + reach * dy
+            cv2.line(mesh, (int(x0), int(y0)), (int(x1), int(y1)), 255, width, cv2.LINE_AA)
+    # The net is out of focus and the Tello moves: soft strands, not ink.
+    mesh = cv2.GaussianBlur(mesh, (0, 0), rng.uniform(0.6, 1.6))
+    strength = rng.uniform(0.4, 0.85)
+    m = (mesh.astype(np.float32) / 255) * strength * where
+    shade = np.float32(rng.uniform(10, 45))
+    return image * (1 - m[..., None]) + shade * m[..., None]
 
 
 def camera_effects(frame, rng) -> np.ndarray:

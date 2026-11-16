@@ -33,32 +33,42 @@ shrink. If either point is out of shot it uses left–right, then the box.
 The disc diameter defaults to 0.20 m (the printed test board). Pass
 `diameter_m=` if the competition prints differ.
 
-## Results (2026-11-08)
+## Results (2026-11-12)
 
-Two models trained for 30 epochs on 9,690 images (8,000 synthetic, the rest
-real frames repeated 3×). Scored on held-out **sessions** never used for
-training or as synthetic backgrounds, at score ≥ 0.5:
+`fire_pose.pt` (yolo26n) retrained for 30 epochs on the drone-cage footage of
+2026-11-11 as well: 11,769 images (8,000 synthetic, the rest real frames
+repeated 3×). Scored on held-out **sessions** never used for training or as
+synthetic backgrounds, at score ≥ 0.5, against the 2026-11-08 model on the
+same split:
 
-| | `fire_pose.pt` (yolo26n) | `fire_pose_s.pt` (yolo26s) |
+| | 2026-11-08 | **2026-11-12** |
 | --- | --- | --- |
-| real test: discs found | 110/110 | 110/110 |
-| real test: empty frames alarmed (ring, stand, room) | 0/151 | 0/151 |
-| real val: discs found / empty frames alarmed | 81/81 / 0/136 | 81/81 / 0/136 |
-| synthetic test: discs found | 244/244 | 243/244 |
-| synthetic decoy-only frames alarmed | 0/49 | 0/49 |
-| range error, median / p90 (real test) | 2.5% / 4.5% | 2.2% / 4.0% |
-| pose mAP50-95, real test | 0.995 | 0.995 |
-| CPU ms per frame (this laptop) | **37** | 128 |
+| real test: discs found | 196/242 | **242/242** |
+| — backlit cage clip `174047_s1` | 10/56 | **56/56** |
+| real test: empty frames alarmed | 25/300 | **1/300** |
+| — filmed black circle `153901_s0` | 32/60 | **0/60** |
+| real val: discs found / empty frames alarmed | 181/190 / 0/250 | **190/190** / 0/250 |
+| synthetic test: discs found | 203/244 | **243/244** |
+| synthetic test: black-circle false alarms | 8 | **0** |
+| range error, median / p90 (real test) | 2.5% / 4.5% | 2.6% / 4.5% |
+| pose mAP50-95, real test | — | 0.993 |
+| CPU ms per frame (this laptop) | 37 | 40 |
 
-`fire_pose.pt` (nano) is the default: the same answers at 3.5× the speed.
-At score 0.25 the nano model raised 2 false alarms in one room frame, so
-keep `score_min` at 0.5 or above.
+The one remaining false alarm is a single room frame (`randomenvironment`
+`_s5`); it is gone at score 0.8. Keep `score_min` at 0.5 or above.
+
+`fire_pose_s.pt` (yolo26s) has **not** been retrained and still has the
+2026-11-08 weaknesses. It is used only to draft labels (`--markerless`).
 
 What these numbers do **not** show:
 
-- The real footage is one board in one room. The four competition decoys
-  have only ever been seen synthetically; film the printed decoys and run
-  them through `autolabel --empty` and `evaluate` before trusting the 0/49.
+- The real footage is two boards in two places: the test board at home and
+  the competition boards in the cage. Green circle, black circle and black
+  square have been filmed; the triangles have only ever been seen
+  synthetically.
+- The test split holds the backlit clip's second half, but the first half
+  trained the model: the same cage, the same light. A different hall or
+  time of day is still untested.
 - The hollow red ring is treated as *not* a target. If the competition's
   fire targets turn out to be outlines, this model will miss them.
 - Range assumes a 0.20 m disc. Set `diameter_m` to the competition print.
@@ -71,6 +81,10 @@ What these numbers do **not** show:
 #    check against the ruler (0.20 m, 0.33 m above the marker).
 .venv\Scripts\python -m solution_fire.autolabel solution_yolo\data\raw\redcircle --out solution_fire\data\real --calibration solution_yolo\runs\calibration\tello_camera.json
 .venv\Scripts\python -m solution_fire.autolabel solution_yolo\data\raw\notredcircle solution_yolo\data\raw\empetystand solution_yolo\data\raw\randomenvironment --out solution_fire\data\real --empty --calibration solution_yolo\runs\calibration\tello_camera.json
+#    Competition boards carry no marker (the drone-cage footage): draft from the
+#    current model and the red-chroma blob instead, and paint nothing out.
+.venv\Scripts\python -m solution_fire.autolabel solution_yolo\data\raw\redcircle_positive solution_yolo\data\raw\redcircle_badLightening --out solution_fire\data\real --markerless --model solution_fire\models\fire_pose_s.pt
+.venv\Scripts\python -m solution_fire.autolabel solution_yolo\data\raw\notRedCircle_Negative solution_yolo\data\raw\greencircle --out solution_fire\data\real --empty
 
 # 2. Look, then review what could not be labelled automatically.
 .venv\Scripts\python -m solution_fire.preview solution_fire\data\real --status pending --grid --count 64 --out solution_fire\runs\prev
@@ -78,18 +92,24 @@ What these numbers do **not** show:
 .venv\Scripts\python -m solution_fire.review solution_fire\data\real --set rejected STEM ...   # or batch
 
 # 3. Synthetic decoys and discs pasted into the reviewed footage. Exclude
-#    the held-out sessions so none leak in as backgrounds.
-$held = "redcircle_*_s2","redcircle_*_s4","notredcircle_*_s1","empetystand_*_s2","empetystand_*_s3","randomenvironment_*_s2","randomenvironment_*_s5"
-.venv\Scripts\python -m solution_fire.synth --real solution_fire\data\real --out solution_fire\data\synth --count 8000 --calibration solution_yolo\runs\calibration\tello_camera.json --exclude-sessions $held
+#    the held-out sessions so none leak in as backgrounds. The patterns are
+#    written out to the clip's date on purpose: on Windows fnmatch ignores
+#    case, so "notredcircle_*" also matches "notRedCircle_Negative_*".
+$val = "redcircle_2026110*_s2","empetystand_*_s2","randomenvironment_*_s2","redcircle_positive_*-153518_s2","redcircle_20261111-174022_s1","notRedCircle_Negative_*-153658_s1","greencircle_*-174131_s1"
+$test = "redcircle_2026110*_s4","notredcircle_20261108*_s1","empetystand_*_s3","randomenvironment_*_s5","redcircle_20261111-174047_s1","redcircle_positive_*-153518_s3","redcircle_positive_*-153552_s1","notRedCircle_Negative_*-153901_s0","notRedCircle_Negative_*-153733_s1","greencircle_*-174157_s1"
+.venv\Scripts\python -m solution_fire.synth --real solution_fire\data\real --out solution_fire\data\synth2 --count 8000 --calibration solution_yolo\runs\calibration\tello_camera.json --exclude-sessions @val @test
 
 # 4. One dataset, split by session.
-.venv\Scripts\python -m solution_fire.build_dataset --synth solution_fire\data\synth --real solution_fire\data\real --out solution_fire\data\fire --force --val-sessions "redcircle_*_s2" "empetystand_*_s2" "randomenvironment_*_s2" --test-sessions "redcircle_*_s4" "notredcircle_*_s1" "empetystand_*_s3" "randomenvironment_*_s5"
+.venv\Scripts\python -m solution_fire.build_dataset --synth solution_fire\data\synth2 --real solution_fire\data\real --out solution_fire\data\fire2 --force --val-sessions @val --test-sessions @test
 
 # 5. Train (an RTX 5060 needs the cu130 PyTorch build, see below).
-.venv\Scripts\python -m solution_fire.train --data solution_fire\data\fire\data.yaml --model yolo26s-pose.pt --name fire_s
+.venv\Scripts\python -m solution_fire.train --data solution_fire\data\fire2\data.yaml --model yolo26n-pose.pt --epochs 30 --name fire2_n
 
 # 6. Score: recall, false alarms per decoy kind, alarm runs, range error, CPU speed.
-.venv\Scripts\python -m solution_fire.evaluate --model solution_fire\runs\fire_s\weights\best.pt --data solution_fire\data\fire --map --speed --out solution_fire\runs\fire_s\eval.json
+.venv\Scripts\python -m solution_fire.evaluate --model solution_fire\runs\fire2_n\weights\best.pt --data solution_fire\data\fire2 --map --speed --out solution_fire\runs\fire2_n\eval.json
+
+# 7. Ship it to the app: ONNX next to comp1\vision\yolo.py.
+.venv\Scripts\python -m solution_fire.export solution_fire\runs\fire2_n\weights\best.pt --format onnx
 ```
 
 GPU training needs CUDA PyTorch in `.venv`. Pip treats the CPU build as
@@ -113,13 +133,30 @@ already satisfying the requirement, so force the reinstall:
 - **Reflections.** A wardrobe mirror in clip `005112` shows a second copy of
   the board. It looks exactly like a red disc, so it is labelled as one
   (`twin_discs`).
+- **Competition boards, no marker** (`--markerless`, the drone-cage footage
+  of 2026-11-11). Two independent guesses: the current model at score ≥ 0.15,
+  and a red blob found by channel *ratio* (R well above G and B) rather than
+  HSV brightness, because backlit against the cage's windows the disc comes
+  out at V 28–67 and the HSV mask loses it. Around a detection the blob is
+  split by Otsu on `R − max(G, B)`, since the cage's varnished wood is as red
+  by ratio as a backlit disc; an opening cuts off the stand's red pole when it
+  touches the sheet. Agreement (ellipse IoU ≥ 0.8, score ≥ 0.5) is `auto`;
+  everything else is `pending`. Of 543 frames, 326 were `auto`; every
+  `pending` draft and a sample of `auto` were checked by eye, 23 frames with no
+  draft were re-drafted from their neighbours' boxes, and 5 imprecise ones
+  rejected.
 - **Negatives.** Frames go in as reviewed negatives:
   - the hollow red ring on the same board;
   - the empty stand;
   - the room.
 - **Synthetic sheets** are printed shapes warped into the reviewed frames by
   a plane homography, with exact keypoints for the red discs:
-  - the four competition decoys, filled or outlined;
+  - the four competition decoys, filled or outlined, plus a black circle
+    (the old model alarmed on the filmed one in 73% of frames). Black ink is
+    half neutral, half the warm olive the Tello renders it as (H 20–32);
+  - 30% of sheets **backlit**: the whole print at 0.12–0.45 of its
+    brightness, decoys as often as discs, so dark never means red;
+  - 30% seen **through the cage's net**: soft dark strands over the sheet;
   - red rings, squares and triangles;
   - blank sheets;
   - red discs at 0.45–5 m and up to 60° off-axis.

@@ -7,7 +7,7 @@ detector is set to **AI model**.
 
 | | |
 | --- | --- |
-| source weights | `solution_fire/models/fire_pose.pt` (YOLO26n-pose, 2026-11-08) |
+| source weights | `solution_fire/models/fire_pose.pt` (YOLO26n-pose, 2026-11-12: retrained with the backlit drone-cage footage and the black-circle decoy) |
 | input | `images`, 1×3×640×640, RGB, 0..1, letterboxed with grey (114) padding |
 | output | `output0`, 1×20×8400: box `cx cy w h`, the `red_circle` score, then 5 keypoints × (x, y, conf), all in letterboxed pixels. Not end-to-end, so `yolo.py` runs NMS. |
 | keypoints | 0 centre, 1 top, 2 right, 3 bottom, 4 left (left/right as the camera sees them) |
