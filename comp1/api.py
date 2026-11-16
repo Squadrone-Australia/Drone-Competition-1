@@ -547,6 +547,14 @@ class Drone:
         return round(z * 100, 1) if z is not None else 0.0
 
 
+#: The script twin of ``interpreter.AUTO_LAND_WARNING``: the fix is a call here,
+#: not a block.
+SCRIPT_AUTO_LAND_WARNING = (
+    "the script ended with the drone still in the air, so it was landed for you"
+    " — finish with drone.land() to choose where it comes down"
+)
+
+
 class ScriptRun:
     """One student-script execution.
 
@@ -653,6 +661,9 @@ class ScriptRun:
         # A script that ends with the drone still up is landed, exactly as a
         # block program is -- see Interpreter.run.
         if reason != "done" or self._drone.flying:
+            if reason == "done" and not self._emergency:
+                # Same notice as a block plan gets, worded for a script.
+                self._emit({"type": "warning", "message": SCRIPT_AUTO_LAND_WARNING})
             if not self._emergency:
                 try:
                     await asyncio.to_thread(self._drone.land)

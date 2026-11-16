@@ -1,5 +1,5 @@
 from comp1.drone.mock import MockDrone
-from comp1.interpreter import Interpreter
+from comp1.interpreter import AUTO_LAND_WARNING, Interpreter
 from comp1.protocol import Program
 from comp1.vision.detector import Detection
 
@@ -104,6 +104,7 @@ async def test_stop_during_the_last_block_still_stops_and_lands():
     await it.run(prog([{"id": "a", "op": "takeoff"}]))
     assert events[-1]["reason"] == "stopped"
     assert drone.log == [("takeoff",), ("land",)]
+    assert not _auto_land_notices(events)  # Stop asked for the landing
 
 
 async def test_emergency_during_the_last_block_does_not_land():
@@ -116,6 +117,10 @@ async def test_emergency_during_the_last_block_does_not_land():
     assert ("land",) not in drone.log
 
 
+def _auto_land_notices(events):
+    return [e for e in events if e["type"] == "warning" and e["message"] == AUTO_LAND_WARNING]
+
+
 async def test_a_program_that_ends_in_the_air_is_landed():
     drone, events, _ = await run([{"id": "a", "op": "takeoff"}])
     assert events[-1]["reason"] == "done"
@@ -123,9 +128,21 @@ async def test_a_program_that_ends_in_the_air_is_landed():
     assert not drone.flying
 
 
+async def test_the_automatic_landing_is_explained_to_the_student():
+    """Installed-app walkthrough: the console said only "mission done" while
+    the drone came down with no land block in the plan."""
+    _, events, _ = await run([{"id": "a", "op": "takeoff"}])
+    notices = _auto_land_notices(events)
+    assert len(notices) == 1
+    # before the land call, so it reads as the reason the drone is coming down
+    land_at = next(i for i, e in enumerate(events) if e.get("method") == "land")
+    assert events.index(notices[0]) < land_at
+
+
 async def test_a_program_that_lands_itself_is_not_landed_twice():
-    drone, _, _ = await run([{"id": "a", "op": "takeoff"}, {"id": "b", "op": "land"}])
+    drone, events, _ = await run([{"id": "a", "op": "takeoff"}, {"id": "b", "op": "land"}])
     assert drone.log == [("takeoff",), ("land",)]
+    assert not _auto_land_notices(events)
 
 
 async def test_takeoff_while_flying_is_skipped_with_a_warning():

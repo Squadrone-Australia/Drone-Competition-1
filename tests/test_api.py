@@ -7,7 +7,14 @@ from dataclasses import replace
 import pytest
 from fastapi.testclient import TestClient
 
-from comp1.api import Drone, EmergencyStop, ScriptRun, Session, current_session
+from comp1.api import (
+    SCRIPT_AUTO_LAND_WARNING,
+    Drone,
+    EmergencyStop,
+    ScriptRun,
+    Session,
+    current_session,
+)
 from comp1.drone.mock import MockDrone
 from comp1.server import create_app
 from comp1.sim.drone import SimDrone
@@ -392,11 +399,12 @@ async def test_script_error_is_reported_and_the_drone_lands():
 async def test_a_script_that_ends_in_the_air_is_landed():
     """Otherwise the drone hovers with nobody in charge: Stop has no script
     left to stop, and the next run's takeoff meets a drone already up."""
-    adapter = MockDrone()
-    run = ScriptRun(adapter, lost, lambda ev: None, settle_s=0)
+    adapter, events = MockDrone(), []
+    run = ScriptRun(adapter, lost, events.append, settle_s=0)
     reason, _ = await run.run(lambda: Drone().takeoff())
     assert reason == "done"
     assert adapter.log == [("takeoff",), ("land",)]
+    assert {"type": "warning", "message": SCRIPT_AUTO_LAND_WARNING} in events
 
 
 async def test_a_script_that_lands_itself_is_not_landed_twice():
@@ -411,6 +419,19 @@ async def test_a_script_that_lands_itself_is_not_landed_twice():
     reason, _ = await run.run(student_code)
     assert reason == "done"
     assert adapter.log == [("takeoff",), ("land",)]
+
+
+async def test_a_script_that_lands_itself_gets_no_auto_land_notice():
+    adapter, events = MockDrone(), []
+    run = ScriptRun(adapter, lost, events.append, settle_s=0)
+
+    def student_code():
+        d = Drone()
+        d.takeoff()
+        d.land()
+
+    await run.run(student_code)
+    assert not any(e.get("message") == SCRIPT_AUTO_LAND_WARNING for e in events)
 
 
 async def test_takeoff_while_flying_is_skipped_with_a_warning():

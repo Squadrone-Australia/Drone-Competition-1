@@ -19,6 +19,12 @@ MAX_LOOP_ITERS = 1000
 # The same convention covers obstacle range, for the same reason — 0 would read
 # as "touching it" and stop a search loop the moment the way was clear.
 NO_TARGET_DISTANCE_CM = 9999.0
+#: Shown when a plan runs to its end with the drone still up and is landed for
+#: the student. The second half is the fix, in the block's own words.
+AUTO_LAND_WARNING = (
+    "the plan ended with the drone still in the air, so it was landed for you"
+    " — finish with a “land” block to choose where it comes down"
+)
 
 
 class _Stopped(Exception):
@@ -109,6 +115,11 @@ class Interpreter:
         # Stopped and errored runs land unconditionally, as they always have:
         # there the belief is least trustworthy and a spare land is harmless.
         must_land = reason != "done" or self._drone.flying
+        if reason == "done" and must_land and not self._emergency:
+            # Said out loud, because a drone that comes down with no `land`
+            # block in the plan looks like the program doing something on its
+            # own -- and the lesson is that a plan should finish on the ground.
+            self._warn(AUTO_LAND_WARNING)
         if must_land and not self._emergency:
             try:
                 await self._call_drone("land", block_op="automatic_land")
