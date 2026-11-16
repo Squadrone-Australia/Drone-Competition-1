@@ -94,3 +94,49 @@ test('a vision_error message puts its text on #vision-status with class "bad"', 
   assert.strictEqual(status.textContent, "No red marker found in the frame.");
   assert.strictEqual(status.className, "bad");
 });
+
+// ── the detector selector ───────────────────────────────────────────────────
+const select = document.getElementById("vision-detector");
+const tune = document.getElementById("vision-calibrate");
+const detectorMsg = (detector, available = true) => busHandler({
+  type: "vision_detector", detector, yolo_available: available,
+  yolo_reason: available ? null : "onnxruntime is not installed",
+});
+
+test("changing the selector asks the server, and waits for its answer", () => {
+  detectorMsg("hsv");
+  lastSent = null;
+  select.value = "yolo";
+  select.dispatchEvent(new window.Event("change"));
+  assert.deepStrictEqual(lastSent, { type: "vision_detector", detector: "yolo" });
+  // Not shown as live until confirmed: a refused switch must not leave it on AI.
+  assert.strictEqual(select.value, "hsv");
+});
+
+test("the AI model greys out Tune colour, and Colour brings it back", () => {
+  detectorMsg("yolo");
+  assert.strictEqual(select.value, "yolo");
+  assert.strictEqual(tune.disabled, true);
+  assert.match(tune.title, /only for the Colour detector/);
+  detectorMsg("hsv");
+  assert.strictEqual(tune.disabled, false);
+});
+
+test("an unavailable model disables the AI option and says why", () => {
+  detectorMsg("hsv", false);
+  const ai = select.querySelector('option[value="yolo"]');
+  assert.strictEqual(ai.disabled, true);
+  assert.match(ai.title, /onnxruntime/);
+  detectorMsg("hsv", true);
+  assert.strictEqual(ai.disabled, false);
+});
+
+test("a running mission locks the selector and Tune colour", () => {
+  detectorMsg("hsv");
+  busHandler({ type: "running", running: true });
+  assert.strictEqual(select.disabled, true);
+  assert.strictEqual(tune.disabled, true);
+  busHandler({ type: "running", running: false });
+  assert.strictEqual(select.disabled, false);
+  assert.strictEqual(tune.disabled, false);
+});

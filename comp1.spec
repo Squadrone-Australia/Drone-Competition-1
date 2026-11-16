@@ -54,7 +54,11 @@ version_resource = VSVersionInfo(
 # the failure mode of a miss is an exe that quietly opens a browser instead.
 a = Analysis(
     ["comp1/launcher.py"],
-    datas=[("comp1/frontend", "comp1/frontend")],
+    # The AI detector's model sits beside its code, which is where
+    # comp1/vision/yolo.py looks for it. onnxruntime's DLLs come from its own
+    # hook in pyinstaller-hooks-contrib; build.ps1 checks both arrived.
+    datas=[("comp1/frontend", "comp1/frontend"),
+           ("comp1/vision/models", "comp1/vision/models")],
     hiddenimports=["uvicorn.logging", "uvicorn.loops.auto",
                    "uvicorn.protocols.http.auto", "uvicorn.protocols.websockets.auto",
                    "uvicorn.lifespan.on"],

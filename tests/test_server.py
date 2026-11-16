@@ -1006,3 +1006,71 @@ def test_flying_into_an_obstacle_is_reported_as_a_crashed_mission():
             # — the same way arrival and landing are noticed. Reading only up to
             # the finished message can miss it.
             assert states[-1] == "crashed"
+
+
+# --- Stop with no program running ---------------------------------------------
+
+
+def _wait_for(predicate, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError("condition never became true")
+        time.sleep(0.01)
+
+
+def test_stop_with_nothing_running_lands_a_drone_left_in_the_air():
+    """Field report, real Tello: a program that was only `take off` left the
+    drone hovering, and Stop -- with no mission left to stop -- did nothing."""
+    drone = MockDrone()
+    drone.flying = True
+    app = create_app(drone)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "stop"})
+        warning = collect_until(ws, "warning")
+        assert "landing" in warning["message"]
+        _wait_for(lambda: ("land",) in drone.log)
+        _wait_for(lambda: app.state.interp is None)
+    assert not drone.flying
+
+
+def test_stop_with_nothing_running_leaves_a_grounded_drone_alone():
+    drone = MockDrone()
+    app = create_app(drone)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "stop"})
+        ws.send_json({})  # answered with an error: proof the stop was handled
+        collect_until(ws, "error")
+    assert ("land",) not in drone.log
+
+
+def test_run_waits_for_an_idle_landing_to_finish():
+    import threading
+
+    release = threading.Event()
+
+    class SlowLander(MockDrone):
+        def land(self):
+            release.wait(5)
+            super().land()
+
+    drone = SlowLander()
+    drone.flying = True
+    app = create_app(drone)
+    try:
+        with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+            ws.send_json({"type": "stop"})
+            collect_until(ws, "warning")
+            ws.send_json(
+                {
+                    "type": "run",
+                    "program": {"version": 1, "blocks": [{"id": "a", "op": "takeoff"}]},
+                }
+            )
+            err = collect_until(ws, "error")
+            assert "landing" in err["message"]
+            release.set()
+            _wait_for(lambda: app.state.interp is None)
+    finally:
+        release.set()
+    assert ("takeoff",) not in drone.log

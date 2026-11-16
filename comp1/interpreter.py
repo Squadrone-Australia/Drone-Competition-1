@@ -19,6 +19,12 @@ MAX_LOOP_ITERS = 1000
 # The same convention covers obstacle range, for the same reason — 0 would read
 # as "touching it" and stop a search loop the moment the way was clear.
 NO_TARGET_DISTANCE_CM = 9999.0
+#: Shown when a plan runs to its end with the drone still up and is landed for
+#: the student. The second half is the fix, in the block's own words.
+AUTO_LAND_WARNING = (
+    "the plan ended with the drone still in the air, so it was landed for you"
+    " — finish with a “land” block to choose where it comes down"
+)
 
 
 class _Stopped(Exception):
@@ -90,13 +96,31 @@ class Interpreter:
         reason, detail = "done", ""
         try:
             await self._run_blocks(program.blocks)
+            # The flag is otherwise read only *before* a block, so a Stop that
+            # arrives during the last one -- often the whole program is a
+            # single `take off` -- would find nothing left to check it and be
+            # reported, and treated, as a clean finish.
+            if self._stop.is_set():
+                raise _Stopped()
         except _Stopped:
             reason = "stopped"
         except _MissionEnd:
             pass
         except Exception as exc:
             reason, detail = "error", str(exc)
-        if reason != "done" and not self._emergency:
+        # A program that ends with the drone still up hands a hovering aircraft
+        # to nobody: Stop has no mission left to stop, and the next Run's
+        # `take off` meets a drone already in the air. So "done" lands too --
+        # but only when airborne, since most programs end with their own land.
+        # Stopped and errored runs land unconditionally, as they always have:
+        # there the belief is least trustworthy and a spare land is harmless.
+        must_land = reason != "done" or self._drone.flying
+        if reason == "done" and must_land and not self._emergency:
+            # Said out loud, because a drone that comes down with no `land`
+            # block in the plan looks like the program doing something on its
+            # own -- and the lesson is that a plan should finish on the ground.
+            self._warn(AUTO_LAND_WARNING)
+        if must_land and not self._emergency:
             try:
                 await self._call_drone("land", block_op="automatic_land")
             except Exception:
@@ -301,7 +325,13 @@ class Interpreter:
         self._block_id, self._block_op = b.id, b.op
         match b.op:
             case "takeoff":
-                await self._call_drone("takeoff")
+                # Warn, don't raise: the drone is already where this block
+                # would put it. Sent anyway, a real Tello refuses it and the
+                # whole mission dies on its first block.
+                if self._drone.flying:
+                    self._warn("the drone is already flying — skipping take off")
+                else:
+                    await self._call_drone("takeoff")
             case "land":
                 await self._call_drone("land")
             case "move":

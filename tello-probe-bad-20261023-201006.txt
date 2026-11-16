@@ -1,0 +1,111 @@
+Tello probe: bad
+
+date:      2026-10-23T20:09:34
+comp1:     0.2.2
+python:    3.14.7 on Windows-11-10.0.26220-SP0
+laptop IP: 192.168.10.2
+SSID:      TELLO-5EA79A
+Radio type: 802.11g
+Channel:   4
+Signal:    91%
+
+===== SUMMARY =====
+--- phase 1: as the app connects ---
+[try 1] command        -> <35 bytes: cc 18 01 b9 88 56 00 68 01 00 00 00 00 00 00 00 00 00 00 00 00 53 00 00 11 10 00 06 00 00 ce 00 ...>  0.023s
+streamon       -> 'ok'                          0.048s
+                 ! unasked before it, at 0.366s: 'ok'
+video  :11111: 1894 datagrams / 2645606 bytes, first at 0.378s, from 192.168.10.1:62512 x1894
+    sample: <1460 bytes: 00 00 00 01 41 fe 62 4f bb e1 3e 31 8a d1 94 bb a1 ae 98 83 f0 f7 01 b9 bc da bd 46 2f 8c 44 3b ...>
+    sample: <1460 bytes: 39 6d 70 34 de be 3c 48 8e b9 92 c2 8b 32 74 8a ed 4a 39 03 97 81 e0 a1 43 7a e0 cc 42 d7 89 dc ...>
+    sample: <1460 bytes: 7c 15 8b 7f d0 3c 6d 3a 42 d2 07 5c cd 8c 91 af 72 ff 7c 76 d6 5e 37 fe a4 d9 4f 45 4f 9c 7e 0b ...>
+battery?       -> '83\r\n'                      0.024s
+battery?       -> '83\r\n'                      0.048s
+--- phase 2: slow and careful ---
+sdk?           -> '20'                          0.048s
+sn?            -> '0TQZH6BED00AR1'              0.052s
+wifi?          -> '90\r\n'                      0.013s
+battery?       -> '82\r\n'                      0.016s
+speed?         -> '100.0\r\n'                   0.008s
+time?          -> '0s\r\n'                      0.013s
+temp?          -> '54~57C\r\n'                  0.008s
+baro?          -> '-52.513462\r\n'              0.007s
+tof?           -> '100mm\r\n'                   0.052s
+height?        -> '0dm\r\n'                     0.016s
+attitude?      -> 'pitch:0;roll:0;yaw:-176;\r\n'  0.004s
+acceleration?  -> 'agx:1.00;agy:-10.00;agz:-1000.00;\r\n'  0.011s
+hardware?      -> 'unknown command: hardware?'  0.014s
+command        -> 'ok'                          0.023s
+--- phase 3: flight ---
+takeoff        -> 'error'                       0.007s
+up 30          -> 'error Motor stop'            0.051s
+cw 90          -> 'error Motor stop'            0.051s
+ccw 90         -> 'error Motor stop'            0.161s
+forward 50     -> 'error Motor stop'            0.046s
+back 50        -> 'error Motor stop'            0.153s
+land           -> 'error'                       0.054s
+battery?       -> '82\r\n'                      0.014s
+                 ! unasked before it, at 30.067s: 'ok'
+--- status port, whole run ---
+status :8890: 303 datagrams / 52574 bytes, first at 0.472s, from 192.168.10.1:8889 x303
+    sample: 'mid:-1;x:-100;y:-100;z:-100;mpry:-1,-1,-1;pitch:0;roll:0;yaw:-176;vgx:0;vgy:0;vgz:0;templ:50;temph:51;tof:10;h:0;bat:83;baro:-52.20;time:0;agx:1.00;agy:-11.00;agz:-999.00;\r\n'
+    sample: 'mid:-1;x:-100;y:-100;z:-100;mpry:-1,-1,-1;pitch:0;roll:0;yaw:-176;vgx:0;vgy:0;vgz:0;templ:50;temph:52;tof:10;h:0;bat:83;baro:-52.22;time:0;agx:3.00;agy:-10.00;agz:-1001.00;\r\n'
+    sample: 'mid:-1;x:-100;y:-100;z:-100;mpry:-1,-1,-1;pitch:0;roll:0;yaw:-176;vgx:0;vgy:0;vgz:0;templ:50;temph:52;tof:10;h:0;bat:83;baro:-52.28;time:0;agx:2.00;agy:-12.00;agz:-1000.00;\r\n'
+
+===== RAW LOG =====
+    0.343  SEND    'command'
+    0.366  RECV    192.168.10.1:8889  <35 bytes: cc 18 01 b9 88 56 00 68 01 00 00 00 00 00 00 00 00 00 00 00 00 53 00 00 11 10 00 06 00 00 ce 00 ...>
+    0.366  RECV    192.168.10.1:8889  'ok'
+    0.369  SEND    'streamon'
+    0.378  :11111  first datagram from 192.168.10.1:62512
+    0.416  RECV    192.168.10.1:8889  'ok'
+    0.416  WAIT    watching video for 6s
+    0.472  :8890   first datagram from 192.168.10.1:8889
+    6.417  SEND    'battery?'
+    6.441  RECV    192.168.10.1:8889  '83\r\n'
+   11.441  SEND    'battery?'
+   11.489  RECV    192.168.10.1:8889  '83\r\n'
+   16.494  SEND    'sdk?'
+   16.542  RECV    192.168.10.1:8889  '20'
+   17.356  SEND    'sn?'
+   17.408  RECV    192.168.10.1:8889  '0TQZH6BED00AR1'
+   18.213  SEND    'wifi?'
+   18.225  RECV    192.168.10.1:8889  '90\r\n'
+   19.026  SEND    'battery?'
+   19.042  RECV    192.168.10.1:8889  '82\r\n'
+   19.851  SEND    'speed?'
+   19.859  RECV    192.168.10.1:8889  '100.0\r\n'
+   20.661  SEND    'time?'
+   20.675  RECV    192.168.10.1:8889  '0s\r\n'
+   21.484  SEND    'temp?'
+   21.491  RECV    192.168.10.1:8889  '54~57C\r\n'
+   22.300  SEND    'baro?'
+   22.307  RECV    192.168.10.1:8889  '-52.513462\r\n'
+   23.122  SEND    'tof?'
+   23.174  RECV    192.168.10.1:8889  '100mm\r\n'
+   23.977  SEND    'height?'
+   23.992  RECV    192.168.10.1:8889  '0dm\r\n'
+   24.805  SEND    'attitude?'
+   24.809  RECV    192.168.10.1:8889  'pitch:0;roll:0;yaw:-176;\r\n'
+   25.613  SEND    'acceleration?'
+   25.624  RECV    192.168.10.1:8889  'agx:1.00;agy:-10.00;agz:-1000.00;\r\n'
+   26.426  SEND    'hardware?'
+   26.440  RECV    192.168.10.1:8889  'unknown command: hardware?'
+   28.049  SEND    'command'
+   28.072  RECV    192.168.10.1:8889  'ok'
+   28.882  SEND    'takeoff'
+   28.890  RECV    192.168.10.1:8889  'error'
+   28.890  SEND    'up 30'
+   28.941  RECV    192.168.10.1:8889  'error Motor stop'
+   28.941  SEND    'cw 90'
+   28.992  RECV    192.168.10.1:8889  'error Motor stop'
+   28.992  SEND    'ccw 90'
+   29.153  RECV    192.168.10.1:8889  'error Motor stop'
+   29.153  SEND    'forward 50'
+   29.199  RECV    192.168.10.1:8889  'error Motor stop'
+   29.199  SEND    'back 50'
+   29.352  RECV    192.168.10.1:8889  'error Motor stop'
+   29.352  SEND    'land'
+   29.406  RECV    192.168.10.1:8889  'error'
+   30.067  RECV    192.168.10.1:8889  'ok'
+   30.206  SEND    'battery?'
+   30.220  RECV    192.168.10.1:8889  '82\r\n'

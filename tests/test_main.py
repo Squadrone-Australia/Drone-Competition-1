@@ -76,6 +76,39 @@ def test_default_launch_uses_the_simulator(monkeypatch):
     assert isinstance(seen["drone"], SimDrone)
 
 
+def _launch_detector(monkeypatch, argv, saved=None, ai_ok=True):
+    """The detector main() hands the app, from a given settings file and flags."""
+    from comp1 import settings as settings_store
+
+    seen = {}
+    monkeypatch.setattr(sys, "argv", ["comp1", "--no-browser", *argv])
+    monkeypatch.setattr(
+        cli.settings_store, "load", lambda: saved or settings_store.Settings()
+    )
+    monkeypatch.setattr(
+        cli.yolo_vision, "available",
+        lambda: (True, None) if ai_ok else (False, "no model file"),
+    )
+    monkeypatch.setattr(
+        cli, "create_app", lambda drone, **kw: seen.update(kw) or object()
+    )
+    cli.main()
+    return seen["cfg"].detector
+
+
+def test_a_first_launch_finds_markers_with_the_ai_model(monkeypatch):
+    assert _launch_detector(monkeypatch, []) == "yolo"
+
+
+def test_a_first_launch_without_the_model_falls_back_to_colour(monkeypatch):
+    """Warn, don't refuse: a copy that lost its model still flies on colour."""
+    assert _launch_detector(monkeypatch, [], ai_ok=False) == "hsv"
+
+
+def test_the_detector_flag_still_beats_the_default(monkeypatch):
+    assert _launch_detector(monkeypatch, ["--detector", "hsv"]) == "hsv"
+
+
 def test_flight_config_reaches_a_tello_built_later_in_the_session(
     monkeypatch, tmp_path
 ):

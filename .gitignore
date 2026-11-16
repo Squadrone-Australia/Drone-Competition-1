@@ -9,3 +9,48 @@ dist/
 .agents/
 .claude/
 AGENTS.md
+solution/*
+!solution/__init__.py
+!solution/controller.py
+!solution/navigation.py
+!solution/mission_pad.py
+!solution/vision.py
+!solution/tuner.py
+!solution/tuner_core.py
+!solution/gate_config.py
+!solution/inspect_video.py
+!solution/single_gate_test.py
+!solution/gate_search_test.py
+!solution/gate_pilot.py
+!solution/requirements.txt
+!solution/run.py
+!solution/plot_routes.py
+!solution/circuit1.py
+!solution/circuit2.py
+!solution/circuit3.py
+!solution/README.md
+.vscode/
+.conda/
+.ruff_cache/
+# Real-rig trial recordings and per-venue vision profiles
+trial*/
+vision_profile*.json
+# solution_yolo: generated datasets, training runs and weights stay local
+solution_yolo/data/
+solution_yolo/runs/
+solution_yolo/**/*.pt
+solution_yolo/**/*.onnx
+solution_yolo/**/*.engine
+yolo26*.pt
+# ...except the released model and camera calibration the solution runs on
+!solution_yolo/models/
+!solution_yolo/models/*.pt
+# solution_fire: footage-derived datasets, runs and weights stay local
+solution_fire/data/
+solution_fire/runs/
+solution_fire/**/*.pt
+solution_fire/**/*.onnx
+solution_fire/**/*.engine
+# ...except the released red-circle model
+!solution_fire/models/
+!solution_fire/models/*.pt

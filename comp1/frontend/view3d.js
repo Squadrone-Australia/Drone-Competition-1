@@ -58,7 +58,7 @@ document.getElementById("cam-dock").onclick = (e) => {
 // Drag by the title bar. Offsets are clamped to the stage so the window can
 // never be dropped somewhere it cannot be grabbed again.
 caption.addEventListener("pointerdown", (e) => {
-  if (e.target.tagName === "BUTTON" || camWindow.classList.contains("docked")) return;
+  if (e.target.closest("button, select") || camWindow.classList.contains("docked")) return;
   const box = camWindow.getBoundingClientRect();
   const stageBox = container.parentElement.getBoundingClientRect();
   const grabX = e.clientX - box.left, grabY = e.clientY - box.top;

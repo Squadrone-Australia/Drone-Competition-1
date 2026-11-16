@@ -21,6 +21,9 @@ class Target:
     elevation_deg: float  # + = above the camera axis
     distance_m: float
     position: str  # "left" | "center" | "right"
+    # The AI detector's confidence (0..1). The colour detector has no such
+    # notion -- a blob either passes its gates or it does not -- so it is 1.0.
+    score: float = 1.0
 
 
 @dataclass
@@ -188,6 +191,21 @@ def find_targets(frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG) -> l
     return out
 
 
+def finder(cfg: VisionConfig):
+    """The marker finder ``cfg.detector`` names: colour (HSV) or the AI model.
+
+    Imported lazily, so a colour-only session never loads onnxruntime -- and a
+    checkout without it never notices it is missing. The calibration panel
+    deliberately calls :func:`find_targets` directly instead: it tunes the
+    colour detector, whichever one is flying.
+    """
+    if cfg.detector == "yolo":
+        from .yolo import find_targets as yolo_find_targets
+
+        return yolo_find_targets
+    return find_targets
+
+
 def detect_red_circle(
     frame_bgr: np.ndarray, cfg: VisionConfig = DEFAULT_CONFIG
 ) -> Detection:
@@ -195,7 +213,7 @@ def detect_red_circle(
 
     Stateless — for a run, prefer :class:`TargetTracker`, which holds a lock.
     """
-    targets = find_targets(frame_bgr, cfg)
+    targets = finder(cfg)(frame_bgr, cfg)
     obstacles = find_obstacles(frame_bgr, cfg, targets)
     return Detection.of(targets[0] if targets else None, targets, obstacles)
 
@@ -212,6 +230,9 @@ class TargetTracker:
 
     def __init__(self, cfg: VisionConfig = DEFAULT_CONFIG):
         self._cfg = cfg
+        # Fixed for the tracker's life: switching detector builds a new tracker,
+        # so a lock taken by one finder is never carried into the other.
+        self._find = finder(cfg)
         self._locked: Target | None = None
         self._lost = 0
 
@@ -235,7 +256,7 @@ class TargetTracker:
     def update(self, frame_bgr: np.ndarray | None) -> Detection:
         if frame_bgr is None:
             return self._miss([], [])
-        targets = find_targets(frame_bgr, self._cfg)
+        targets = self._find(frame_bgr, self._cfg)
         # Detected on every frame, including the ones with no target in them:
         # searching is exactly when the drone is flying blind into things.
         obstacles = find_obstacles(frame_bgr, self._cfg, targets)
@@ -261,14 +282,16 @@ class TargetTracker:
         return Detection(found=False, targets=targets, obstacles=obstacles)
 
 
-def draw_overlay(frame_bgr: np.ndarray, det: Detection) -> np.ndarray:
+def draw_overlay(frame_bgr: np.ndarray, det: Detection, detector: str = "hsv") -> np.ndarray:
     out = frame_bgr.copy()
+    # Tagged so a screenshot sent in from a venue says which detector saw it.
+    tag = "AI " if detector == "yolo" else ""
     if det.found:
         t = det.target
-        label = f"TARGET  {t.distance_m:.2f} m  {t.bearing_deg:+.0f} deg"
+        label = f"{tag}TARGET  {t.distance_m:.2f} m  {t.bearing_deg:+.0f} deg"
         color = (0, 255, 0)
     else:
-        label, color = "searching...", (0, 165, 255)
+        label, color = f"{tag}searching...", (0, 165, 255)
     cv2.putText(out, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     if det.count > 1:
         cv2.putText(

@@ -63,6 +63,17 @@ if (-not (Test-Path "dist\comp1\_internal\webview\lib")) {
     exit 1
 }
 
+# Same kind of silent miss: without the model, or without onnxruntime's DLLs,
+# the program still starts, but the AI detector is greyed out at every venue.
+if (-not (Test-Path "dist\comp1\_internal\comp1\vision\models\fire_pose.onnx")) {
+    Write-Error "The bundle has no comp1\vision\models\fire_pose.onnx - the AI detector would be unavailable."
+    exit 1
+}
+if (-not (Test-Path "dist\comp1\_internal\onnxruntime")) {
+    Write-Error "The bundle has no onnxruntime - the AI detector would be unavailable."
+    exit 1
+}
+
 # Inno Setup is a separate download (jrsoftware.org/isdl.php) and is not on PATH
 # by default, so look where it actually installs before giving up. Newest major
 # first: the script targets 6+ syntax and every later version still compiles it.

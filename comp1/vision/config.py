@@ -90,6 +90,21 @@ class VisionConfig:
     lock_max_bearing_jump_deg: float = 25.0
     lock_lost_frames: int = 5
 
+    # --- which marker finder runs (comp1/vision/yolo.py) ---
+    # "hsv" is the colour detector above: the bands, area and shape gates.
+    # "yolo" is the trained pose model, which ignores every one of those keys --
+    # it has learned what a red disc is, decoys included, so there is nothing to
+    # tune on-site except how sure it must be. Everything downstream of the
+    # finder (range from marker_diameter_m, the lock, obstacles, approach) is
+    # shared. Chosen live in the browser; settings.json remembers it.
+    #
+    # This is the library default (tests, comp1.api used on its own). What an
+    # installed copy starts on is settings.Settings.detector -- the AI model.
+    detector: str = "hsv"
+    # 0.5 is where solution_fire's evaluation saw no false alarm in any held-out
+    # real frame; at 0.25 the nano model raised two. Do not go lower.
+    yolo_score_min: float = 0.5
+
     @property
     def marker_radius_m(self) -> float:
         return self.marker_diameter_m / 2

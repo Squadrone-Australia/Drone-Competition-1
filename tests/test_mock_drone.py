@@ -157,6 +157,106 @@ def test_a_refusal_is_not_a_lost_link(fake_tello):
     assert d.link_ok is True
 
 
+# --- what the adapter believes about being airborne ------------------------
+#
+# A Tello cannot be asked whether it is flying, so the adapter keeps a belief
+# from what its own commands were answered. Auto-land, Stop-with-nothing-running
+# and skipping a second take off all hang on it (see DroneAdapter.flying).
+
+
+def test_takeoff_and_land_move_the_flying_belief(fake_tello):
+    _, TelloDrone = fake_tello
+    d = TelloDrone()
+    assert d.flying is False
+    d.takeoff()
+    assert d.flying is True
+    d.land()
+    assert d.flying is False
+
+
+def test_emergency_clears_the_flying_belief(fake_tello):
+    _, TelloDrone = fake_tello
+    d = TelloDrone()
+    d.takeoff()
+    d.emergency()
+    assert d.flying is False
+
+
+def test_a_refused_takeoff_never_left_the_ground(fake_tello):
+    from comp1.drone.tello_link import TelloError
+
+    _, TelloDrone = fake_tello
+    d = TelloDrone()
+
+    def refuse(command):
+        raise TelloError("the drone refused 'takeoff'", "error")
+
+    d._link.send = refuse
+    with pytest.raises(TelloError):
+        d.takeoff()
+    assert d.flying is False
+
+
+def test_an_unanswered_takeoff_is_believed_airborne(fake_tello):
+    """The reply may be lost while the climb is under way. Believing it is up
+    gets it landed; believing it is down would leave it hovering."""
+    from comp1.drone.tello_link import TelloNoReply
+
+    _, TelloDrone = fake_tello
+    d = TelloDrone()
+
+    def silent(command):
+        raise TelloNoReply("no answer")
+
+    d._link.send = silent
+    with pytest.raises(TelloNoReply):
+        d.takeoff()
+    assert d.flying is True
+
+
+def test_a_busy_refusal_of_land_keeps_it_airborne(fake_tello):
+    from comp1.drone.tello_link import TelloError
+
+    _, TelloDrone = fake_tello
+    d = TelloDrone()
+    d.takeoff()
+
+    def busy(command):
+        raise TelloError("the drone refused 'land'", "error Not joystick")
+
+    d._link.send = busy
+    with pytest.raises(TelloError):
+        d.land()
+    assert d.flying is True
+
+
+@pytest.mark.parametrize("reply", ["error Motor stop", "error Auto land"])
+def test_a_grounded_refusal_corrects_the_belief(fake_tello, reply):
+    """The Tello lands itself on a low battery and tells nobody; the next
+    command's refusal is how we find out."""
+    from comp1.drone.tello_link import TelloError
+
+    _, TelloDrone = fake_tello
+    d = TelloDrone()
+    d.takeoff()
+
+    def grounded(command):
+        raise TelloError(f"the drone refused '{command}'", reply)
+
+    d._link.send = grounded
+    with pytest.raises(TelloError):
+        d.move("forward", 50)
+    assert d.flying is False
+
+
+def test_a_new_session_starts_on_the_ground(fake_tello):
+    _, TelloDrone = fake_tello
+    d = TelloDrone()
+    d.takeoff()
+    d.connect()
+    assert d.flying is False
+
+
 # --- surviving a Tello that goes away -------------------------------------
 #
 # A rebooted aircraft is a new SDK session: nothing announces it, the old
@@ -427,8 +527,11 @@ def _reader(aircraft, **kwargs):
     )
 
 
-def _h264(frames=10, size=(240, 320)):
-    """A real H.264 stream, the way the Tello sends it: Annex B, no container."""
+def _h264(frames=10, size=(240, 320), rgb=None):
+    """A real H.264 stream, the way the Tello sends it: Annex B, no container.
+
+    Grey ramp frames by default; ``rgb`` makes every frame that one colour.
+    """
     av = pytest.importorskip("av")
     if "libx264" not in av.codecs_available:
         pytest.skip("this PyAV build has no H.264 encoder")
@@ -439,7 +542,11 @@ def _h264(frames=10, size=(240, 320)):
     enc.options = {"tune": "zerolatency"}
     data = b""
     for i in range(frames):
-        image = np.full((*size, 3), i * 20, np.uint8)
+        if rgb is None:
+            image = np.full((*size, 3), i * 20, np.uint8)
+        else:
+            image = np.empty((*size, 3), np.uint8)
+            image[:] = rgb
         frame = av.VideoFrame.from_ndarray(image, format="rgb24")
         for packet in enc.encode(frame):
             data += bytes(packet)
@@ -469,6 +576,22 @@ def test_the_reader_decodes_a_stream_cut_into_datagrams(aircraft):
             time.sleep(0.02)
         assert reader.frame is not None
         assert reader.frame.shape == (240, 320, 3)
+    finally:
+        reader.close()
+
+
+def test_the_reader_hands_over_frames_in_opencv_channel_order(aircraft):
+    """The reader decodes straight to BGR and get_frame no longer flips it, so
+    a red marker on the wire must come out red to the detector, not blue."""
+    reader = _reader(aircraft)
+    try:
+        aircraft.stream(reader, _h264(rgb=(220, 0, 0)))
+        deadline = time.monotonic() + 3.0
+        while reader.frame is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert reader.frame is not None
+        b, g, r = reader.frame[120, 160].tolist()
+        assert r > 150 and b < 80 and g < 80
     finally:
         reader.close()
 

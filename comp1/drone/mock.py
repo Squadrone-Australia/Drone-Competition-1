@@ -15,12 +15,15 @@ class MockDrone(DroneAdapter):
 
     def takeoff(self):
         self.log.append(("takeoff",))
+        self.flying = True
 
     def land(self):
         self.log.append(("land",))
+        self.flying = False
 
     def emergency(self):
         self.log.append(("emergency",))
+        self.flying = False
 
     def move(self, direction, cm):
         self.log.append(("move", direction, cm))

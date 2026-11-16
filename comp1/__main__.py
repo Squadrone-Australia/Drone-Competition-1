@@ -6,6 +6,7 @@ import threading
 import time
 import traceback
 import webbrowser
+from dataclasses import replace
 from functools import partial
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -19,6 +20,7 @@ from . import window as native_window
 from .drone.config import DEFAULT_FLIGHT_CONFIG, FlightConfig
 from .paths import is_frozen, log_file, settings_file
 from .server import DEFAULT_IDLE_TIMEOUT, create_app
+from .vision import yolo as yolo_vision
 from .vision.calibration import CalibrationError, config_with_hsv
 from .vision.config import DEFAULT_CONFIG, VisionConfig
 
@@ -266,6 +268,14 @@ def main():
         "(see vision_config.example.toml at the repo root)",
     )
     ap.add_argument(
+        "--detector",
+        choices=settings_store.DETECTORS,
+        default=None,
+        help="how markers are found: hsv (colour thresholds, tunable in the "
+        "browser) or yolo (the trained AI model). Default: the saved choice. "
+        "Also switchable in the browser",
+    )
+    ap.add_argument(
         "--flight-config",
         type=Path,
         default=None,
@@ -313,6 +323,18 @@ def main():
             cfg = config_with_hsv(cfg, saved.hsv)
         except CalibrationError:
             pass  # a hand-edited settings file must not stop the program
+    detector = resolve(args.detector, saved.detector)
+    if detector == "yolo":
+        ok, reason = yolo_vision.available()
+        if not ok:
+            # Warn, don't refuse: a copy that has lost its model file still
+            # flies on colour, and the browser greys the AI option out with
+            # the same reason.
+            logging.getLogger("comp1").warning(
+                "AI detector unavailable (%s); using the colour detector", reason
+            )
+            detector = "hsv"
+    cfg = replace(cfg, detector=detector)
     flight = (
         FlightConfig.load_file(args.flight_config)
         if args.flight_config

@@ -104,7 +104,13 @@ trying it on a real Tello.
 
 ### Teaching the camera which red to recognise
 
-Room lighting changes how red looks to a camera. Before using a real drone in a new room, click
+The drone camera finds targets with the **AI model** by default — the selector above the
+drone-camera picture. It was trained on real footage of the targets, so it needs no tuning for the
+room's light. If the AI model cannot load on a computer, the program says why and uses **Colour**
+instead.
+
+Colour is the other choice in that selector. It looks for a range of reds, and room lighting
+changes how red looks to a camera, so before using Colour with a real drone in a new room, click
 **Tune colour** above the drone-camera picture. Capture a frame, drag a box inside the red marker,
 and the program will suggest suitable settings. The preview should highlight the marker while the
 floor, walls, and other objects stay dark. Click **Apply to detector** only after checking the

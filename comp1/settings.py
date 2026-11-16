@@ -28,6 +28,8 @@ from .paths import settings_file
 #: is written by a machine and occasionally read by a human debugging a venue.
 DRONE_MODES = ("sim", "tello", "mock")
 SCENERIES = ("arena", "corridor")
+#: The marker finders (comp1/vision/config.py ``detector``): colour, or the AI model.
+DETECTORS = ("hsv", "yolo")
 
 
 @dataclass
@@ -43,6 +45,14 @@ class Settings:
     #: venue re-tune (§3.1) outlives the session that made it. Empty means
     #: "use whatever the config says".
     hsv: dict[str, list[int]] = field(default_factory=dict)
+    #: The marker finder last chosen in the browser. Unlike drone and scenery
+    #: this is switched live, and saved as it is switched.
+    #:
+    #: A fresh install starts on the AI model: it needs no tuning for the
+    #: room's light, which is exactly the step a new venue gets wrong. A copy
+    #: whose model cannot load still starts, on colour -- ``__main__`` falls
+    #: back with a warning and the browser says why the AI option is greyed.
+    detector: str = "yolo"
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -68,6 +78,9 @@ def _clean(raw: Any) -> Settings:
     noise = raw.get("noise")
     if isinstance(noise, (int, float)) and not isinstance(noise, bool):
         values["noise"] = max(0.0, min(1.0, float(noise)))
+    detector = raw.get("detector")
+    if detector in DETECTORS:
+        values["detector"] = detector
     check = raw.get("check_updates")
     if isinstance(check, bool):
         values["check_updates"] = check

@@ -94,6 +94,12 @@ _HINTS: tuple[tuple[str, str], ...] = (
         r"|lost contact",
         _RECONNECT,
     ),
+    # --- the AI marker detector -----------------------------------------------
+    (
+        r"AI model is not available",
+        "Switch the detector back to Colour to keep flying. To get the AI model "
+        "back, reinstall Drone Coder.",
+    ),
 )
 
 _COMPILED = tuple((re.compile(p, re.IGNORECASE), fix) for p, fix in _HINTS)
