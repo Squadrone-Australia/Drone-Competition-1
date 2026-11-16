@@ -268,7 +268,8 @@ def main(argv=None) -> None:
     print(f"Wrote {args.out} (use it as --calibration) and {report_path}")
     if rms > 1.0:
         print(
-            "Warning: RMS reprojection above 1 px. Check --squares, the measured sizes and the board's flatness."
+            "Warning: RMS reprojection above 1 px. Check --squares, the measured "
+            "sizes and the board's flatness."
         )
     if report["board_tilt_deg"]["share_over_30"] < 0.2:
         print(
@@ -278,7 +279,8 @@ def main(argv=None) -> None:
         )
     if report["coverage_bins"] < GRID[0] * GRID[1] - 2:
         print(
-            "Warning: the board missed parts of the image; distortion near the edges is extrapolated."
+            "Warning: the board missed parts of the image; distortion near the "
+            "edges is extrapolated."
         )
 
 

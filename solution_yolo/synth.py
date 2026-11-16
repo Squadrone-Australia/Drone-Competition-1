@@ -48,6 +48,7 @@ from comp2.sim.imaging import ImagingModel  # noqa: E402
 from comp2.sim.render import _frame_point, build_scenery, render  # noqa: E402
 from comp2.sim.scene import NEAR, Camera  # noqa: E402
 from comp2.vision.camera import SIM_INTRINSICS  # noqa: E402
+
 from solution_yolo.keypoints import (  # noqa: E402
     CORNERS,
     FLIP_IDX,

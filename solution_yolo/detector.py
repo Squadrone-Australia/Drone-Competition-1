@@ -24,7 +24,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-
 from solution.vision import (
     CameraCalibration,
     DetectionTrace,
@@ -32,6 +31,7 @@ from solution.vision import (
     GateSighting,
     VisionConfig,
 )
+
 from solution_yolo.keypoints import CENTRE, CORNERS, NUM_KPTS
 
 # Learned corners are good to a pixel or two, not the sub-pixel of an edge

@@ -7,9 +7,9 @@
 Each recording lands in ``<out>/<session>/`` as one MP4 clip (or one folder
 of JPG frames) plus a small ``.json`` sidecar. ``real_label`` takes either
 next: pass the clips themselves (``<out>/<session>/*.mp4``), since a folder
-argument is only searched for images. Only *new* camera frames are written, so a stalled stream never
-fills a clip with copies of one picture. The REC marker and the status text are
-drawn on the preview only, never into what is saved.
+argument is only searched for images. Only *new* camera frames are written, so
+a stalled stream never fills a clip with copies of one picture. The REC marker
+and the status text are drawn on the preview only, never into what is saved.
 
 Keys (click the video first if a text box has the focus):
 

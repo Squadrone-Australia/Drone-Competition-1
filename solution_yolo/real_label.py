@@ -33,6 +33,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from solution.vision import CameraCalibration, GateDetector, VisionConfig  # noqa: E402
+
 from solution_yolo.keypoints import (  # noqa: E402
     CENTRE,
     CORNERS,

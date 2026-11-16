@@ -23,7 +23,6 @@ from __future__ import annotations
 import math
 
 import numpy as np
-
 from solution.vision import ORANGE_HALF_ANGLE_DEG
 
 NUM_KPTS = 9
