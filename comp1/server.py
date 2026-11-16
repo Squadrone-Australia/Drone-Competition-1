@@ -38,7 +38,11 @@ from .vision.detector import Detection, TargetTracker, draw_overlay
 from .vision.obstacles import is_in_the_way
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
-FRAME_INTERVAL = 0.1  # ~10 fps
+#: The real Tello's camera rate. The video loop does ~5 ms of work a frame
+#: (render or decode, overlay, JPEG), so the rate is set by this alone -- it
+#: used to be 0.1, and with the work added on top of the sleep that was <10 fps.
+#: Detection is *not* inside that budget: see ``_detect_loop``.
+FRAME_INTERVAL = 1 / 30
 # Pose is a handful of floats, so it can run far faster than video. It has to:
 # at 10 Hz the third-person view stutters, and no amount of browser-side
 # smoothing hides a 100 ms step in heading during a fast yaw.
@@ -252,6 +256,8 @@ def create_app(
         app.state.video_port_busy = False
         app.state.latest_detection = Detection(found=False)
         app.state.latest_frame = None
+        # Set by the video loop on every new frame, waited on by the detector.
+        app.state.frame_ready = asyncio.Event()
         app.state.tracker = TargetTracker(cfg)
         # Last charge read from the active drone; None means "not known yet",
         # which is what a client sees before the first poll and after a switch.
@@ -299,6 +305,7 @@ def create_app(
         )
         app.state.unattended_task = asyncio.create_task(_unattended_loop(app))
         app.state.video_task = asyncio.create_task(_video_loop(app))
+        app.state.detect_task = asyncio.create_task(_detect_loop(app))
         app.state.pose_task = asyncio.create_task(_pose_loop(app))
         app.state.link_task = asyncio.create_task(_link_loop(app))
         app.state.battery_task = asyncio.create_task(_battery_loop(app))
@@ -317,6 +324,7 @@ def create_app(
         for task in list(background_tasks):
             task.cancel()
         app.state.video_task.cancel()
+        app.state.detect_task.cancel()
         app.state.pose_task.cancel()
         app.state.link_task.cancel()
         app.state.battery_task.cancel()
@@ -333,7 +341,18 @@ def create_app(
     app = FastAPI(lifespan=lifespan)
 
     async def _video_loop(app: FastAPI):
-        last_telemetry = None
+        """Camera to browser, at the camera's own rate.
+
+        Paced to a deadline rather than by a fixed sleep after the work, so the
+        work does not come off the frame rate. A frame that runs long resets the
+        clock instead of being followed by a burst of catch-up frames.
+
+        The overlay is drawn from whatever detection is newest, which is at most
+        one detector pass behind the picture. Waiting for the detector here
+        instead is what held the picture to the detector's speed.
+        """
+        loop = asyncio.get_running_loop()
+        next_at = loop.time()
         while True:
             active_drone = app.state.drone
             try:
@@ -349,14 +368,8 @@ def create_app(
                 # detection runs on the raw sensor frame; every overlay below is
                 # applied to a copy, so nothing we draw can be detected
                 app.state.latest_frame = frame.copy()
-                # Off the event loop: the AI detector costs ~40 ms a frame on a
-                # laptop CPU, and run inline that is 40 ms in every 100 during
-                # which this socket's receive loop -- EMERGENCY STOP included --
-                # cannot run. The tracker is read once, so a detector switch
-                # landing mid-frame swaps the next frame's tracker, not this one.
-                tracker = app.state.tracker
-                det = await asyncio.to_thread(tracker.update, frame)
-                app.state.latest_detection = det
+                app.state.frame_ready.set()
+                det = app.state.latest_detection
                 small = (
                     cv2.resize(frame, (640, 480)) if frame.shape[1] != 640 else frame
                 )
@@ -364,11 +377,52 @@ def create_app(
                 ok, jpeg = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 if ok:
                     await _broadcast_bytes(app, jpeg.tobytes())
-                telemetry = _telemetry(det)
-                if telemetry != last_telemetry:
-                    last_telemetry = telemetry
-                    await _broadcast_json(app, telemetry)
-            await asyncio.sleep(FRAME_INTERVAL)
+            next_at += FRAME_INTERVAL
+            now = loop.time()
+            if next_at < now:
+                next_at = now
+            await asyncio.sleep(next_at - now)
+
+    async def _detect_loop(app: FastAPI):
+        """Run the marker finder on the newest frame, as often as it keeps up.
+
+        Its own loop so that a slow finder costs detection rate, not picture
+        rate: colour detection takes ~3 ms and sees every frame, the AI model
+        ~30-40 ms on a laptop CPU and sees as many as it can. Frames that arrive
+        while a pass is running are skipped, never queued -- the interpreter
+        wants the newest detection, not every detection late.
+        """
+        last_telemetry = None
+        seen = None
+        while True:
+            await app.state.frame_ready.wait()
+            app.state.frame_ready.clear()
+            frame = app.state.latest_frame
+            if frame is None or frame is seen:
+                continue
+            seen = frame
+            # Off the event loop: run inline, the AI model is 40 ms during which
+            # this socket's receive loop -- EMERGENCY STOP included -- cannot
+            # run. The tracker is read once, so a detector switch landing
+            # mid-frame swaps the next frame's tracker, not this one.
+            tracker = app.state.tracker
+            try:
+                det = await asyncio.to_thread(tracker.update, frame)
+            except Exception:
+                # Same rule as the camera: this task never restarts, and a dead
+                # detector is a drone flying blind for the rest of the session.
+                log.exception("marker detection failed on a frame")
+                continue
+            # Every reset (drone switch, reconnect, detector or HSV change,
+            # mission reset) installs a new tracker and blanks the detection.
+            # A pass that started before it must not write the old world back.
+            if app.state.tracker is not tracker:
+                continue
+            app.state.latest_detection = det
+            telemetry = _telemetry(det)
+            if telemetry != last_telemetry:
+                last_telemetry = telemetry
+                await _broadcast_json(app, telemetry)
 
     async def _pose_loop(app: FastAPI):
         """Feed the browser's third-person view.

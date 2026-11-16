@@ -113,7 +113,7 @@ class FrameReader:
 
     @property
     def frame(self):
-        """Most recently decoded frame as RGB uint8, or None before the first."""
+        """Most recently decoded frame as BGR uint8, or None before the first."""
         with self._lock:
             return self._frame
 
@@ -192,7 +192,10 @@ class FrameReader:
                         continue
                     failures = 0
                     for frame in frames:
-                        image = frame.to_ndarray(format="rgb24")
+                        # Straight to OpenCV's channel order: decoding to RGB
+                        # and flipping later cost a second full 960x720 copy
+                        # on every one of the stream's 30 frames a second.
+                        image = frame.to_ndarray(format="bgr24")
                         with self._lock:
                             self._frame = image
         finally:
@@ -433,7 +436,9 @@ class TelloDrone(DroneAdapter):
             # a frozen picture reads as a working camera pointed at nothing;
             # showing no picture at all is the honest report
             return None
-        return frame[:, :, ::-1].copy()  # RGB→BGR
+        # A copy, because the reader's array is shared with its worker thread
+        # and with the next caller; the reader already decoded it as BGR.
+        return frame.copy()
 
     def _note_silence(self, now: float) -> bool:
         """Decide what a quiet stream means, once it has been quiet too long.

@@ -427,8 +427,11 @@ def _reader(aircraft, **kwargs):
     )
 
 
-def _h264(frames=10, size=(240, 320)):
-    """A real H.264 stream, the way the Tello sends it: Annex B, no container."""
+def _h264(frames=10, size=(240, 320), rgb=None):
+    """A real H.264 stream, the way the Tello sends it: Annex B, no container.
+
+    Grey ramp frames by default; ``rgb`` makes every frame that one colour.
+    """
     av = pytest.importorskip("av")
     if "libx264" not in av.codecs_available:
         pytest.skip("this PyAV build has no H.264 encoder")
@@ -439,7 +442,11 @@ def _h264(frames=10, size=(240, 320)):
     enc.options = {"tune": "zerolatency"}
     data = b""
     for i in range(frames):
-        image = np.full((*size, 3), i * 20, np.uint8)
+        if rgb is None:
+            image = np.full((*size, 3), i * 20, np.uint8)
+        else:
+            image = np.empty((*size, 3), np.uint8)
+            image[:] = rgb
         frame = av.VideoFrame.from_ndarray(image, format="rgb24")
         for packet in enc.encode(frame):
             data += bytes(packet)
@@ -469,6 +476,22 @@ def test_the_reader_decodes_a_stream_cut_into_datagrams(aircraft):
             time.sleep(0.02)
         assert reader.frame is not None
         assert reader.frame.shape == (240, 320, 3)
+    finally:
+        reader.close()
+
+
+def test_the_reader_hands_over_frames_in_opencv_channel_order(aircraft):
+    """The reader decodes straight to BGR and get_frame no longer flips it, so
+    a red marker on the wire must come out red to the detector, not blue."""
+    reader = _reader(aircraft)
+    try:
+        aircraft.stream(reader, _h264(rgb=(220, 0, 0)))
+        deadline = time.monotonic() + 3.0
+        while reader.frame is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert reader.frame is not None
+        b, g, r = reader.frame[120, 160].tolist()
+        assert r > 150 and b < 80 and g < 80
     finally:
         reader.close()
 
