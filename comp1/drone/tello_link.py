@@ -98,8 +98,26 @@ _PLAIN = {
 }
 
 
+#: Refusals that can only come from an aircraft that is not (or is about to
+#: stop) flying. They are how a wrong belief about being airborne gets put
+#: right: the Tello can land itself -- low battery, overheating -- and nobody
+#: tells us.
+_GROUNDED_REPLIES = ("motor stop", "auto land")
+
+
 class TelloError(RuntimeError):
     """The aircraft answered, and the answer was a refusal."""
+
+    def __init__(self, message: str, reply: str = ""):
+        super().__init__(message)
+        #: The aircraft's own words, untranslated; empty when not from the wire.
+        self.reply = reply
+
+    @property
+    def grounded(self) -> bool:
+        """Whether this refusal says the aircraft is down, or on its way down."""
+        low = self.reply.lower()
+        return any(key in low for key in _GROUNDED_REPLIES)
 
 
 class TelloPortBusy(RuntimeError):
@@ -291,7 +309,7 @@ class TelloLink:
         reply = waiter.reply
         log.debug("reply to %r: %r", command, reply)
         if reply.lower().startswith("error"):
-            raise TelloError(plain_refusal(command, reply))
+            raise TelloError(plain_refusal(command, reply), reply)
         return reply
 
     def _release(self, waiter: _Waiter) -> None:

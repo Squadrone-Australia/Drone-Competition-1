@@ -55,6 +55,18 @@ class DroneAdapter(ABC):
     #: aircraft stops answering, and the server's watchdog reconnects.
     link_ok: bool = True
 
+    #: Whether the aircraft is in the air, as far as this adapter knows. The
+    #: simulator knows; hardware only believes, from what its own commands were
+    #: answered. Three decisions hang on it, all of them about never leaving a
+    #: drone hovering with nobody in charge of it: a program that finishes in
+    #: the air is landed, Stop with no program running lands a flying drone,
+    #: and a ``take off`` sent to one already up is skipped with a warning
+    #: instead of being refused into an error.
+    #:
+    #: When unsure, adapters should lean towards True: a ``land`` sent to a
+    #: drone on the ground costs nothing, a hovering drone that is ignored does.
+    flying: bool = False
+
     def close(self) -> None:  # noqa: B027 — a no-op default, not an abstract hook
         """Release every OS resource the adapter holds and stop its threads.
 

@@ -275,6 +275,12 @@ class Drone:
 
     def takeoff(self):
         """Take off and hover. Do this before any other movement."""
+        # Same rule as the take off block: an aircraft already up is warned
+        # about, not refused into an error that ends the script.
+        if self._d.flying:
+            self._check()
+            self._warn("the drone is already flying — skipping takeoff()")
+            return
         self._act(self._d.takeoff)
 
     def land(self):
@@ -644,6 +650,9 @@ class ScriptRun:
             self._watchdog.cancel()
         if reason != "done":
             clear_session(self.session)  # no-op unless the thread is abandoned
+        # A script that ends with the drone still up is landed, exactly as a
+        # block program is -- see Interpreter.run.
+        if reason != "done" or self._drone.flying:
             if not self._emergency:
                 try:
                     await asyncio.to_thread(self._drone.land)

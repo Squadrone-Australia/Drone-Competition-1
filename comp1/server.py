@@ -88,6 +88,21 @@ _VIDEO_MESSAGES = {
 _HINTED_TYPES = {"error", "estopped", "drone_link", "finished"}
 
 
+class _IdleLanding:
+    """Stop pressed with no program running, while the drone is still up.
+
+    Sits in the ``app.state.interp`` slot for as long as the land takes. Every
+    guard that already refuses Run, a drone switch, a reconnect or an arena edit
+    while a mission is flying therefore refuses them during the landing too,
+    and a window close waits for it -- without each of them learning about a
+    second kind of busy. Landing *is* the stop, so being asked to stop again is
+    a no-op; EMERGENCY STOP still cuts the motors down its own path.
+    """
+
+    def request_stop(self, emergency: bool = False) -> None:
+        pass
+
+
 def _with_hint(data: dict) -> dict:
     """``data`` plus the fix for its error, if :mod:`comp1.hints` knows one.
 
@@ -939,6 +954,41 @@ def create_app(
             return
         await _broadcast_json(app, {"type": "estopped", "ok": True})
 
+    async def _land_idle(app: FastAPI, landing: _IdleLanding):
+        """Bring down a drone that no program is flying any more, then free the slot.
+
+        Bounded by the adapter's command timeout like every other flight
+        command, so a silent aircraft cannot hold the run slot forever.
+        """
+        drone = app.state.drone
+        timeout = getattr(drone, "command_timeout_s", None)
+        try:
+            await _broadcast_json(
+                app,
+                {"type": "warning", "message": "no program is running — landing the drone"},
+            )
+            await asyncio.wait_for(asyncio.to_thread(drone.land), timeout)
+        except Exception as exc:
+            if not drone.flying:
+                # Refused because it was already down (it landed itself): the
+                # outcome the student wanted, so not an error.
+                await _broadcast_json(
+                    app,
+                    {"type": "warning", "message": "the drone is already on the ground"},
+                )
+            else:
+                detail = (
+                    f"no answer within {timeout:g}s"
+                    if isinstance(exc, TimeoutError)
+                    else str(exc)
+                )
+                await _broadcast_json(
+                    app, {"type": "error", "message": f"could not land the drone: {detail}"}
+                )
+        finally:
+            if app.state.interp is landing:
+                app.state.interp = None
+
     async def _reply_error(ws, message: str):
         """Tell one client something went wrong, without killing its socket."""
         try:
@@ -1216,6 +1266,15 @@ def create_app(
                                 },
                             )
                             continue
+                        if isinstance(app.state.interp, _IdleLanding):
+                            await _broadcast_json(
+                                app,
+                                {
+                                    "type": "error",
+                                    "message": "wait for the drone to finish landing",
+                                },
+                            )
+                            continue
                         if app.state.interp is not None:
                             await _broadcast_json(
                                 app, {"type": "error", "message": "already running"}
@@ -1282,6 +1341,14 @@ def create_app(
                     elif msg["type"] == "stop":
                         if app.state.interp:
                             app.state.interp.request_stop()
+                        elif app.state.drone.flying and not app.state.drone_switching:
+                            # Nothing to stop, but something in the air: Stop is
+                            # the button a student reaches for to get it down.
+                            # Spawned, never awaited -- a land takes seconds and
+                            # this is the loop EMERGENCY STOP arrives on.
+                            landing = _IdleLanding()
+                            app.state.interp = landing
+                            _spawn(_land_idle(app, landing))
                     elif msg["type"] == "reset":
                         if app.state.drone_switching:
                             await _broadcast_json(

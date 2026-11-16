@@ -389,12 +389,46 @@ async def test_script_error_is_reported_and_the_drone_lands():
     assert any(e["type"] == "script" and e["state"] == "error" for e in events)
 
 
-async def test_clean_script_finishes_done_without_a_forced_landing():
+async def test_a_script_that_ends_in_the_air_is_landed():
+    """Otherwise the drone hovers with nobody in charge: Stop has no script
+    left to stop, and the next run's takeoff meets a drone already up."""
     adapter = MockDrone()
     run = ScriptRun(adapter, lost, lambda ev: None, settle_s=0)
     reason, _ = await run.run(lambda: Drone().takeoff())
     assert reason == "done"
-    assert ("land",) not in adapter.log  # not landed behind the student's back
+    assert adapter.log == [("takeoff",), ("land",)]
+
+
+async def test_a_script_that_lands_itself_is_not_landed_twice():
+    adapter = MockDrone()
+    run = ScriptRun(adapter, lost, lambda ev: None, settle_s=0)
+
+    def student_code():
+        d = Drone()
+        d.takeoff()
+        d.land()
+
+    reason, _ = await run.run(student_code)
+    assert reason == "done"
+    assert adapter.log == [("takeoff",), ("land",)]
+
+
+async def test_takeoff_while_flying_is_skipped_with_a_warning():
+    adapter, events = MockDrone(), []
+    run = ScriptRun(adapter, lost, events.append, settle_s=0)
+
+    def student_code():
+        d = Drone()
+        d.takeoff()
+        d.takeoff()
+        d.land()
+
+    reason, _ = await run.run(student_code)
+    assert reason == "done"
+    assert adapter.log.count(("takeoff",)) == 1
+    assert any(
+        e["type"] == "warning" and "already flying" in e["message"] for e in events
+    )
 
 
 async def test_the_session_is_unbound_after_a_run():

@@ -246,6 +246,7 @@ class TelloDrone(DroneAdapter):
         self._last_frame = None  # identity of the last *decoded* frame
         self._frame_at = 0.0
         self._reopen_at = 0.0
+        self.flying = False
 
     # --- connection lifecycle --------------------------------------------
 
@@ -268,6 +269,12 @@ class TelloDrone(DroneAdapter):
             raise
         self._link = link
         self.link_ok = True
+        # A new session starts on the ground. The watchdog only reconnects
+        # between missions, and a mission now ends by landing; an aircraft
+        # whose link died while it flew lands itself after 15 s of silence; and
+        # one that was power-cycled is on the floor. If this is ever wrong,
+        # the first take off is refused, the mission errors, and it is landed.
+        self.flying = False
         self.video_blocked = False
         self.video_port_busy = False
         self._seen_frame = False
@@ -345,7 +352,13 @@ class TelloDrone(DroneAdapter):
             raise RuntimeError("the Tello is not connected")
         try:
             return link.send(command)
-        except (TelloError, TelloInterrupted):
+        except TelloError as exc:
+            if exc.grounded:
+                # "motor stop" / "auto land": whatever we believed, it is down
+                # or on its way down by itself.
+                self.flying = False
+            raise
+        except TelloInterrupted:
             raise
         except Exception:
             self.link_ok = False
@@ -354,10 +367,25 @@ class TelloDrone(DroneAdapter):
     # --- flight ----------------------------------------------------------
 
     def takeoff(self):
-        self._send("takeoff")
+        try:
+            self._send("takeoff")
+        except (TelloError, TelloInterrupted):
+            # Refused: it never left the ground. Interrupted: EMERGENCY STOP
+            # cut it, and emergency() has already said where it is.
+            raise
+        except Exception:
+            # No answer is not "still on the ground" -- the climb may be under
+            # way with the reply lost. Believe the case that gets it landed.
+            self.flying = True
+            raise
+        self.flying = True
 
     def land(self):
+        # Only an "ok" lands the belief. A refusal for being busy comes from an
+        # aircraft still in the air; one that says it is grounded has already
+        # cleared the flag in _send.
         self._send("land")
+        self.flying = False
 
     def emergency(self):
         """Cut the motors *now*, even while a long move is still waiting.
@@ -370,6 +398,7 @@ class TelloDrone(DroneAdapter):
             raise RuntimeError("the Tello is not connected")
         try:
             link.interrupt("emergency")
+            self.flying = False  # motors cut: it is coming down either way
         except TelloError:
             raise
         except Exception:
