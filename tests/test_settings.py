@@ -50,6 +50,17 @@ def test_the_detector_is_kept_only_when_it_is_one_we_have(tmp_path):
     path.write_text(json.dumps({"detector": "yolo"}), encoding="utf-8")
     assert settings.load(path).detector == "yolo"
     path.write_text(json.dumps({"detector": "magic"}), encoding="utf-8")
+    assert settings.load(path).detector == settings.DEFAULTS.detector
+
+
+def test_a_fresh_install_starts_on_the_ai_detector(tmp_path):
+    assert settings.load(tmp_path / "missing.json").detector == "yolo"
+
+
+def test_a_saved_colour_choice_is_kept(tmp_path):
+    """The new default must not overrule a venue that chose colour."""
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"detector": "hsv"}), encoding="utf-8")
     assert settings.load(path).detector == "hsv"
 
 

@@ -97,6 +97,9 @@ class VisionConfig:
     # tune on-site except how sure it must be. Everything downstream of the
     # finder (range from marker_diameter_m, the lock, obstacles, approach) is
     # shared. Chosen live in the browser; settings.json remembers it.
+    #
+    # This is the library default (tests, comp1.api used on its own). What an
+    # installed copy starts on is settings.Settings.detector -- the AI model.
     detector: str = "hsv"
     # 0.5 is where solution_fire's evaluation saw no false alarm in any held-out
     # real frame; at 0.25 the nano model raised two. Do not go lower.

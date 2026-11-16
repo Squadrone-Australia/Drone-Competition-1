@@ -47,7 +47,12 @@ class Settings:
     hsv: dict[str, list[int]] = field(default_factory=dict)
     #: The marker finder last chosen in the browser. Unlike drone and scenery
     #: this is switched live, and saved as it is switched.
-    detector: str = "hsv"
+    #:
+    #: A fresh install starts on the AI model: it needs no tuning for the
+    #: room's light, which is exactly the step a new venue gets wrong. A copy
+    #: whose model cannot load still starts, on colour -- ``__main__`` falls
+    #: back with a warning and the browser says why the AI option is greyed.
+    detector: str = "yolo"
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
