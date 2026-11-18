@@ -511,3 +511,35 @@ test("the obstacle blocks are reachable from the toolbox", () => {
                       "sense_obstacle_bearing", "sense_obstacle_count"])
     assert.ok(types.includes(type), `${type} is not in the toolbox`);
 });
+
+// ── blocks outside the program ──────────────────────────────────────────────
+// Counted so Run can say so: a block dropped near the program rather than into
+// it runs nothing, and the console used to answer with a cheerful "mission done".
+const top = (type, ...descendants) => ({
+  type,
+  getDescendants: () => [{ isShadow: () => false }, ...descendants],
+});
+const shadow = { isShadow: () => true };
+const real = { isShadow: () => false };
+
+test("blocks outside the program are counted, start and number boxes are not", () => {
+  const workspace = { getTopBlocks: () => [
+    top("start", real, real),              // the program itself: never counted
+    top("takeoff"),                        // one loose block
+    top("move", shadow),                   // loose, with its 50 in a shadow box
+    top("repeat_n", shadow, real),         // a loose stack of two
+  ] };
+  assert.strictEqual(COMP1.unattachedCount(workspace), 4);
+});
+
+test("an empty workspace has nothing loose, and a broken one never throws", () => {
+  assert.strictEqual(COMP1.unattachedCount({ getTopBlocks: () => [top("start")] }), 0);
+  assert.strictEqual(COMP1.unattachedCount({}), 0);
+});
+
+test("a fresh start block sits clear of every open drawer", () => {
+  // Measured in the browser: the widest drawer (Mission) ends about 310
+  // workspace units in. At the old (30, 30) every drawer covered the block a
+  // student's first drag has to land on.
+  assert.ok(COMP1.START_POSITION.x >= 320, JSON.stringify(COMP1.START_POSITION));
+});

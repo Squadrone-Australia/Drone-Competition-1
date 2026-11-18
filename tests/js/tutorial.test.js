@@ -365,56 +365,194 @@ test("switching the drone mid-tutorial closes it", () => {
   p.done();
 });
 
-test("the whole lesson, from the welcome card to a finished flight", async () => {
+test("the whole lesson, from the welcome card to a finished flight", () => {
   const p = page();
   p.bus.emit({ type: "drone_mode", mode: "sim" });
+  assert.match(p.$("#tut-card").textContent, /Your mission/, "the goal is said up front");
   p.click("Let's go");
 
-  // The tour: every area gets its turn, in reading order.
+  // The tour: every region gets its turn, in reading order - and no more of
+  // them than a skimming student will sit through.
   const toured = [];
   while (p.step() !== "drawer") {
     toured.push(p.step());
     assert.ok(toured.length < 20, `stuck on ${p.step()}`);
     p.click("Next");
   }
-  for (const area of ["workspace", "toolbox", "start", "help", "stage", "camera",
-    "telemetry", "console", "run-group", "estop", "hud"]) {
-    assert.ok(toured.includes(area), `the tour skipped ${area}`);
-  }
-  assert.ok(!toured.includes("arena"), "the floor plan is hidden here, so its step is skipped");
-  assert.ok(!toured.includes("aside"), "an empty workspace has nothing to put aside");
+  assert.deepStrictEqual(toured, ["workspace", "start", "stage", "camera", "console", "controls"],
+    "the floor plan is hidden here, so its step is skipped; nothing to put aside either");
+  assert.ok(toured.length <= 7, "the first tester called twelve cards “click, click, click”");
 
-  // The build: each step stays shut until it is done, then opens.
+  // app.js is not loaded here, so the inspector tabs have no handlers of their
+  // own: what is checked is that the tutorial asked for the right one.
+  const tabsShown = [];
+  for (const tab of p.window.document.querySelectorAll("[data-debug-view]")) {
+    tab.addEventListener("click", () => tabsShown.push(tab.dataset.debugView));
+  }
+
+  // The build: Next is offered but holds until the step is done, then opens.
   for (const id of ["drawer", "takeoff", "forward", "turn", "back", "land"]) {
     assert.strictEqual(p.step(), id);
     if (id !== "drawer") {
       const nextBtn = p.$('#tut-card [data-role="next"]');
-      assert.strictEqual(nextBtn.disabled, true, `${id} let the student past without doing it`);
+      assert.strictEqual(nextBtn.getAttribute("aria-disabled"), "true",
+        `${id} looked ready before it was done`);
+      nextBtn.click();
+      assert.strictEqual(p.step(), id, `${id} let the student past without doing it`);
     }
     p.click("Do it for me");
     p.click("Next");
   }
   assert.deepStrictEqual(types(p.ws), ["takeoff", "move", "rotate", "move", "land"]);
 
-  // The run: lit on the Run button, then on the flight, then on to the code.
+  // The run: lit on Run, then on the flight, then held on the result until the
+  // student moves on - it no longer slides away the moment the drone lands.
   assert.strictEqual(p.step(), "run");
   assert.match(p.$("#tut-title").textContent, /Press Run/);
+  assert.deepStrictEqual(tabsShown, ["trace"], "Live execution is showing for the flight");
   p.bus.emit({ type: "running", running: true });
   assert.match(p.$("#tut-title").textContent, /flying/);
   p.bus.emit({ type: "running", running: false });
   p.bus.emit({ type: "finished", reason: "done", detail: "" });
   assert.match(p.$(".tut-status").textContent, /worked/);
-  await new Promise((resolve) => p.window.setTimeout(resolve, 1700));
+  assert.match(p.$("#tut-title").textContent, /It flew/);
+  assert.strictEqual(p.step(), "run", "the result stays on screen");
+  p.click("Next");
   assert.strictEqual(p.step(), "python");
+  assert.deepStrictEqual(tabsShown, ["trace", "python"]);
 
   p.click("Next");
   assert.strictEqual(p.step(), "final");
   assert.match(p.$("#tut-card").textContent, /You flew your first program/);
   assert.match(p.$("#tut-card").textContent, /Next challenge/);
+  assert.match(p.$("#tut-card").textContent, /Found one\?/);
   p.click("Finish");
   assert.strictEqual(p.step(), false);
   assert.strictEqual(p.storage.data.get(TUTORIAL_KEY), "done");
   p.done();
+});
+
+test("Next on an unfinished step says what is still to do", () => {
+  // A disabled button swallowed the click: the tester pressed it and nothing
+  // happened, and nothing said why.
+  const p = page();
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  p.ctl.goTo("drawer");
+  p.$('#tut-card [data-role="next"]').click();
+  assert.match(p.$(".tut-status").textContent, /Click Flight on the left first/);
+  p.ctl.goTo("forward");
+  p.$('#tut-card [data-role="next"]').click();
+  assert.match(p.$(".tut-status").textContent, /fly forward 50 cm/);
+  p.done();
+});
+
+test("the answer to an early Next stays on screen, and visibly answers the click", async () => {
+  // The poll wiped it within half a second, so the second tester saw nothing.
+  const p = page();
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  p.ctl.goTo("drawer");
+  p.$('#tut-card [data-role="next"]').click();
+  await new Promise((resolve) => p.window.setTimeout(resolve, 1200));   // three polls
+  assert.match(p.$(".tut-status").textContent, /^Not yet: Click Flight/);
+  assert.ok(p.$(".tut-status").classList.contains("nudge"));
+  p.done();
+});
+
+test("Tutorial pressed while still connecting says so, then opens by itself", () => {
+  const p = page({ storage: fakeStorage({ [TUTORIAL_KEY]: "done" }) });
+  p.$("#tutorial-open").click();
+  assert.strictEqual(p.step(), "notice");
+  assert.match(p.$("#tut-card").textContent, /Starting up/);
+  assert.deepStrictEqual(p.logged, [], "said on screen, not buried in the console");
+  p.bus.emit({ type: "drone_mode", mode: "sim", switching: false });
+  assert.strictEqual(p.step(), "welcome");
+  p.done();
+});
+
+test("a drone_mode sent before the tutorial loaded still reaches it", () => {
+  // The first-launch race: on a cold cache tutorial.js is still downloading
+  // when the socket delivers drone_mode, which the server sends only once.
+  // app.js's bus replays it to late subscribers; this is the tutorial's half.
+  const app = fs.readFileSync(path.join(FRONTEND, "app.js"), "utf8");
+  const sticky = app.match(/STICKY_TYPES = new Set\(\s*\[([^\]]*)\]/);
+  assert.ok(sticky, "app.js no longer has a list of replayed message types");
+  for (const type of ["drone_mode", "settings", "scene"]) {
+    assert.ok(sticky[1].includes(`"${type}"`), `${type} is not replayed to late subscribers`);
+  }
+
+  const window = blocklyWindow(INDEX);
+  const ws = new window.Blockly.Workspace();
+  ws.newBlock("start");
+  const replay = { type: "drone_mode", mode: "sim", switching: false };
+  const lateBus = { on(fn) { fn(replay); } };     // subscribes after it was sent
+  const ctl = install({ window, document: window.document, workspace: ws,
+    Blockly: window.Blockly, storage: fakeStorage(), bus: lateBus, log: () => {} });
+  assert.strictEqual(ctl.state.active && ctl.state.steps[ctl.state.index].id, "welcome");
+  ctl.finish("skipped");
+  window.close();
+});
+
+test("finishing leaves the challenge in the console", () => {
+  const p = page();
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  p.ctl.goTo("final");
+  p.click("Finish");
+  const consoleText = p.logged.join("\n");
+  assert.match(consoleText, /Next challenge/);
+  assert.match(consoleText, /approach target and stop/);
+  p.done();
+});
+
+test("the step count holds still when a block appears mid-lesson", () => {
+  // "2 of 8" became "4 of 9": a loose block dragged out during the lesson made
+  // the put-aside step count again, behind the student.
+  const p = page();
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  p.click("Let's go");
+  while (p.step() !== "drawer") p.click("Next");
+  const counter = () => p.$(".tut-phase").textContent;
+  assert.match(counter(), /1 of 8/);
+  p.click("Do it for me");
+  p.click("Next");
+  assert.match(counter(), /2 of 8/);
+  p.ws.newBlock("takeoff");                   // dropped, not snapped
+  p.click("Do it for me");
+  p.click("Next");
+  assert.match(counter(), /3 of 8/);
+  p.done();
+});
+
+test("a wrong block is named as soon as it is snapped on, not when Next is pressed", async () => {
+  const p = page();
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  p.ctl.goTo("forward");
+  p.click("Do it for me");                    // take off + fly forward
+  p.ctl.goTo("turn");
+  const start = p.ws.getBlocksByType("start", false)[0];
+  let last = start;
+  while (last.getNextBlock()) last = last.getNextBlock();
+  const flip = p.ws.newBlock("flip");
+  last.nextConnection.connect(flip.previousConnection);
+  await new Promise((resolve) => p.window.setTimeout(resolve, 1500));
+  assert.match(p.$(".tut-status").textContent, /Block 3 .*“flip/);
+  p.done();
+});
+
+test("Jump to building skips the rest of the tour, via put-aside when there are blocks", () => {
+  const empty = page();
+  empty.bus.emit({ type: "drone_mode", mode: "sim" });
+  empty.click("Let's go");
+  empty.click("Jump to building ›");
+  assert.strictEqual(empty.step(), "drawer");
+  empty.done();
+
+  const busy = page({ storage: fakeStorage({ [TUTORIAL_KEY]: "done" }), blocks: ["flip"] });
+  busy.bus.emit({ type: "drone_mode", mode: "sim" });
+  busy.$("#tutorial-open").click();
+  busy.click("Let's go");
+  busy.click("Jump to building ›");
+  assert.strictEqual(busy.step(), "aside", "never builds over a student's own blocks");
+  busy.done();
 });
 
 test("a hint actually appears while the step is polling", async () => {

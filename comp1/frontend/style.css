@@ -539,11 +539,13 @@ aside > .bar { flex: 0 0 auto; border-top: 1px solid var(--line); }
    #closed-overlay, which must always win. */
 #tutorial-open { padding: 7px 12px; font-size: 13px; }
 #tut-shade { position: fixed; inset: 0; z-index: 80; pointer-events: none; }
-#tut-shade.modal { pointer-events: auto; background: rgba(5, 8, 13, .72); }
+/* Dim enough to point, light enough to read: at .58 a student could no longer
+   make out the blocks the card was talking about. */
+#tut-shade.modal { pointer-events: auto; background: rgba(5, 8, 13, .6); }
 #tut-shade[hidden], #tut-card[hidden], #tut-spot[hidden] { display: none; }
 #tut-spot {
   position: fixed; border: 2px solid var(--brand); border-radius: var(--r-md);
-  box-shadow: 0 0 0 200vmax rgba(5, 8, 13, .58);
+  box-shadow: 0 0 0 200vmax rgba(5, 8, 13, .44);
   transition: left .18s ease, top .18s ease, width .18s ease, height .18s ease;
 }
 /* "Your turn": the lit area breathes while the step is waiting on the student. */
@@ -553,7 +555,8 @@ aside > .bar { flex: 0 0 auto; border-top: 1px solid var(--line); }
   50% { outline: 6px solid rgba(247, 148, 29, .28); outline-offset: 2px; }
 }
 #tut-card {
-  position: fixed; z-index: 81; width: min(360px, calc(100vw - 24px));
+  /* 392 rather than 360: Skip, Jump to building, Back and Next on one row. */
+  position: fixed; z-index: 81; width: min(392px, calc(100vw - 24px));
   max-height: calc(100vh - 16px); overflow-y: auto;
   padding: 16px 16px 12px; border: 1px solid var(--brand-line); border-radius: var(--r-lg);
   background: var(--surface-2); color: var(--text); font-size: 14px; line-height: 1.5;
@@ -590,6 +593,14 @@ aside > .bar { flex: 0 0 auto; border-top: 1px solid var(--line); }
 }
 .tut-status:empty { display: none; }
 .tut-status.ok { color: var(--ok); border-left-color: var(--ok); }
+/* "Not yet": a small shake, so a click on Next reads as answered even when the
+   words were already showing. The reduced-motion rule below switches it off. */
+.tut-status.nudge { animation: tut-nudge .32s ease; }
+@keyframes tut-nudge {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
 .tut-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
 .tut-gap { flex: 1; }
 .tut-actions button {
@@ -605,6 +616,9 @@ aside > .bar { flex: 0 0 auto; border-top: 1px solid var(--line); }
   border-color: transparent; color: var(--text-3); }
 .tut-actions button.link:hover { color: var(--text); background: none; border-color: transparent; }
 .tut-actions button:disabled { opacity: .45; cursor: default; }
+/* Looks unavailable but still takes the click, so it can say what is missing. */
+.tut-actions button.primary.waiting { opacity: .5; }
+.tut-actions button.primary.waiting:hover { background: var(--brand); border-color: var(--brand); }
 
 /* --- scrollbars: the console and code panes are read constantly ---------- */
 #console, #debug-python, #debug-program, #debug-trace, .vision-dialog-content {

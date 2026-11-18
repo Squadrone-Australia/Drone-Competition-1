@@ -526,9 +526,36 @@ function programToPython(program) {
   return [...preamble, ...mission, ...helpers].join("\n");
 }
 
+// Where a fresh workspace puts its start block, in workspace units from the left
+// edge of the canvas. Far enough right that no open drawer covers it: a student's
+// very first drag ends on this block, and with the old (30, 30) every drawer was
+// drawn on top of it, so the first drop of their life was made blind. The widest
+// drawer (Mission) reaches about 310 units in; measured, not guessed, so a new
+// block wide enough to widen a drawer past this wants the number revisited.
+const START_POSITION = { x: 340, y: 30 };
+
+/**
+ * How many real blocks are on the workspace but not under the start block.
+ *
+ * They run nothing and, left to the console, say nothing: the run reports
+ * "mission done" as though it had worked. Shadows are not counted, because
+ * they are the number boxes inside a block, not something the student placed.
+ */
+function unattachedCount(workspace) {
+  try {
+    return workspace.getTopBlocks(false)
+      .filter((b) => b.type !== "start")
+      .reduce((total, b) => total
+        + b.getDescendants(false).filter((d) => !d.isShadow()).length, 0);
+  } catch (_error) {
+    return 0;
+  }
+}
+
 const COMP1 = {
   blocks: BLOCKS,
   toolbox: TOOLBOX,
+  START_POSITION, unattachedCount,
   warnings: WARNINGS, // filled by serializeProgram; app.js prints these to the console
   valueJson, blockJson, chainJson, programToPython,
   serializeProgram(workspace) {

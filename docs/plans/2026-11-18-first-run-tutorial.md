@@ -27,17 +27,21 @@ order:
 
 ## Shape
 
-1. **Welcome** (modal). It can be skipped in one click.
-2. **Quick tour**, 12 steps. Each one dims the page and puts a spotlight on one area,
-   with a short card beside it.
+1. **Welcome** (modal). It says what the mission is (find the red targets and signal each
+   one), and it can be skipped in one click.
+2. **Quick tour**, 7 steps. Each one dims the page and puts a spotlight on one region,
+   with a short card beside it. Every card has **Jump to building ›**.
 3. **Build and fly**, 8 steps. Each step is checked against the real workspace rather than
    just described. The lesson program is
    `take off → fly forward 50 → turn clockwise 180° → fly forward 50 → land`
    ("fly out and come home"). The student opens a drawer, drags blocks, edits a number and
    presses the real Run button. Every step has **Do it for me**, so a student who can't get
    a trackpad drag to work still gets to see the drone fly.
+   The Run step stays on the result until the student presses Next, with **Live execution**
+   listing every command the drone ran.
 4. **Python view**: the program they just flew, shown as code.
-5. **Final card**: a recap and the next challenge.
+5. **Final card**: a recap and the next challenge. The challenge is also written to the
+   console, so it is still there after the card closes.
 
 It opens by itself once, and the **Tutorial** button in the top bar reopens it.
 
@@ -91,9 +95,45 @@ The jsdom tests didn't catch these two:
 - The 400 ms poll restarted the 700 ms "wait until they stop" timer every time it ran, so a
   dropped-but-not-snapped block never got its hint. There is now a regression test for this.
 
+## Usability tests
+
+The tutorial was tried twice by a Sonnet subagent playing a high-school student. It could
+only use screenshots, clicks, drags and typing, on a fresh browser origin, so each run was a
+true first launch. Each round's findings were fixed before the next round.
+
+**Round 1** ("Maya", 15, impatient, skims):
+
+- The step counter jumped from "2 of 8" to "4 of 9", because the put-aside step was
+  re-decided live.
+- The disabled Next button swallowed clicks without saying why.
+- Run with a loose or empty program reported a bare "mission done".
+- Every open drawer covered the start block. The fresh start block moved from (30, 30)
+  to (340, 30).
+- A found target was only counted in the header, never said in the console.
+- The 12-card tour felt like "click, click, click", so it was cut to 7.
+- The first flight's result was covered by the next card.
+- The dimmed background was too dark to read the blocks.
+
+**Round 2** ("Leo", 14, careful, trackpad). All the round-1 fixes were confirmed. New
+findings:
+
+- On a cold cache the tutorial missed `drone_mode`, which the server sends once on
+  connect, and then refused to open beside a green "connected". This was latent for
+  every late-loading panel. `app.js` now replays the last of each state sent on connect.
+- The answer to an early Next was wiped by the next poll.
+- The Run card covered the program.
+- The challenge vanished on Finish.
+- The `# block` ids in the Python view read as garbage.
+- The obstacle message ("the attempt does not count") was ambiguous.
+- "About 3 minutes" was optimistic. Both students took 10 minutes or more.
+
 ## Not done
 
 - **The text is English only.** It matches the rest of the UI. All of it is in the `STEPS`
   table in `tutorial.js`, so translating means editing one place.
-- **The flight is very fast.** The simulator flies the lesson in under two seconds, so the
-  "It's flying!" card is only on screen briefly.
+- **The flight is very fast.** The simulator flies the lesson in about a second. The Run
+  step now waits on the result, and Live execution replays it in words, but the flight
+  itself is easy to miss.
+- **Nesting blocks inside a loop has no feedback** once the tutorial is over. A stack that
+  sits inside "repeat" without snapping looks connected.
+- **The Next button moves between tour cards** as the card height and position change.

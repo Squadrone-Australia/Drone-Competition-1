@@ -67,6 +67,17 @@ const LESSON = [
   { type: "land", label: "land" },
 ];
 
+// The final card's challenge, as the console keeps it after the card is gone.
+const CHALLENGE_LOG = [
+  "🔥 Next challenge: find a target. Snap these under “🚁 when mission starts”:",
+  "   1. take off",
+  "   2. keep doing until “target seen?”, with “turn ↻ clockwise 30°” inside",
+  "   3. approach target and stop",
+  "   4. signal target found 🎉",
+  "   5. land",
+  "   “target seen?” is in Sensing, “keep doing until” is in Control.",
+];
+
 function startBlock(ws) {
   try {
     return ws.getBlocksByType("start", false)[0] || null;
@@ -377,7 +388,9 @@ function install(env) {
   function seedStart() {
     const start = ws.newBlock("start");
     if (start.initSvg) { start.initSvg(); start.render(); }
-    start.moveBy(30, 30);
+    // The same place app.js seeds it, clear of every open drawer (blocks.js).
+    const pos = (win.COMP1 && win.COMP1.START_POSITION) || { x: 340, y: 30 };
+    start.moveBy(pos.x, pos.y);
   }
 
   function putAside() {
@@ -463,34 +476,62 @@ function install(env) {
   }
 
   const el = (selector) => () => doc.querySelector(selector);
+  // Several regions lit as one: a step about "the camera and what it detects"
+  // has to show both, or the card talks about numbers the student cannot see.
+  const els = (...selectors) => () => selectors.map((s) => doc.querySelector(s)).filter(Boolean);
   const visible = (node) => {
     if (!node || node.hidden) return false;
     const r = node.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };
 
+  /** The smallest rectangle around every visible node, or null. */
+  function unionRect(nodes) {
+    const rects = [].concat(nodes).filter(visible).map((n) => n.getBoundingClientRect());
+    if (!rects.length) return null;
+    return {
+      left: Math.min(...rects.map((r) => r.left)), top: Math.min(...rects.map((r) => r.top)),
+      right: Math.max(...rects.map((r) => r.right)),
+      bottom: Math.max(...rects.map((r) => r.bottom)),
+    };
+  }
+
+  function showDebugView(view) {
+    const panel = $("debug-panel");
+    if (panel && !panel.classList.contains("open")) $("debug-toggle").click();
+    const tab = doc.querySelector(`[data-debug-view="${view}"]`);
+    if (tab) tab.click();
+  }
+
   // --- steps --------------------------------------------------------------
 
   const P = (...lines) => lines;
 
   function buildStep(upto, step) {
+    const above = upto === 0 ? "🚁 when mission starts" : LESSON[upto - 1].label;
     return {
       phase: "build", target: el("#blockly"), place: "right", kind: "check",
       check: () => checkLesson(ws, upto),
       fix: () => fixLesson(ws, Blockly, upto),
+      need: `Snap “${LESSON[upto].label}” under “${above}” first, or press Do it for me.`,
       ...step,
     };
   }
 
+  // The tour was twelve cards long, and the first student to try it called it
+  // "click, click, click" and skimmed to the blocks. Seven now, each covering
+  // a region rather than a widget, and every card can jump straight to building.
   const STEPS = [
     { id: "welcome", center: true,
       title: "Welcome to Drone Coder 👋",
       body: P(
-        "You're going to program a drone by snapping blocks together. No typing needed.",
-        "This takes about **3 minutes**: a quick look around the screen, then you'll build "
-          + "and fly your first program.",
-        "Right now you're flying the **simulator**, a practice drone on the screen. "
-          + "Nothing real can crash, so try anything you like.",
+        "**Your mission:** program a drone to find red targets (the “fires”) and signal each "
+          + "one it finds. You do it by snapping blocks together. No typing needed.",
+        // Both testers took far longer than the 3 minutes this used to promise.
+        "First a quick look around the screen, then you'll build and fly your first program. "
+          + "About **5 to 10 minutes**.",
+        "This is the **simulator**, a practice drone on the screen. Nothing real can crash, "
+          + "so try anything you like.",
       ),
       actions: () => [
         button("Skip, I've used this before", () => finish("skipped"), "link"),
@@ -498,18 +539,16 @@ function install(env) {
         button("Let's go", next, "primary"),
       ] },
 
-    { id: "workspace", phase: "tour", target: el("#blockly"), place: "right",
-      title: "This is your workspace",
-      body: P("You build programs here. Blocks snap together like LEGO, and the drone does "
-        + "them **from top to bottom, one at a time**.") },
-
-    { id: "toolbox", phase: "tour", target: el(".blocklyToolbox"), place: "right",
-      title: "The block drawers",
+    { id: "workspace", phase: "tour", target: el("#blockly"),
+      spotlight: els("#blockly", "#block-help"), place: "right",
+      title: "Your workspace and the block drawers",
       body: P(
-        "Click a drawer to open it, then drag a block out onto the workspace.",
-        "Each drawer has its own colour: [[Flight:flight]] blocks move the drone, "
-          + "[[Sensing:sense]] blocks read the camera, [[Control:flow]] blocks repeat "
-          + "and decide, [[Mission:mission]] blocks are for the competition.",
+        "You build programs here. Open a drawer on the left, drag a block out, and snap blocks "
+          + "together like LEGO. The drone does them **from top to bottom, one at a time**.",
+        "The colour tells you the drawer: [[Flight:flight]] moves the drone, [[Sensing:sense]] "
+          + "reads the camera, [[Control:flow]] repeats and decides, [[Mission:mission]] is for "
+          + "the competition.",
+        "Not sure what a block does? Click it, and the bar under the workspace explains it.",
       ) },
 
     { id: "start", phase: "tour", place: "right",
@@ -525,11 +564,6 @@ function install(env) {
           + "program “does nothing”.",
       ) },
 
-    { id: "help", phase: "tour", target: el("#block-help"), place: "top",
-      title: "What does this block do?",
-      body: P("Click any block and its explanation appears down here. You can also hover over "
-        + "a block to see the same tip.") },
-
     { id: "stage", phase: "tour", target: el("#stage-bar"), place: "left", spotlight: el("#stage"),
       title: "The 3D view",
       body: P(
@@ -538,30 +572,24 @@ function install(env) {
           "**Map** shows the whole room from above", "**Trail** draws the path you flew"],
       ) },
 
-    { id: "camera", phase: "tour", target: el("#camera-window"), place: "left",
+    { id: "camera", phase: "tour", target: els("#camera-window", "#telemetry"), place: "left",
       title: "What the drone sees",
       body: P(
-        "This is the drone's own camera. **Your program only knows what's in this picture.**",
-        "The drone has no map and no GPS. To find a target it has to turn and look for it, "
-          + "just like you would. (Leave the Colour / AI model setting as it is for now.)",
-      ) },
-
-    { id: "telemetry", phase: "tour", target: el("#telemetry"), place: "left",
-      title: "Live sensor readings",
-      body: P(
-        "What the camera detects right now: is a target in view, how far away it is, and "
-          + "which direction (− means left, + means right).",
-        "[[Sensing:sense]] blocks read exactly these numbers, so watch them to see what your "
-          + "program sees.",
+        "The drone's own camera, and under it what the camera detects right now: is a target "
+          + "in view, how far away, and which way (− left, + right).",
+        "**Your program only knows what's in this picture.** No map, no GPS: to find a target "
+          + "it has to turn and look, just like you would. [[Sensing:sense]] blocks read these "
+          + "numbers.",
+        "Colour / AI model is how the drone spots red. Leave it as it is.",
       ) },
 
     { id: "arena", phase: "tour", target: el("#arena-panel"), place: "left",
       skip: () => !visible($("arena-panel")),
       title: "The floor plan",
       body: P(
-        "The room seen from above. **Red dots are targets**: the “fires” your mission has to "
-          + "find. Grey dots are decoys and obstacles. **S** is the start pad, and the orange "
-          + "arrow is your drone.",
+        "The room seen from above. **Red dots are the targets** your mission has to find. Grey "
+          + "dots are decoys and obstacles. **S** is the start pad, and the orange arrow is your "
+          + "drone.",
         "**Shuffle** makes a new random layout. **Edit** lets you click to add or remove targets.",
       ) },
 
@@ -573,34 +601,25 @@ function install(env) {
           + "with a 💡 How to fix tip.",
       ) },
 
-    { id: "run-group", phase: "tour", target: el(".run-group"), place: "bottom",
-      title: "Run, Stop, Reset",
+    { id: "controls", phase: "tour", target: el("header"), place: "bottom",
+      title: "The top bar",
       body: P(
-        "**Run** flies your program. **Stop** ends it and lands the drone safely. "
-          + "**Reset** puts the drone back on its start pad.",
-      ) },
-
-    { id: "estop", phase: "tour", target: el("#estop"), place: "bottom",
-      title: "Only for real emergencies",
-      body: P(
-        "On a real drone, **EMERGENCY STOP cuts the motors instantly and the drone falls out "
-          + "of the air.**",
-        "Use it only if a real drone is about to hit someone or something. For everything "
-          + "else, press **Stop**.",
-      ) },
-
-    { id: "hud", phase: "tour", target: el(".hud"), place: "bottom",
-      title: "Drone status",
-      body: P(
-        "Green **connected** means everything is working. You can also see how many targets "
-          + "you've found, the battery, and which drone you're controlling: right now, the "
-          + "simulator.",
-        "**Use real Tello** is for later, when you're ready to fly the real thing. "
-          + "**Tutorial** opens this guide again.",
+        [
+          "**Run** flies your program. **Stop** ends it and lands the drone safely. **Reset** "
+            + "puts it back on the start pad.",
+          "Green **connected** means everything is working. Next to it: targets found, and "
+            + "the battery.",
+          "**Tutorial** opens this guide again.",
+        ],
+        "**EMERGENCY STOP is only for real emergencies.** On a real drone it cuts the motors and "
+          + "the drone falls out of the air. For everything else, press Stop.",
       ) },
 
     { id: "aside", phase: "build", center: true,
-      skip: () => !hasBlocks(),
+      // Decided once, as the tour ends - not re-asked on every render. Asked
+      // live, a block dragged out mid-lesson made this step appear in the count
+      // behind the student, and "2 of 8" became "4 of 9" with nothing between.
+      skip: () => !st.asideNeeded,
       title: "You already have blocks here",
       body: P(
         "To build the lesson program, the workspace needs to be empty.",
@@ -613,8 +632,10 @@ function install(env) {
         button("Put my blocks aside", () => { if (putAside()) next(); }, "primary"),
       ] },
 
-    { id: "drawer", phase: "build", kind: "check", place: "right",
-      target: () => {
+    // Lit on the Flight row, but the card sits beside the whole workspace: next
+    // to the row it would land on the start block the next step drops onto.
+    { id: "drawer", phase: "build", kind: "check", place: "right", target: el("#blockly"),
+      spotlight: () => {
         const item = toolboxItem("Flight");
         return (item && item.getDiv && item.getDiv()) || doc.querySelector(".blocklyToolbox");
       },
@@ -623,6 +644,7 @@ function install(env) {
         "Your first program will fly the drone out, turn it around, and bring it home.",
         "Start by clicking **Flight** on the left.",
       ),
+      need: "Click Flight on the left first, or press Do it for me.",
       okText: "That's the Flight drawer. These blocks move the drone.",
       trustFix: true,
       check: () => {
@@ -682,30 +704,44 @@ function install(env) {
       body: P("Finish with [[land:flight]]. Every flight has to end with a landing."),
       okText: "Your program is complete!" }),
 
+    // Stays put once the drone lands. It used to move on by itself after a
+    // second and a half, and the next card covered the console just as the
+    // result arrived: the student reached "You flew your first program!"
+    // without having seen it fly.
+    //
+    // The card sits in one place throughout, just above the code inspector at
+    // the bottom left: under the Run button it covered half the program the
+    // student wanted to check before flying, and beside the 3D view it covered
+    // the blocks lighting up. Only the spotlight moves.
     { id: "run", phase: "build", kind: "run",
-      target: () => (st.running ? doc.querySelector("#stage") : doc.querySelector("#run")),
-      place: () => (st.running ? "left" : "bottom"),
-      title: () => (st.running ? "It's flying! 🚁" : "Press Run"),
-      body: () => (st.running
-        ? P("Watch the 3D view and the camera.",
-          "Look back at your workspace too: **the block that's running right now lights up.**")
-        : P("Your program: take off → fly out → turn around → fly back → land.",
-          "Press the orange **Run** button at the top and watch what happens.")),
+      enter: () => showDebugView("trace"),
+      target: el("#debug-panel"), place: "top",
+      spotlight: () => (st.flight === "done" ? $("debug-panel")
+        : st.running ? $("stage") : $("run")),
+      title: () => (st.flight === "done" ? "It flew! 🎉"
+        : st.running ? "It's flying! 🚁" : "Press Run"),
+      body: () => (st.flight === "done"
+        ? P("Your drone took off, flew out, turned around and landed back on its start pad.",
+          "**Live execution**, under your blocks, lists every command the drone just ran, in "
+            + "order. Want to watch it again? Press **Run** again.")
+        : st.running
+          ? P("Watch the 3D view and the camera.",
+            "**The block that's running right now lights up** in your workspace, and Live "
+              + "execution lists each command as it happens.")
+          : P("Your program: take off → fly out → turn around → fly back → land.",
+            "Press the orange **Run** button at the top and watch the 3D view.")),
       okText: "Landed back home. Your program worked!" },
 
-    { id: "python", phase: "build", target: el("#debug-panel"), place: "right",
-      enter: () => {
-        const panel = $("debug-panel");
-        if (panel && !panel.classList.contains("open")) $("debug-toggle").click();
-        const tab = doc.querySelector('[data-debug-view="python"]');
-        if (tab) tab.click();
-      },
+    { id: "python", phase: "build", target: el("#debug-panel"), place: "top",
+      enter: () => showDebugView("python"),
       title: "Your blocks are real code",
       body: P(
         "This is the program you just flew, written in **Python**. Each block became a line "
-          + "like drone.takeoff().",
-        "You never have to type code here. But this is what real drone programmers write, "
-          + "and **Live execution** shows each command as the drone ran it.",
+          + "like drone.takeoff(). Scroll down a little to see them.",
+        // The second tester read the ids as garbage, and as the "real code".
+        "The **# block** lines with jumbled letters are labels the app uses to light up the "
+          + "running block. You can ignore them.",
+        "You never have to type code here. But this is what real drone programmers write.",
       ) },
 
     { id: "final", center: true,
@@ -718,12 +754,12 @@ function install(env) {
         "**Things to remember**",
         [
           "Only blocks snapped under [[🚁 when mission starts:mission]] run.",
-          "Click a block to see what it does.",
           "Stuck? Read the console. **Stop** lands the drone, **Reset** puts it back on the start pad.",
           "Your blocks are saved automatically on this computer.",
         ],
         "**Next challenge: find a target 🔥**",
-        "Make the drone turn until it sees a red target, fly up to it, and celebrate:",
+        "Make the drone turn until it sees a red target, fly up to it, and celebrate. "
+          + "(This list stays in the console after you close this.)",
         [
           "[[take off:flight]]",
           "[[keep doing until target seen?:flow]] with [[turn ↻ clockwise 30°:flight]] inside",
@@ -732,6 +768,13 @@ function install(env) {
           "[[land:flight]]",
         ],
         "“target seen?” is in Sensing, “keep doing until” is in Control.",
+        // Deliberately a question, not a recipe. Wrapping the search in
+        // "repeat 3" mostly re-finds the target it is still looking at, and the
+        // obvious fix (turn away first) found all three only half the time in
+        // the simulator - so there is no honest one-liner to hand out here.
+        "**Found one?** Finding all three is the real puzzle: after signalling, the drone is "
+          + "still looking at the target it just found. How could you make it look somewhere "
+          + "new before it searches again?",
         ...(st.stash ? ["**Your earlier blocks are put aside.** Do you want them back?"] : []),
       ],
       actions: () => (st.stash
@@ -795,7 +838,9 @@ function install(env) {
   }
 
   function standardActions(step) {
-    const out = [button("Skip tutorial", () => finish("skipped"), "link"), "gap"];
+    const out = [button("Skip tutorial", () => finish("skipped"), "link")];
+    if (step.phase === "tour") out.push(button("Jump to building ›", jumpToBuild, "link"));
+    out.push("gap");
     if (previousIndex() >= 0) out.push(button("Back", back));
     if (step.kind === "check") {
       out.push(button("Do it for me", () => {
@@ -803,11 +848,18 @@ function install(env) {
         st.fixed = true;
         evaluate(true);
       }));
-      const n = button("Next", next, "primary");
-      n.disabled = true;
+      // Not `disabled`: a disabled button swallows the click, and a student
+      // who clicked it was left with nothing happening and nothing said. It
+      // looks unavailable, and pressing it says what is still to do.
+      const n = button("Next", () => {
+        const result = resultOf(step);
+        if (result.ok) next();
+        else nudge(`Not yet: ${result.hint || step.need}`);
+      }, "primary waiting");
+      n.setAttribute("aria-disabled", "true");
       n.dataset.role = "next";
       out.push(n);
-    } else if (step.kind !== "run") {
+    } else if (step.kind !== "run" || st.flight === "done") {
       out.push(button("Next", next, "primary"));
     }
     return out;
@@ -816,6 +868,21 @@ function install(env) {
   function setStatus(text, ok) {
     ui.status.textContent = text || "";
     ui.status.classList.toggle("ok", Boolean(ok));
+  }
+
+  /**
+   * An early Next, answered. Kept on screen until the step changes - the poll
+   * used to wipe it within half a second, so the tester's click looked ignored
+   * - and the line gives a small shake, because the same words already showing
+   * did not read as a reply to the click either.
+   */
+  function nudge(text) {
+    cancelHint();
+    st.nudged = true;
+    setStatus(text);
+    ui.status.classList.remove("nudge");
+    void ui.status.offsetWidth;          // restart the animation on a second click
+    ui.status.classList.add("nudge");
   }
 
   // --- placement ----------------------------------------------------------
@@ -828,10 +895,13 @@ function install(env) {
       card.style.left = card.style.top = "";
       return;
     }
+    // Both may be several regions; the card sits beside the whole of `target`,
+    // so it never covers part of what it is describing.
     const target = value(step.target);
-    const lit = step.spotlight ? step.spotlight() : target;
+    const r = target && unionRect(target);
+    const s = unionRect(step.spotlight ? step.spotlight() : target);
     const W = win.innerWidth, H = win.innerHeight, gap = 14, pad = 6, edge = 8;
-    if (!target || !visible(lit || target)) {
+    if (!r || !s) {
       // Nothing to point at (a panel hidden in this mode): centre the card.
       spot.hidden = true;
       card.classList.add("center");
@@ -839,15 +909,13 @@ function install(env) {
     }
     card.classList.remove("center");
     spot.hidden = false;
-    const s = (lit || target).getBoundingClientRect();
     const x0 = Math.max(s.left - pad, 2), y0 = Math.max(s.top - pad, 2);
     spot.style.left = `${x0}px`;
     spot.style.top = `${y0}px`;
     spot.style.width = `${Math.min(s.right + pad, W - 2) - x0}px`;
     spot.style.height = `${Math.min(s.bottom + pad, H - 2) - y0}px`;
 
-    const r = target.getBoundingClientRect();
-    const w = card.offsetWidth || 360, h = card.offsetHeight || 220;
+    const w = card.offsetWidth || 392, h = card.offsetHeight || 220;
     const clampX = (x) => Math.min(Math.max(x, edge), Math.max(W - w - edge, edge));
     const clampY = (y) => Math.min(Math.max(y, edge), Math.max(H - h - edge, edge));
     const options = {
@@ -905,14 +973,15 @@ function install(env) {
     if (!st.active || !step || step.kind !== "check") return;
     if (!now && dragging()) return;    // mid-drag, the program is half-detached
     const quiet = !now && typing();
-    // A step that only asks for a click outside the workspace cannot always be
-    // done for the student (a toolbox that will not select), and "Do it for
-    // me" must never leave anyone stuck - so for those, pressing it is enough.
-    const result = step.trustFix && st.fixed ? { ok: true, hint: "" } : step.check();
+    const result = resultOf(step);
     const nextBtn = ui.actions.querySelector('[data-role="next"]');
-    if (nextBtn) nextBtn.disabled = !result.ok;
+    if (nextBtn) {
+      nextBtn.classList.toggle("waiting", !result.ok);
+      nextBtn.setAttribute("aria-disabled", String(!result.ok));
+    }
     if (result.ok) {
       cancelHint();
+      st.nudged = false;
       setStatus(`✓ ${step.okText || "Done!"}`, true);
       if (!st.okTimer) st.okTimer = win.setTimeout(() => { st.okTimer = 0; next(); }, 1100);
       return;
@@ -920,8 +989,14 @@ function install(env) {
     win.clearTimeout(st.okTimer);
     st.okTimer = 0;
     if (quiet) return;
-    if (!result.hint) { cancelHint(); setStatus(""); return; }
+    if (!result.hint) {
+      cancelHint();
+      if (!st.nudged) setStatus("");           // an answer to Next stays put
+      return;
+    }
     if (ui.status.textContent === result.hint) return;          // already showing
+    if (st.nudged && ui.status.textContent.endsWith(result.hint)) return;
+    st.nudged = false;
     if (now) { cancelHint(); setStatus(result.hint); return; }
     // Already on its way. Restarting the wait here would mean the poll, which
     // runs more often than the wait is long, could put a hint off for ever.
@@ -932,6 +1007,13 @@ function install(env) {
       st.pendingHint = null;
       setStatus(result.hint);
     }, 700);
+  }
+
+  // A step that only asks for a click outside the workspace cannot always be
+  // done for the student (a toolbox that will not select), and "Do it for
+  // me" must never leave anyone stuck - so for those, pressing it is enough.
+  function resultOf(step) {
+    return step.trustFix && st.fixed ? { ok: true, hint: "" } : step.check();
   }
 
   function cancelHint() {
@@ -966,7 +1048,11 @@ function install(env) {
     st.index = index;
     st.fixed = false;
     st.pendingHint = null;
+    st.nudged = false;
     const step = st.steps[index];
+    // Until building begins, keep asking whether there is anything to put
+    // aside; from then on the answer is fixed (see the "aside" step).
+    if (step.phase !== "build") st.asideNeeded = hasBlocks();
     setStatus("");
     if (step.id === "run") {
       st.flight = null;
@@ -1009,6 +1095,12 @@ function install(env) {
     if (i >= 0) enter(i);
   }
 
+  /** "Jump to building": past the rest of the tour, through "aside" if it is needed. */
+  function jumpToBuild() {
+    st.asideNeeded = hasBlocks();
+    goTo(st.asideNeeded ? "aside" : "drawer");
+  }
+
   // --- the run step -------------------------------------------------------
 
   function runStatus() {
@@ -1040,9 +1132,10 @@ function install(env) {
     const step = st.steps[st.index];
     if (!st.active || !step || step.id !== "run" || st.flight !== "flying") return;
     if (msg.reason === "done" && !st.crashed) {
+      // No timer on to the next card: the student moves on when they have seen it.
       st.flight = "done";
+      render();
       setStatus(`✓ ${step.okText}`, true);
-      st.okTimer = win.setTimeout(() => { st.okTimer = 0; next(); }, 1600);
     } else {
       st.flight = "failed";
       runStatus();
@@ -1054,12 +1147,21 @@ function install(env) {
   function start() {
     if (st.active) return true;
     if (st.mode === null) {
-      // Not connected yet, or mid-switch: not the moment to explain anything.
-      log("⚠ The tutorial can start once Drone Coder is connected to a drone.");
+      // Not connected yet, or mid-switch. Said on screen rather than in the
+      // console, where a first-time student is not yet looking, and the
+      // tutorial opens by itself as soon as it can.
+      st.pendingStart = true;
+      notice("Starting up…", P(
+        "Drone Coder is still connecting to the drone.",
+        "The tutorial will open by itself in a moment.",
+      ));
       return false;
     }
     if (st.mode !== "sim") {
-      notice();
+      notice("The tutorial uses the simulator", P(
+        "It ends with a real flight, so it only runs on the practice drone.",
+        "Land the real Tello, press **Use Simulator** at the top, then open the tutorial again.",
+      ));
       return false;
     }
     if (st.running) {
@@ -1076,15 +1178,13 @@ function install(env) {
     return true;
   }
 
-  /** The tutorial flies a drone, so it says no - kindly - to a real one. */
-  function notice() {
-    st.steps = [{ id: "notice", center: true,
-      title: "The tutorial uses the simulator",
-      body: P(
-        "It ends with a real flight, so it only runs on the practice drone.",
-        "Land the real Tello, press **Use Simulator** at the top, then open the tutorial again.",
-      ),
-      actions: () => ["gap", button("OK", () => close(), "primary")] }];
+  /**
+   * A one-card "not now": the tutorial flies a drone, so it says no - kindly -
+   * to a real one, and it waits for one that has not connected yet.
+   */
+  function notice(title, body) {
+    st.steps = [{ id: "notice", center: true, title, body,
+      actions: () => ["gap", button("OK", () => { st.pendingStart = false; close(); }, "primary")] }];
     st.active = true;
     ui.shade.hidden = false;
     ui.card.hidden = false;
@@ -1112,6 +1212,9 @@ function install(env) {
     log(outcome === "done"
       ? "🎓 Tutorial complete. Press Tutorial at the top any time to see it again."
       : "ℹ Tutorial closed. Press Tutorial at the top to start it again.");
+    // The challenge went with the card: the second tester pressed Finish and
+    // then had to build it from memory. The console keeps it.
+    if (outcome === "done") CHALLENGE_LOG.forEach((line) => log(line));
   }
 
   // --- wiring -------------------------------------------------------------
@@ -1128,7 +1231,13 @@ function install(env) {
           finish("skipped");
           log("ℹ The tutorial closed because the drone was switched.");
         }
-        if (!st.autoChecked && !msg.switching) {
+        if (st.pendingStart && !msg.switching) {
+          // Asked for while it was still connecting: open now, as promised.
+          st.pendingStart = false;
+          st.autoChecked = true;
+          close();
+          start();
+        } else if (!st.autoChecked && !msg.switching) {
           st.autoChecked = true;
           if (shouldAutoStart({ storage, mode: st.mode, hasBlocks: hadBlocks })) start();
         }
