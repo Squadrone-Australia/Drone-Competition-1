@@ -378,7 +378,7 @@ aside > .bar { flex: 0 0 auto; border-top: 1px solid var(--line); }
 #quit[hidden] { display: none; }
 
 #closed-overlay {
-  position: fixed; inset: 0; z-index: 50;
+  position: fixed; inset: 0; z-index: 200;   /* over the tutorial, see below */
   display: flex; align-items: center; justify-content: center;
   background: rgba(6, 10, 16, .92); text-align: center; padding: 24px;
 }
@@ -527,6 +527,84 @@ aside > .bar { flex: 0 0 auto; border-top: 1px solid var(--line); }
   background: var(--brand-hi); border-color: var(--brand-hi);
 }
 #vision-dialog button:disabled, #vision-calibrate:disabled { opacity: .45; cursor: default; }
+
+/* --- first-run tutorial -------------------------------------------------- */
+/* The shade never takes a click on a pointing step: the build steps are done
+   on the real workspace underneath, and a tour step that swallowed a stray
+   click would only teach that the app is frozen. Only the centred cards
+   (welcome, finish) are modal.
+   Stacking: above Blockly's toolbox (z-index 70, or the drawers never dim and
+   a card beside them slides underneath), below its dropdowns (1000) and number
+   editor (99999), which the build steps need on top, and below
+   #closed-overlay, which must always win. */
+#tutorial-open { padding: 7px 12px; font-size: 13px; }
+#tut-shade { position: fixed; inset: 0; z-index: 80; pointer-events: none; }
+#tut-shade.modal { pointer-events: auto; background: rgba(5, 8, 13, .72); }
+#tut-shade[hidden], #tut-card[hidden], #tut-spot[hidden] { display: none; }
+#tut-spot {
+  position: fixed; border: 2px solid var(--brand); border-radius: var(--r-md);
+  box-shadow: 0 0 0 200vmax rgba(5, 8, 13, .58);
+  transition: left .18s ease, top .18s ease, width .18s ease, height .18s ease;
+}
+/* "Your turn": the lit area breathes while the step is waiting on the student. */
+#tut-spot.live { animation: tut-pulse 1.8s ease-in-out infinite; }
+@keyframes tut-pulse {
+  0%, 100% { outline: 0 solid rgba(247, 148, 29, 0); outline-offset: 0; }
+  50% { outline: 6px solid rgba(247, 148, 29, .28); outline-offset: 2px; }
+}
+#tut-card {
+  position: fixed; z-index: 81; width: min(360px, calc(100vw - 24px));
+  max-height: calc(100vh - 16px); overflow-y: auto;
+  padding: 16px 16px 12px; border: 1px solid var(--brand-line); border-radius: var(--r-lg);
+  background: var(--surface-2); color: var(--text); font-size: 14px; line-height: 1.5;
+  box-shadow: 0 18px 50px rgba(2, 5, 10, .7);
+  transition: left .18s ease, top .18s ease;
+}
+#tut-card.center {
+  left: 50% !important; top: 50% !important; transform: translate(-50%, -50%);
+  width: min(540px, calc(100vw - 24px)); padding: 22px 22px 16px;
+}
+.tut-phase { color: var(--brand); font: 700 10.5px/1 var(--ui);
+  text-transform: uppercase; letter-spacing: .1em; }
+.tut-phase:empty { display: none; }
+.tut-meter { height: 3px; margin-top: 8px; border-radius: 2px; background: var(--line);
+  overflow: hidden; }
+.tut-meter span { display: block; height: 100%; width: 0; background: var(--brand);
+  transition: width .25s ease; }
+#tut-title { margin-top: 12px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+#tut-card.center #tut-title { font-size: 21px; }
+.tut-body p, .tut-body ul { margin-top: 8px; color: var(--text-2); }
+.tut-body ul { padding-left: 20px; }
+.tut-body li + li { margin-top: 3px; }
+.tut-body strong { color: var(--text); }
+/* A block named in the text, drawn the colour of the real one. */
+.tut-block {
+  display: inline-block; padding: 0 7px; border-radius: var(--r-sm);
+  background: var(--surface-3); color: #fff; font: 600 12.5px/1.65 var(--ui);
+  white-space: nowrap; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .18);
+}
+.tut-status {
+  margin-top: 10px; padding: 7px 10px; border-radius: var(--r-md);
+  background: var(--sunken); border-left: 3px solid var(--warn); color: var(--warn);
+  font-size: 13px;
+}
+.tut-status:empty { display: none; }
+.tut-status.ok { color: var(--ok); border-left-color: var(--ok); }
+.tut-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.tut-gap { flex: 1; }
+.tut-actions button {
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--surface-3); color: var(--text); font: 500 13px/1 var(--ui); cursor: pointer;
+}
+.tut-actions button:hover:not(:disabled) { background: #26303f; border-color: #3a4759; }
+.tut-actions button.primary { background: var(--brand); border-color: var(--brand);
+  color: var(--brand-ink); font-weight: 700; }
+.tut-actions button.primary:hover:not(:disabled) { background: var(--brand-hi);
+  border-color: var(--brand-hi); }
+.tut-actions button.link { padding-left: 0; padding-right: 4px; background: none;
+  border-color: transparent; color: var(--text-3); }
+.tut-actions button.link:hover { color: var(--text); background: none; border-color: transparent; }
+.tut-actions button:disabled { opacity: .45; cursor: default; }
 
 /* --- scrollbars: the console and code panes are read constantly ---------- */
 #console, #debug-python, #debug-program, #debug-trace, .vision-dialog-content {

@@ -115,6 +115,10 @@ function log(msg) {
   consoleEl.textContent += msg + "\n";
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
+// Handed to tutorial.js, which has to read the student's blocks and talk to
+// them in the same console every other message uses.
+window.COMP1_WORKSPACE = workspace;
+window.COMP1_LOG = log;
 
 // The server attaches `hint` — what to try next — to the failures it knows a
 // cure for (comp1/hints.py), so it is printed straight under the error.

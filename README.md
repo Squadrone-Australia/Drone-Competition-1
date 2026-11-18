@@ -376,4 +376,7 @@ annotated starting points.
   `comp1.api` surface, how `--script` runs alongside the server, and the stop mechanism.
 - [Runtime drone switching (2026-08-03)](docs/specs/2026-08-03-drone-mode-switching.md): the
   reversible Simulator/Tello UI, WebSocket messages, retained simulator state, and safety rules.
+- [First-run tutorial (2026-11-18)](docs/plans/2026-11-18-first-run-tutorial.md): the guided tour
+  and first program a new student sees, the questions it answers, and why the lesson program
+  cannot crash.
 
