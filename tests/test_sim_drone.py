@@ -184,7 +184,9 @@ def test_pose_reports_what_the_third_person_view_needs():
     d.takeoff()
     d.rotate("cw", 45)
     p = d.pose()
-    assert set(p) == {"x", "y", "z", "heading", "roll", "pitch", "flying", "crashed"}
+    assert set(p) == {
+        "x", "y", "z", "heading", "roll", "pitch", "flying", "crashed", "crashed_into"
+    }
     assert p["flying"] and p["heading"] == 45.0 and p["z"] == 1.0
 
 
@@ -303,12 +305,91 @@ def test_an_empty_room_never_crashes():
     assert not d.crashed
 
 
-def test_a_wall_distractor_is_not_solid():
-    # Wall decorations are seen by the detector but flown past: only the
-    # obstacle_* kinds collide.
-    d = flying_at(World(size_m=4.0, markers=[Marker(2.0, 3.0, "red_square")]))
+def test_a_poster_on_the_wall_has_no_body_of_its_own():
+    # A marker on a wall is part of the wall. Skimming along the wall right past
+    # it is fine; the wall's own margin is what keeps the drone off it.
+    d = flying_at(World(size_m=4.0, markers=[Marker(2.0, 4.0, "red_square")]))
+    d.x, d.y = 1.0, 3.75
+    d.move("right", 200)  # passes 25 cm from the poster's centre
+    assert not d.crashed
+
+
+# --- free-standing signs are solid -------------------------------------------
+#
+# The competition's red circles and decoys stand in the open on posts. A run
+# that flew through one ended, on the real aircraft, against a board -- and the
+# simulator used to fly a hardcoded route straight through the sign it was
+# signalling, which is how a beginner's 3/3 practice run hid a certain crash.
+
+
+def test_flying_into_a_free_standing_decoy_is_a_crash():
+    d = flying_at(World(size_m=4.0, markers=[Marker(2.0, 3.0, "green_circle")]))
+    d.move("forward", 150)  # straight at it, from (2, 2)
+    assert d.crashed and d.crashed_into == "sign"
+    assert d.y < 3.0 - 0.25 / 2  # stopped short, not through it
+
+
+def test_a_red_circle_is_as_solid_as_a_decoy():
+    d = flying_at(World(size_m=4.0, markers=[Marker(2.0, 3.0, FIRE)]))
+    d.move("forward", 150)
+    assert d.crashed and d.crashed_into == "sign"
+
+
+def test_the_post_under_a_high_sign_is_solid():
+    # The competition hangs its circles at 2 m and the drone hovers at 1 m, so
+    # the sign itself is a metre overhead: it is the post that gets hit.
+    world = World(size_m=4.0, markers=[Marker(2.0, 3.0, FIRE, height_m=2.0)])
+    d = flying_at(world)
+    d.move("forward", 150)
+    assert d.crashed and d.crashed_into == "sign"
+
+
+def test_passing_beside_a_post_is_not_a_crash():
+    world = World(size_m=4.0, markers=[Marker(2.0, 3.0, FIRE, height_m=2.0)])
+    d = flying_at(world)
+    d.x = 2.5  # half a metre to one side of the post
     d.move("forward", 150)
     assert not d.crashed
+
+
+def test_flying_over_a_low_sign_is_still_a_way_past():
+    world = World(size_m=4.0, markers=[Marker(2.0, 3.0, "green_circle")])
+    d = flying_at(world, z=2.0)
+    d.move("forward", 150)
+    assert not d.crashed and d.y > 3.0
+
+
+def test_stopping_at_signal_range_is_safe():
+    # Close enough for the referee's 50 cm, far enough from the post: the gap a
+    # mission has to fly into is real.
+    world = World(size_m=4.0, markers=[Marker(2.0, 3.0, FIRE, height_m=2.0)])
+    d = flying_at(world)
+    d.move("forward", 60)  # ends 40 cm short of the post
+    assert not d.crashed
+
+
+def test_every_competition_sign_stands_in_the_open():
+    from comp1.sim import scenery
+
+    world = scenery.build("corridor")
+    assert len(world.solids) == len(world.markers) == 7
+
+
+def test_what_was_hit_is_named_and_the_first_cause_sticks():
+    d = flying_at(obstacle_world())
+    d.move("forward", 200)
+    assert d.crashed_into == "obstacle"
+    d.move("back", 500)  # and then into the south wall
+    assert d.crashed_into == "obstacle"
+    assert d.pose()["crashed_into"] == "obstacle"
+    d.reset()
+    assert d.crashed_into is None and d.pose()["crashed_into"] is None
+
+
+def test_a_wall_crash_is_named_as_one():
+    d = flying_at(World(size_m=4.0, markers=[]))
+    d.move("forward", 400)
+    assert d.crashed and d.crashed_into == "wall"
 
 
 def test_reset_clears_the_crash():

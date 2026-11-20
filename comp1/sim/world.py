@@ -107,6 +107,25 @@ class World:
     def obstacles(self):
         return [m for m in self.markers if m.is_obstacle]
 
+    def on_wall(self, m: Marker) -> bool:
+        """Is this marker a poster on a wall rather than a sign on its own stand?
+
+        A poster is part of the wall, and flying into the wall is already a
+        crash, so it has no body of its own. Anything that stands clear of every
+        wall is a sign on a post -- exactly what the 3D view draws -- and a real
+        drone that flies into one of those has hit it.
+        """
+        gap = min(m.x, self.width_m - m.x, m.y, self.depth_m - m.y)
+        return gap <= m.radius_m
+
+    @property
+    def solids(self):
+        """Every marker the drone can fly into: obstacles, and every free-standing
+        sign whatever it shows -- the competition's red circles and decoys stand
+        on posts in the open, and a run that flies through one is a run that, on
+        the real aircraft, ended against a board."""
+        return [m for m in self.markers if m.is_obstacle or not self.on_wall(m)]
+
     @property
     def fires(self):
         return [m for m in self.markers if m.kind == FIRE]

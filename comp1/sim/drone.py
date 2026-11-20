@@ -13,6 +13,10 @@ LEAN_DEG = 12.0  # how far the airframe tips into a translation
 # How close the drone's centre may come to an obstacle before it has hit it.
 # Roughly the Tello's half-span plus its prop guards.
 DRONE_CLEARANCE_M = 0.2
+# The post a free-standing sign stands on, as scene3d.js draws it (radius 0.02).
+# Thin, but it runs from the floor to the sign, so it is the part a drone flying
+# at its ordinary 1 m hover actually meets under a sign hung at 2 m.
+POST_RADIUS_M = 0.02
 FLIP_DRIFT_M = 0.3  # how far a flip throws the airframe before it recovers
 
 # Which attitude angle a flip drives, and which way round.
@@ -95,6 +99,11 @@ class SimDrone(DroneAdapter):
         # on afterwards does not undo it. Sim truth only -- MissionScorer reads
         # it off the pose, and no block or sensor may ever expose it (§4).
         self.crashed = False
+        # What it was: "wall", "obstacle" or "sign". The app's console says
+        # which, because "you hit an obstacle" for a drone that flew into a
+        # wall or a target's post sends a student to the wrong drawer. Latched
+        # with the crash, first cause wins.
+        self.crashed_into = None
         self._abort = False
 
     # --- animation ---------------------------------------------------------
@@ -201,12 +210,12 @@ class SimDrone(DroneAdapter):
         # Testing only the frames would tunnel straight through an obstacle
         # whenever the frames are far apart, and with delay=0 there is exactly
         # one frame: the end point. That is every test in the suite.
-        limit_t = self._first_contact(at, math.hypot(dx, dy) + abs(dz))
+        limit_t, hit = self._first_contact(at, math.hypot(dx, dy) + abs(dz))
         if limit_t is not None:
             # Stop dead rather than sliding around it. A drone that scrapes past
             # teaches that ignoring an obstacle mostly works, which is the
             # opposite of the lesson.
-            self.crashed = True
+            self._crash("obstacle" if hit.is_obstacle else "sign")
 
         # A wall is an obstacle too. `at` clamps the path into the room box, so
         # without this a student could fly 18 m across a 4 m arena, be quietly
@@ -215,7 +224,10 @@ class SimDrone(DroneAdapter):
         # counts: the altitude limits above are deliberate soft ceilings, not
         # surfaces to hit.
         if not _within(x0 + dx, x_lo, x_hi) or not _within(y0 + dy, y_lo, y_hi):
-            self.crashed = True
+            # Only if nothing stopped it first: a drone halted by a sign never
+            # reached the wall it was heading for.
+            if limit_t is None:
+                self._crash("wall")
 
         def step(t):
             if limit_t is not None:
@@ -229,37 +241,48 @@ class SimDrone(DroneAdapter):
         self._animate(step, self._move_duration(abs(dist)))
         self.pitch = self.roll = 0.0
 
-    def _first_contact(self, at, length_m, resolution_m=0.02):
-        """The furthest ``t`` along ``at(t)`` that is still clear, or None.
+    def _crash(self, what: str) -> None:
+        if not self.crashed:
+            self.crashed_into = what
+        self.crashed = True
 
-        None means the whole move is clear. Sampling rather than solving: the
-        obstacle test is a cheap couple of comparisons, and a sampled sweep
-        handles the vertical extent and the room-box clamp without either
+    def _first_contact(self, at, length_m, resolution_m=0.02):
+        """The furthest clear ``t`` along ``at(t)`` and what stops it there.
+
+        ``(None, None)`` means the whole move is clear. Sampling rather than
+        solving: the hit test is a cheap couple of comparisons, and a sampled
+        sweep handles the vertical extent and the room-box clamp without either
         needing a closed form.
         """
-        if not self.world.obstacles:
-            return None  # the common case, and it costs nothing
+        solids = self.world.solids
+        if not solids:
+            return None, None  # the common case, and it costs nothing
         steps = max(1, math.ceil(length_m / resolution_m))
         for i in range(1, steps + 1):
             t = i / steps
-            if self._hits_obstacle(*at(t)):
-                return (i - 1) / steps  # the last sample that was still clear
-        return None
+            hit = self._hits_solid(solids, *at(t))
+            if hit is not None:
+                return (i - 1) / steps, hit  # the last sample that was still clear
+        return None, None
 
-    def _hits_obstacle(self, x, y, z) -> bool:
-        """Would the drone be inside an obstacle at this position?
+    def _hits_solid(self, solids, x, y, z):
+        """The marker the drone would be inside at this position, or None.
 
-        Each obstacle is a short cylinder centred on its sign, not a column from
+        Each sign is a short cylinder centred on its face, not a column from
         floor to ceiling: climbing over one is a legitimate way past it, and
-        modelling it as a column would quietly remove that option.
+        modelling it as a column would quietly remove that option. Below the
+        face stands its post, which is solid all the way down -- flying under a
+        sign is not a way past it, because the post is in the way.
         """
-        for m in self.world.obstacles:
+        for m in solids:
             reach = m.radius_m + DRONE_CLEARANCE_M
-            if abs(z - m.height_m) >= reach:
-                continue
-            if (m.x - x) ** 2 + (m.y - y) ** 2 < reach**2:
-                return True
-        return False
+            d2 = (m.x - x) ** 2 + (m.y - y) ** 2
+            if abs(z - m.height_m) < reach and d2 < reach**2:
+                return m
+            post = POST_RADIUS_M + DRONE_CLEARANCE_M
+            if z < m.height_m and d2 < post**2:
+                return m
+        return None
 
     def rotate(self, direction, deg):
         self._require_flying()
@@ -346,6 +369,7 @@ class SimDrone(DroneAdapter):
             "pitch": round(self.pitch, 2),
             "flying": self.flying,
             "crashed": self.crashed,
+            "crashed_into": self.crashed_into,
         }
 
     def scene(self):

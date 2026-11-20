@@ -436,6 +436,21 @@ let missionState = null;
 // drone does not see a number change at the top of the screen, and the find is
 // the whole point of the mission.
 let foundLogged = 0;
+// What the console says when a run crashes, by what the drone hit. "The attempt
+// does not count" left the second tester asking which attempt, and whether a
+// later find still scored, so each says it in full. And each gives its own
+// advice: the Obstacles drawer is right for an obstacle and wrong for a wall or
+// for a target's own post, which the obstacle sensors are not built to see.
+const RUN_VOID = "so this run won't count for the mission, even if it finds targets afterwards.";
+const CRASH_TEXT = {
+  obstacle: `💥 The drone hit an obstacle, ${RUN_VOID} To get past obstacles, look in ` +
+    "the Obstacles drawer: “obstacle in the way?” and “step around obstacle”.",
+  wall: `💥 The drone flew into a wall, ${RUN_VOID} Check how far each “fly” block ` +
+    "goes: the room is smaller than it looks.",
+  sign: `💥 The drone flew into a sign or the post it stands on, ${RUN_VOID} The real ` +
+    "drone would hit it too. Stop short of the sign before you signal: " +
+    "“approach target and stop” halts at a safe distance.",
+};
 function showMission(m) {
   foundEl.textContent = `Targets found: ${m.found} / ${m.total}`;
   if (m.found > foundLogged) {
@@ -450,11 +465,7 @@ function showMission(m) {
     log(`🏆 mission success: every target found and landed at ${goal}`);
   }
   if (m.state === "crashed" && missionState !== "crashed") {
-    // "The attempt does not count" left the second tester asking which attempt,
-    // and whether a later find still scored. Said in full.
-    log("💥 The drone hit an obstacle, so this run won't count for the mission, even if it " +
-        "finds targets afterwards. To get past obstacles, look in the Obstacles drawer: " +
-        "“obstacle in the way?” and “step around obstacle”.");
+    log(CRASH_TEXT[m.crashed_into] ?? CRASH_TEXT.obstacle);
   }
   missionState = m.state;
 }

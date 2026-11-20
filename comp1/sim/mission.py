@@ -41,6 +41,7 @@ class MissionScorer:
         # Latched, not read live: the drone can be pushed clear of an obstacle by
         # a later command, but the mission still hit it.
         self.crashed = False
+        self.crashed_into = None  # "wall" | "obstacle" | "sign", latched with it
 
     @property
     def total(self) -> int:
@@ -73,6 +74,8 @@ class MissionScorer:
     def note_pose(self, pose) -> None:
         """Take in whatever the pose says about things that already happened."""
         if pose and pose.get("crashed"):
+            if not self.crashed:
+                self.crashed_into = pose.get("crashed_into")
             self.crashed = True
 
     def at_destination(self, pose) -> bool:
@@ -114,5 +117,6 @@ class MissionScorer:
             "needs_destination": self.destination is not None,
             "goal": self.goal,
             "crashed": self.crashed,
+            "crashed_into": self.crashed_into,
             "state": "crashed" if self.crashed else ("success" if success else "flying"),
         }
