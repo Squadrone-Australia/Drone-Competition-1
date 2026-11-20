@@ -38,6 +38,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 from .drone.base import DroneAdapter
 from .drone.config import (
     SIGNAL_FLIP_DIR,
@@ -82,6 +84,11 @@ class Session:
     cfg: VisionConfig = field(default_factory=lambda: DEFAULT_CONFIG)
     settle_s: float = 0.0  # pause after a command so the video can catch up
     found_count: int = 0
+    # The newest raw camera frame. Under the server this reads the frame its
+    # video loop already holds -- never the adapter a second time, which on a
+    # Tello would be two readers racing for one stream. ``None`` means "ask the
+    # adapter", which is what a standalone session has to do anyway.
+    get_frame: Callable[[], np.ndarray | None] | None = None
 
 
 # Single-session by construction, exactly like app.state.interp. Set by the
@@ -199,6 +206,7 @@ def _standalone_session(
         cfg=cfg,
         select_nearest_target=tracker.reset,
         get_detection=lambda: tracker.update(adapter.get_frame()),
+        get_frame=adapter.get_frame,
     )
 
 
@@ -368,6 +376,24 @@ class Drone:
         """How far above (+) or below (-) the camera the target sits, in degrees."""
         t = self.target()
         return t.elevation_deg if t else None
+
+    def frame(self) -> np.ndarray | None:
+        """The newest picture from the drone's camera, or None if there is none yet.
+
+        A NumPy array of shape (height, width, 3), colours in BGR order, ready
+        for OpenCV (`cv2.imshow`, `cv2.imwrite`, `cv2.cvtColor`...). It is your
+        own copy: draw on it as much as you like, the drone's own vision never
+        sees your scribbles.
+
+        Asking twice in quick succession can hand you the same picture twice:
+        the camera sends about 30 a second, so a loop faster than that sees
+        repeats. Handle None: the stream can pause, and before the first
+        picture arrives there is nothing to give you.
+        """
+        self._check()
+        reader = self._s.get_frame or self._d.get_frame
+        frame = reader()
+        return None if frame is None else frame.copy()
 
     # --------------------------------------------------------------- obstacles
 
@@ -576,6 +602,7 @@ class ScriptRun:
         cfg: VisionConfig = DEFAULT_CONFIG,
         *,
         select_nearest_target: Callable[[], None] = lambda: None,
+        get_frame: Callable[[], np.ndarray | None] | None = None,
         path: str | Path | None = None,
         name: str | None = None,
         settle_s: float = 0.2,
@@ -590,6 +617,7 @@ class ScriptRun:
             drone=drone,
             get_detection=get_detection,
             select_nearest_target=select_nearest_target,
+            get_frame=get_frame,
             emit=self._emit,
             cfg=cfg,
             settle_s=settle_s,

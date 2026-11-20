@@ -1155,6 +1155,8 @@ def create_app(
             _emit,
             cfg=cfg,
             select_nearest_target=_select_nearest_target,
+            # the video loop's raw copy, never the adapter a second time
+            get_frame=lambda: app.state.latest_frame,
             path=script,
         )
         app.state.interp = run

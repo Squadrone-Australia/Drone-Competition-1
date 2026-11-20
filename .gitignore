@@ -35,6 +35,8 @@ solution/*
 # Real-rig trial recordings and per-venue vision profiles
 trial*/
 vision_profile*.json
+# examples/04_pilot.py's videos and snapshots
+recordings/
 # solution_yolo: generated datasets, training runs and weights stay local
 solution_yolo/data/
 solution_yolo/runs/

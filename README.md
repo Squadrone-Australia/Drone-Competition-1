@@ -348,6 +348,14 @@ The script runs alongside the server, so the video feed, telemetry panel, and **
 button stay live while the student's own code flies the drone. See [`examples/`](examples/) for
 annotated starting points.
 
+For teams writing their own vision code, `drone.frame()` returns the raw camera picture as an
+OpenCV-ready BGR array. [`examples/04_pilot.py`](examples/04_pilot.py) shows it in use: fly by
+keyboard in an OpenCV window while it records video and snapshots of the markers to `recordings\`.
+
+```powershell
+venv\Scripts\python -m comp1 --script examples\04_pilot.py --drone sim
+```
+
 ### Documentation
 
 - [Colour calibration for beginners](docs/vision-calibration.md): how to tune marker detection in
