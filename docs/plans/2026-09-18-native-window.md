@@ -104,6 +104,12 @@ notice a renderer that has crashed behind a frame still looking like a program.
 - **No WebView2 prerequisite check in the installer.** `comp1.iss` is
   `PrivilegesRequired=lowest`, the runtime ships with Windows 11 and with current Edge, and a
   machine without it falls back to the browser with nothing broken.
+  *Superseded 2026-11-21:* Microsoft documents that a non-elevated bootstrapper installs the
+  runtime per-user, so the privilege objection does not hold. `comp1.iss` now offers a
+  `webview2` task where the runtime is missing, which downloads the Evergreen Bootstrapper and
+  runs it only if it carries a valid Microsoft signature. It never runs under the silent in-app
+  updater, and every failure still ends in the browser fallback. The comp1.iss header has
+  the reasoning, and `tests/test_update_release.py` pins it.
 - **No `sys.platform` branches in `window.py`.** The dependency is Windows-marked because
   Windows is the only platform with a shipping installer and because pywebview's Linux
   backends need GTK/Qt system packages pip cannot supply. The code is platform-agnostic, so a

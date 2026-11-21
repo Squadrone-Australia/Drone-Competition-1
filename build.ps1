@@ -77,12 +77,15 @@ if (-not (Test-Path "dist\comp1\_internal\onnxruntime")) {
 # Inno Setup is a separate download (jrsoftware.org/isdl.php) and is not on PATH
 # by default, so look where it actually installs before giving up. Newest major
 # first: the script targets 6+ syntax and every later version still compiles it.
+# %LOCALAPPDATA%\Programs is its "install for me only" location, the one a
+# machine without administrator gets.
 $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
 if (-not $iscc) {
     $candidates = @()
     foreach ($major in 7, 6) {
         $candidates += "$env:ProgramFiles\Inno Setup $major\ISCC.exe"
         $candidates += "${env:ProgramFiles(x86)}\Inno Setup $major\ISCC.exe"
+        $candidates += "$env:LOCALAPPDATA\Programs\Inno Setup $major\ISCC.exe"
     }
     $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 }

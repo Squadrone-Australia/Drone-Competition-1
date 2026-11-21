@@ -153,8 +153,10 @@ program, and always works.
 
 **It opens in a browser instead of its own window.**
 That's the fallback, and nothing is wrong: this computer doesn't have the Microsoft Edge WebView2
-runtime that the window needs. Everything works the same in the tab. Installing Edge (or the
-WebView2 runtime) brings the window back.
+runtime that the window needs. Everything works the same in the tab. The installer offers to
+download WebView2 when it's missing (no administrator needed); if that was skipped or couldn't
+connect, running the installer again, or installing the WebView2 Runtime from Microsoft, brings
+the window back.
 
 **It says Drone Coder is already running.**
 It is — one copy serves the page, and a second would only fight it for the same address. Look for
