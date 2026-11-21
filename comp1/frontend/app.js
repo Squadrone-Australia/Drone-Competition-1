@@ -120,8 +120,15 @@ const bus = window.COMP1_BUS = {
   },
 };
 
+// Colouring is decoration. If highlight.js is missing — a half-applied update,
+// a stale cache — every pane falls back to the plain text it always showed,
+// rather than the whole app failing on its first log line.
+const HL = window.COMP1_HIGHLIGHT || null;
+
 function log(msg) {
-  consoleEl.textContent += msg + "\n";
+  const text = String(msg);
+  if (HL) HL.appendLine(consoleEl, HL.consoleLine(text), HL.consoleTone(text));
+  else consoleEl.textContent += text + "\n";
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
 // Handed to tutorial.js, which has to read the student's blocks and talk to
@@ -135,9 +142,14 @@ function logHint(msg) {
   if (msg && msg.hint) log("   💡 How to fix: " + msg.hint);
 }
 
+function showCode(el, text, tokenize) {
+  if (HL) HL.render(el, tokenize(text));
+  else el.textContent = text;
+}
+
 function showDebugProgram(program) {
-  debugPythonEl.textContent = COMP1.programToPython(program);
-  debugProgramEl.textContent = JSON.stringify(program, null, 2);
+  showCode(debugPythonEl, COMP1.programToPython(program), HL && HL.python);
+  showCode(debugProgramEl, JSON.stringify(program, null, 2), HL && HL.json);
 }
 
 function updateDebugProgram() {
@@ -167,7 +179,9 @@ function appendDebugLine(line) {
     debugHasTrace = true;
   }
   debugSequence += 1;
-  debugTraceEl.textContent += `${String(debugSequence).padStart(3, "0")}  ${line}\n`;
+  const text = `${String(debugSequence).padStart(3, "0")}  ${line}`;
+  if (HL) HL.appendLine(debugTraceEl, HL.trace(text));
+  else debugTraceEl.textContent += text + "\n";
   debugTraceEl.scrollTop = debugTraceEl.scrollHeight;
 }
 

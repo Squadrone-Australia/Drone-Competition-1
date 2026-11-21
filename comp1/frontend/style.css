@@ -359,6 +359,38 @@ aside > .bar { flex: 0 0 auto; border-top: 1px solid var(--line); }
 }
 #debug-python[hidden], #debug-program[hidden], #debug-trace[hidden] { display: none; }
 
+/* --- syntax colouring (highlight.js) -------------------------------------
+   Tuned for the sunken panes (#080c12): every colour clears 7:1 except the
+   comment/punctuation grey, which is deliberately the quietest thing on screen.
+   Plain identifiers keep the pane's own --text-2. */
+:root {
+  --hl-kw: #c4a5ff;      /* keywords: def, while, if, not */
+  --hl-fn: #7cc7ff;      /* calls, definitions, JSON keys */
+  --hl-obj: #6fd3c8;     /* builtins, the adapter in a trace line */
+  --hl-str: #a3d977;
+  --hl-num: var(--brand-hi);
+  --hl-const: #ff9e80;   /* True / False / None, true / false / null */
+  --hl-error: #f87171;   /* --danger is too dark to read as running text */
+}
+.hl-kw { color: var(--hl-kw); }
+.hl-fn, .hl-key { color: var(--hl-fn); }
+.hl-def { color: var(--hl-fn); font-weight: 700; }
+.hl-builtin, .hl-obj { color: var(--hl-obj); }
+.hl-str { color: var(--hl-str); }
+.hl-num { color: var(--hl-num); }
+.hl-const { color: var(--hl-const); }
+.hl-com { color: var(--text-3); font-style: italic; }
+.hl-punct, .hl-ln { color: var(--text-3); }
+/* A line's tone: what a console message means, or how a traced run ended. */
+.tone-error { color: var(--hl-error); }
+.tone-warn { color: var(--warn); }
+.tone-ok { color: var(--ok); }
+.tone-hint, .tone-info { color: var(--text); }
+/* In the console the tone is the message; only block names and measurements
+   stand out inside it, and a number keeps its line's colour, just heavier. */
+#console .hl-num { color: inherit; font-weight: 700; }
+#console .hl-quote { color: var(--brand-hi); }
+
 /* Blockly chrome: the workspace theme itself is set in app.js. These are the
    bits Blockly renders as plain DOM and cannot theme. */
 .blocklyToolboxDiv { background: var(--surface); padding-top: 6px;
