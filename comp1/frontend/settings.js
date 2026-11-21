@@ -106,6 +106,80 @@
     }
   }
 
+  // --- Interface size -------------------------------------------------------
+  //
+  // Page zoom, and not a startup preference like everything above: it applies
+  // the moment it is picked. It is real browser zoom on the native window's
+  // WebView2 control, asked for through `window.pywebview.api.set_zoom`
+  // (comp1/window.py). CSS `zoom` was tried first and is not usable here:
+  // Blockly 13 drags a block further than the mouse moves under it, and the
+  // floor plan, the camera window and the tutorial spotlight all mis-place
+  // themselves the same way.
+  //
+  // Kept in this window's localStorage rather than settings.json: it is a fact
+  // about this screen, the server has no use for it, and the native window's
+  // storage lives under data_dir(), so it survives an update. In an ordinary
+  // browser tab there is no bridge — and no need for one, because the browser's
+  // own Ctrl + and Ctrl − already do this — so the control says that instead.
+  const sizeEl = document.getElementById("settings-size");
+  const sizeNoteEl = document.getElementById("settings-size-note");
+  const SIZE_KEY = "comp1.uiZoom.v1";
+  const SIZES = [...sizeEl.options].map((o) => Number(o.value));
+
+  function storage() {
+    // Touching localStorage can itself throw (denied site data). A size that
+    // cannot be remembered is a size that resets, never a broken dialog.
+    try { return window.localStorage || null; } catch (_error) { return null; }
+  }
+
+  function storedSize() {
+    try {
+      const value = Number(storage()?.getItem(SIZE_KEY));
+      return SIZES.includes(value) ? value : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function zoomApi() {
+    const api = window.pywebview && window.pywebview.api;
+    return api && typeof api.set_zoom === "function" ? api : null;
+  }
+
+  async function applySize(value) {
+    const api = zoomApi();
+    if (!api) return false;
+    try { return (await api.set_zoom(value)) === true; } catch (_error) { return false; }
+  }
+
+  function showSizeControl() {
+    const native = Boolean(zoomApi());
+    sizeEl.disabled = !native;
+    sizeEl.value = String(storedSize() ?? 1);
+    sizeNoteEl.textContent = native
+      ? "Changes right away, on this computer. Ctrl + mouse wheel works too, "
+        + "outside the blocks (over them it zooms just the blocks)."
+      : "In a web browser, use Ctrl + and Ctrl − to make everything bigger or smaller.";
+  }
+
+  sizeEl.onchange = async () => {
+    const value = Number(sizeEl.value);
+    try { storage()?.setItem(SIZE_KEY, String(value)); } catch (_error) { /* resets next time */ }
+    if (!(await applySize(value))) sizeNoteEl.textContent = "Could not change the size of this window.";
+  };
+
+  // The bridge arrives after the page has loaded, announced by an event. Only a
+  // size the student actually chose is applied: with nothing stored, a zoom
+  // they set with Ctrl+wheel is left alone.
+  function onBridge() {
+    showSizeControl();
+    const size = storedSize();
+    if (size !== null) applySize(size);
+  }
+  showSizeControl();
+  if (zoomApi()) onBridge();
+  else window.addEventListener("pywebviewready", onBridge, { once: true });
+
   openBtn.onclick = () => dialog.showModal();
   document.getElementById("settings-close").onclick = () => dialog.close();
   document.getElementById("settings-save").onclick = () => { send(); dialog.close(); };

@@ -101,8 +101,8 @@ def test_without_a_settings_path_nothing_is_written(tmp_path):
     app = create_app(MockDrone())
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         assert collect_until(ws, "settings")["persisted"] is False
-        ws.send_json({"type": "save_settings", "settings": {"scenery": "corridor"}})
-        assert collect_until(ws, "settings")["settings"]["scenery"] == "arena"
+        ws.send_json({"type": "save_settings", "settings": {"scenery": "arena"}})
+        assert collect_until(ws, "settings")["settings"]["scenery"] == "corridor"
     assert list(tmp_path.iterdir()) == []
 
 

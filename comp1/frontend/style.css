@@ -263,9 +263,9 @@ aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column;
   border: 0; border-top: 1px solid var(--line); box-shadow: none; }
 #camera-window.docked figcaption { cursor: default; }
 
-/* --- telemetry: five readings, no card, hairline-separated --------------- */
+/* --- telemetry: three readings, no card, hairline-separated -------------- */
 #telemetry {
-  display: grid; grid-template-columns: repeat(5, 1fr);
+  display: grid; grid-template-columns: repeat(3, 1fr);
   padding: 0; background: var(--surface); border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   font-variant-numeric: tabular-nums;
@@ -284,11 +284,8 @@ aside { flex: 1.15; min-width: 340px; display: flex; flex-direction: column;
 #telemetry span:nth-child(-n+2) { grid-column: 1; }
 #telemetry span:nth-child(3), #telemetry span:nth-child(4) { grid-column: 2; }
 #telemetry span:nth-child(5), #telemetry span:nth-child(6) { grid-column: 3; }
-#telemetry span:nth-child(7), #telemetry span:nth-child(8) { grid-column: 4; }
-#telemetry span:nth-child(n+9) { grid-column: 5; }
 #telemetry span:nth-child(n+3) { border-left: 1px solid var(--line-soft); }
 #telemetry .ok { color: var(--ok); }
-#telemetry .warn { color: var(--danger); }
 
 /* --- arena panel: scenery picker + editable floor plan ------------------- */
 #arena-panel { display: flex; flex-direction: column; background: var(--bg);
@@ -362,6 +359,38 @@ aside > .bar { flex: 0 0 auto; border-top: 1px solid var(--line); }
 }
 #debug-python[hidden], #debug-program[hidden], #debug-trace[hidden] { display: none; }
 
+/* --- syntax colouring (highlight.js) -------------------------------------
+   Tuned for the sunken panes (#080c12): every colour clears 7:1 except the
+   comment/punctuation grey, which is deliberately the quietest thing on screen.
+   Plain identifiers keep the pane's own --text-2. */
+:root {
+  --hl-kw: #c4a5ff;      /* keywords: def, while, if, not */
+  --hl-fn: #7cc7ff;      /* calls, definitions, JSON keys */
+  --hl-obj: #6fd3c8;     /* builtins, the adapter in a trace line */
+  --hl-str: #a3d977;
+  --hl-num: var(--brand-hi);
+  --hl-const: #ff9e80;   /* True / False / None, true / false / null */
+  --hl-error: #f87171;   /* --danger is too dark to read as running text */
+}
+.hl-kw { color: var(--hl-kw); }
+.hl-fn, .hl-key { color: var(--hl-fn); }
+.hl-def { color: var(--hl-fn); font-weight: 700; }
+.hl-builtin, .hl-obj { color: var(--hl-obj); }
+.hl-str { color: var(--hl-str); }
+.hl-num { color: var(--hl-num); }
+.hl-const { color: var(--hl-const); }
+.hl-com { color: var(--text-3); font-style: italic; }
+.hl-punct, .hl-ln { color: var(--text-3); }
+/* A line's tone: what a console message means, or how a traced run ended. */
+.tone-error { color: var(--hl-error); }
+.tone-warn { color: var(--warn); }
+.tone-ok { color: var(--ok); }
+.tone-hint, .tone-info { color: var(--text); }
+/* In the console the tone is the message; only block names and measurements
+   stand out inside it, and a number keeps its line's colour, just heavier. */
+#console .hl-num { color: inherit; font-weight: 700; }
+#console .hl-quote { color: var(--brand-hi); }
+
 /* Blockly chrome: the workspace theme itself is set in app.js. These are the
    bits Blockly renders as plain DOM and cannot theme. */
 .blocklyToolboxDiv { background: var(--surface); padding-top: 6px;
@@ -432,6 +461,9 @@ aside > .bar { flex: 0 0 auto; border-top: 1px solid var(--line); }
 }
 .settings-check { flex-direction: row !important; align-items: center; gap: 8px !important; }
 #settings-note { margin-top: 14px; color: var(--text-3); font-size: 12px; line-height: 1.5; }
+/* Interface size: applies at once, so it sits apart from the startup choices. */
+.settings-display { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+#settings-size-note { color: var(--text-3); font-size: 12px; line-height: 1.5; }
 .settings-actions { display: flex; gap: 8px; margin-top: 16px; }
 .settings-actions span { flex: 1; }
 .settings-actions .primary {

@@ -164,6 +164,108 @@ def test_downloads_are_allowed_so_calibration_can_be_saved(opened):
     assert fake.settings["ALLOW_DOWNLOADS"] is True
 
 
+def test_the_page_can_be_zoomed(opened):
+    # pywebview's default injects a script that swallows Ctrl+wheel and pinch.
+    _, fake, _ = opened
+    assert fake.window.kwargs["zoomable"] is True
+
+
+# --- "Interface size": page zoom on the WebView2 control -----------------------
+
+
+class FakeWebView2:
+    """Strict like the real control: any member touched off the UI thread
+    throws (InvalidOperationException in .NET), reads included."""
+
+    on_ui_thread = False
+
+    def __init__(self):
+        self._zoom = 1.0
+
+    def _check(self):
+        if not self.on_ui_thread:
+            raise RuntimeError(
+                "CoreWebView2Controller members can only be accessed from the UI thread."
+            )
+
+    @property
+    def ZoomFactor(self):  # noqa: N802 — the .NET name
+        self._check()
+        return self._zoom
+
+    @ZoomFactor.setter
+    def ZoomFactor(self, value):  # noqa: N802
+        self._check()
+        self._zoom = value
+
+
+class FakeForm:
+    def __init__(self):
+        self.webview = FakeWebView2()
+
+
+@pytest.fixture
+def zoomable(opened, monkeypatch):
+    """A shown window whose native form hosts a (fake) WebView2 control."""
+    native, fake, _ = opened
+    fake.window.native = FakeForm()
+    ran = []
+
+    def on_ui_thread(form, fn):
+        ran.append(form)
+        form.webview.on_ui_thread = True
+        try:
+            fn()
+        finally:
+            form.webview.on_ui_thread = False
+
+    monkeypatch.setattr(win, "_on_ui_thread", on_ui_thread)
+    return native, fake.window.native.webview, ran
+
+
+def test_the_page_can_ask_for_its_size_and_only_that(opened):
+    # pywebview publishes every public attribute of js_api to the page. One
+    # method, and no route from it to the window object itself.
+    _, fake, _ = opened
+    api = fake.window.kwargs["js_api"]
+    assert [n for n in dir(api) if not n.startswith("_")] == ["set_zoom"]
+
+
+def test_set_zoom_sets_the_controls_zoom_on_the_ui_thread(zoomable, opened):
+    native, view, ran = zoomable
+    _, fake, _ = opened
+    assert fake.window.kwargs["js_api"].set_zoom(1.25) is True
+    assert view._zoom == 1.25
+    assert ran == [fake.window.native]
+
+
+def test_set_zoom_clamps_whatever_the_page_sends(zoomable):
+    native, view, _ = zoomable
+    assert native.set_zoom(9) is True and view._zoom == win.ZOOM_RANGE[1]
+    assert native.set_zoom(0.01) is True and view._zoom == win.ZOOM_RANGE[0]
+    for junk in ("big", None, float("nan"), float("inf"), [1.25]):
+        assert native.set_zoom(junk) is False
+    assert view._zoom == win.ZOOM_RANGE[0]  # untouched by the junk
+
+
+def test_set_zoom_without_a_webview2_control_is_a_quiet_no(opened):
+    # Any other platform, or a window not shown yet: nothing to set, no raise.
+    native, fake, _ = opened
+    assert native.set_zoom(1.25) is False
+    fake.window.native = object()
+    assert native.set_zoom(1.25) is False
+
+
+def test_set_zoom_never_raises_out_of_the_ui_thread(zoomable, monkeypatch):
+    native, _, _ = zoomable
+
+    def boom(form, fn):
+        raise RuntimeError("the form is being disposed")
+
+    monkeypatch.setattr(win, "_on_ui_thread", boom)
+    assert native.set_zoom(1.25) is False
+
+
 def test_the_window_keeps_its_storage_between_launches(opened, tmp_path):
     """private_mode is pywebview's default and would discard every session."""
     _, fake, _ = opened

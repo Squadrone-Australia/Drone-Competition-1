@@ -10,7 +10,7 @@ ANIM_FPS = 60  # pose updates per second while a command is in flight
 MAX_ALT_M = 2.5
 MIN_ALT_M = 0.3
 LEAN_DEG = 12.0  # how far the airframe tips into a translation
-# How close the drone's centre may come to an obstacle before it has hit it.
+# How close the drone's centre may come to a sign before it has hit it.
 # Roughly the Tello's half-span plus its prop guards.
 DRONE_CLEARANCE_M = 0.2
 # The post a free-standing sign stands on, as scene3d.js draws it (radius 0.02).
@@ -66,7 +66,7 @@ class SimDrone(DroneAdapter):
     can_reset = True  # unlike hardware, this one really can go home
 
     def __init__(
-        self, world=None, noise=0.0, delay=0.3, seed=None, scenery_name="arena"
+        self, world=None, noise=0.0, delay=0.3, seed=None, scenery_name="corridor"
     ):
         self.scenery_name = world.name if world is not None else scenery_name
         self.world = (
@@ -94,15 +94,13 @@ class SimDrone(DroneAdapter):
         # detector, only by the browser's third-person view
         self.roll = 0.0
         self.pitch = 0.0
-        # Set the moment the drone touches an obstacle, and never cleared except
+        # Set the moment the drone touches a sign or wall, never cleared except
         # by a reset: a mission that hit something did hit something, and flying
         # on afterwards does not undo it. Sim truth only -- MissionScorer reads
         # it off the pose, and no block or sensor may ever expose it (§4).
         self.crashed = False
-        # What it was: "wall", "obstacle" or "sign". The app's console says
-        # which, because "you hit an obstacle" for a drone that flew into a
-        # wall or a target's post sends a student to the wrong drawer. Latched
-        # with the crash, first cause wins.
+        # What it was: "wall" or "sign". The app's console says which, because
+        # each has its own fix. Latched with the crash, first cause wins.
         self.crashed_into = None
         self._abort = False
 
@@ -207,17 +205,17 @@ class SimDrone(DroneAdapter):
 
         # How far along this move the drone gets before it hits something --
         # resolved up front, over the whole swept path, not per animation frame.
-        # Testing only the frames would tunnel straight through an obstacle
+        # Testing only the frames would tunnel straight through a sign
         # whenever the frames are far apart, and with delay=0 there is exactly
         # one frame: the end point. That is every test in the suite.
-        limit_t, hit = self._first_contact(at, math.hypot(dx, dy) + abs(dz))
+        limit_t, _ = self._first_contact(at, math.hypot(dx, dy) + abs(dz))
         if limit_t is not None:
             # Stop dead rather than sliding around it. A drone that scrapes past
-            # teaches that ignoring an obstacle mostly works, which is the
-            # opposite of the lesson.
-            self._crash("obstacle" if hit.is_obstacle else "sign")
+            # teaches that ignoring a sign mostly works, which is the opposite
+            # of the lesson.
+            self._crash("sign")
 
-        # A wall is an obstacle too. `at` clamps the path into the room box, so
+        # A wall counts too. `at` clamps the path into the room box, so
         # without this a student could fly 18 m across a 4 m arena, be quietly
         # parked against the wall, and be told the mission succeeded -- while the
         # same plan puts a real Tello into the brickwork. Only the horizontal box

@@ -182,7 +182,7 @@ def test_a_clean_run_is_not_crashed(scorer):
     assert scorer.state(_pose(1.25, 1.0))["crashed"] is False
 
 
-def test_hitting_an_obstacle_fails_an_otherwise_perfect_run(scorer):
+def test_hitting_something_fails_an_otherwise_perfect_run(scorer):
     scorer.signal(_pose(1.0, 3.0))
     scorer.signal(_pose(1.5, 6.0))
     state = scorer.state(_crashed_pose(1.25, 9.4, flying=False))

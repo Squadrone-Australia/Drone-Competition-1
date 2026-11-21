@@ -47,7 +47,9 @@ const bufferRestore = window.COMP1_BUFFER.restore(workspace);
 // the toolbox — so a workspace arriving without one (a buffer written before it
 // existed, or one Blockly could only partly load) would be a program the
 // student has no way to repair by dragging. Seed it whenever it is missing,
-// which on a first run is always.
+// which on a first run is always. One arriving with several (a copy made before
+// start was undeletable) keeps only the first.
+COMP1.removeExtraStarts(workspace);
 if (workspace.getBlocksByType("start", false).length === 0) {
   const start = workspace.newBlock("start");
   start.initSvg(); start.render();
@@ -120,8 +122,15 @@ const bus = window.COMP1_BUS = {
   },
 };
 
+// Colouring is decoration. If highlight.js is missing — a half-applied update,
+// a stale cache — every pane falls back to the plain text it always showed,
+// rather than the whole app failing on its first log line.
+const HL = window.COMP1_HIGHLIGHT || null;
+
 function log(msg) {
-  consoleEl.textContent += msg + "\n";
+  const text = String(msg);
+  if (HL) HL.appendLine(consoleEl, HL.consoleLine(text), HL.consoleTone(text));
+  else consoleEl.textContent += text + "\n";
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
 // Handed to tutorial.js, which has to read the student's blocks and talk to
@@ -135,9 +144,14 @@ function logHint(msg) {
   if (msg && msg.hint) log("   💡 How to fix: " + msg.hint);
 }
 
+function showCode(el, text, tokenize) {
+  if (HL) HL.render(el, tokenize(text));
+  else el.textContent = text;
+}
+
 function showDebugProgram(program) {
-  debugPythonEl.textContent = COMP1.programToPython(program);
-  debugProgramEl.textContent = JSON.stringify(program, null, 2);
+  showCode(debugPythonEl, COMP1.programToPython(program), HL && HL.python);
+  showCode(debugProgramEl, JSON.stringify(program, null, 2), HL && HL.json);
 }
 
 function updateDebugProgram() {
@@ -167,7 +181,9 @@ function appendDebugLine(line) {
     debugHasTrace = true;
   }
   debugSequence += 1;
-  debugTraceEl.textContent += `${String(debugSequence).padStart(3, "0")}  ${line}\n`;
+  const text = `${String(debugSequence).padStart(3, "0")}  ${line}`;
+  if (HL) HL.appendLine(debugTraceEl, HL.trace(text));
+  else debugTraceEl.textContent += text + "\n";
   debugTraceEl.scrollTop = debugTraceEl.scrollHeight;
 }
 
@@ -416,16 +432,6 @@ function showTelemetry(t) {
     t.visible ? `${t.distance_cm} cm` : "-";
   document.getElementById("t-bearing").textContent =
     t.visible ? `${t.bearing_deg > 0 ? "+" : ""}${t.bearing_deg}°` : "-";
-  // Obstacles are shown even while no target is in view — searching is exactly
-  // when the drone is most likely to fly into something.
-  const obstacle = document.getElementById("t-obstacle");
-  const seen = t.obstacle_count > 0;
-  obstacle.textContent = t.obstacle_ahead
-    ? "IN THE WAY"
-    : seen ? (t.obstacle_count > 1 ? `${t.obstacle_count} seen` : "seen") : "clear";
-  obstacle.className = t.obstacle_ahead ? "warn" : seen ? "" : "ok";
-  document.getElementById("t-obstacle-distance").textContent =
-    seen ? `${t.obstacle_distance_cm} cm` : "-";
 }
 
 // The simulator scores a find against where the targets actually are, so with an
@@ -436,21 +442,12 @@ let missionState = null;
 // drone does not see a number change at the top of the screen, and the find is
 // the whole point of the mission.
 let foundLogged = 0;
-// What the console says when a run crashes, by what the drone hit. "The attempt
-// does not count" left the second tester asking which attempt, and whether a
-// later find still scored, so each says it in full. And each gives its own
-// advice: the Obstacles drawer is right for an obstacle and wrong for a wall or
-// for a target's own post, which the obstacle sensors are not built to see.
-const RUN_VOID = "so this run won't count for the mission, even if it finds targets afterwards.";
-const CRASH_TEXT = {
-  obstacle: `💥 The drone hit an obstacle, ${RUN_VOID} To get past obstacles, look in ` +
-    "the Obstacles drawer: “obstacle in the way?” and “step around obstacle”.",
-  wall: `💥 The drone flew into a wall, ${RUN_VOID} Check how far each “fly” block ` +
-    "goes: the room is smaller than it looks.",
-  sign: `💥 The drone flew into a sign or the post it stands on, ${RUN_VOID} The real ` +
-    "drone would hit it too. Stop short of the sign before you signal: " +
-    "“approach target and stop” halts at a safe distance.",
-};
+// What the console says when a run crashes. Deliberately just the fact: what
+// was hit and how to avoid it is the student's problem to work out. The
+// per-cause advice this replaced named the very block that fixes it, which
+// handed over the answer. The server still reports `crashed_into`; it is simply
+// not spelled out here.
+const CRASH_TEXT = "💥 The drone crashed.";
 function showMission(m) {
   foundEl.textContent = `Targets found: ${m.found} / ${m.total}`;
   if (m.found > foundLogged) {
@@ -465,7 +462,7 @@ function showMission(m) {
     log(`🏆 mission success: every target found and landed at ${goal}`);
   }
   if (m.state === "crashed" && missionState !== "crashed") {
-    log(CRASH_TEXT[m.crashed_into] ?? CRASH_TEXT.obstacle);
+    log(CRASH_TEXT);
   }
   missionState = m.state;
 }

@@ -1,5 +1,11 @@
 # Obstacle detection and avoidance
 
+> **Removed 2026-11-21.** The competition arena has no obstacles, so the obstacle
+> detector (`comp1/vision/obstacles.py`), its sensors, the "step around obstacle" block,
+> the `Drone.*obstacle*` methods and the simulator's solid obstacles were all taken out.
+> The only thing kept is that `VisionConfig.load_file` skips the retired `obstacle_*` /
+> `avoid_*` keys, so an old `vision_config.toml` still loads. This plan is history.
+
 ## Context
 
 The arena contains printed markers that are **not** red circles — red squares, green triangles,

@@ -5,6 +5,22 @@ from pathlib import Path
 from .camera import TELLO_INTRINSICS, CameraIntrinsics
 
 _TUPLE_FIELDS = {"lower1", "upper1", "lower2", "upper2"}
+# Keys this config used to have and no longer does. The obstacle detector and
+# the "step around obstacle" block were removed (the competition arena has no
+# obstacles), but a venue's vision_config.toml copied from the old example still
+# carries these. Skipped rather than passed through: an unknown keyword is a
+# TypeError, and a tuning file that once worked must not stop the app starting
+# on competition day.
+_RETIRED_KEYS = {
+    "obstacle_sat_min",
+    "obstacle_val_min",
+    "obstacle_min_area_ratio",
+    "obstacle_max_area_ratio",
+    "obstacle_diameter_m",
+    "obstacle_clear_distance_m",
+    "avoid_sidestep_cm",
+    "avoid_max_steps",
+}
 
 
 @dataclass
@@ -51,38 +67,6 @@ class VisionConfig:
     # Cluttered arenas drop frames in bursts, and a burst is not a lost target.
     approach_lost_timeout_s: float = 2.5
 
-    # --- obstacles: everything that is NOT an accepted red circle (§ obstacles) ---
-    # These drive a *second, separate* mask from the red bands above, so they do
-    # not participate in the calibration.py _PRIOR_BANDS invariant — that rule is
-    # about the red locator only. Nothing here needs checking against it.
-    #
-    # The obstacle mask thresholds on saturation and value alone, never hue: one
-    # mask has to catch a red square, a green triangle, a blue circle and a
-    # yellow square, and the only thing they share is that they are *colourful*.
-    # What keeps walls and floor out is the scenery palette rule (see
-    # comp1/sim/render.py) — every scenery colour is blue-dominant and
-    # low-saturation, so it falls under this floor. On real hardware a warm-lit
-    # wall or a saturated banner will not, which is exactly why this is a tunable
-    # key and belongs in the on-site re-tune pass alongside the HSV bands.
-    obstacle_sat_min: int = 80
-    obstacle_val_min: int = 50
-    # Higher floor than min_area_ratio: an obstacle only matters close in, and a
-    # tighter floor keeps distant clutter out of the student's way. ~2.8 m range.
-    obstacle_min_area_ratio: float = 0.004
-    # Deliberately generous — unlike a marker, an obstacle really can fill the
-    # view. This only rejects a frame-wide colour wash.
-    obstacle_max_area_ratio: float = 0.9
-    # Range comes from apparent size, so it needs an assumed printed size. The
-    # arena kit prints obstacles at the same size as the markers; an obstacle
-    # printed larger reads as nearer, which errs in the safe direction.
-    obstacle_diameter_m: float = 0.25
-    # Closer than this, and centred, counts as "in the way".
-    obstacle_clear_distance_m: float = 1.0
-
-    # --- obstacle avoidance ---
-    avoid_sidestep_cm: int = 60  # one lateral step; above the Tello's 20 cm floor
-    avoid_max_steps: int = 6
-
     # --- multi-target locking ---
     # once locked, prefer the candidate nearest the last known bearing rather than
     # whichever happens to be biggest this frame; stops the drone ping-ponging
@@ -95,7 +79,7 @@ class VisionConfig:
     # "yolo" is the trained pose model, which ignores every one of those keys --
     # it has learned what a red disc is, decoys included, so there is nothing to
     # tune on-site except how sure it must be. Everything downstream of the
-    # finder (range from marker_diameter_m, the lock, obstacles, approach) is
+    # finder (range from marker_diameter_m, the lock, approach) is
     # shared. Chosen live in the browser; settings.json remembers it.
     #
     # This is the library default (tests, comp1.api used on its own). What an
@@ -108,10 +92,6 @@ class VisionConfig:
     @property
     def marker_radius_m(self) -> float:
         return self.marker_diameter_m / 2
-
-    @property
-    def obstacle_radius_m(self) -> float:
-        return self.obstacle_diameter_m / 2
 
     @property
     def max_detect_range_m(self) -> float:
@@ -134,7 +114,7 @@ class VisionConfig:
         kwargs = {
             k: (tuple(v) if k in _TUPLE_FIELDS else v)
             for k, v in data.items()
-            if k != "camera_dfov_deg"
+            if k != "camera_dfov_deg" and k not in _RETIRED_KEYS
         }
         if "camera_dfov_deg" in data:
             kwargs["intrinsics"] = CameraIntrinsics.from_dfov(data["camera_dfov_deg"])

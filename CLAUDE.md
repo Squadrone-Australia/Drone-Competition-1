@@ -44,7 +44,7 @@ the README.
 - `comp1/api.py` — the student-facing `Drone` class (the Python pathway, `--script`).
 - `comp1/drone/` — `base.DroneAdapter` ABC plus `tello`/`mock`; `config.FlightConfig`.
 - `comp1/sim/` — the hardware-free simulator: world, scene, scenery, render, mission scoring.
-- `comp1/vision/` — HSV marker detection, distance/bearing estimation, obstacles, auto-calibration.
+- `comp1/vision/` — HSV marker detection, distance/bearing estimation, auto-calibration.
   `vision/yolo.py` is the alternative AI marker finder: `models/fire_pose.onnx` (trained in
   `solution_fire/`) on onnxruntime, never torch. `VisionConfig.detector` (`hsv`|`yolo`) picks the
   finder inside `TargetTracker`, so every tracker call site follows the live switch.
@@ -52,11 +52,10 @@ the README.
   `buffer.js` auto-saves the Blockly workspace to `localStorage` and restores it as
   `app.js` injects. Deliberately client-side: no socket message, nothing in
   `paths.data_dir()`, and losing a buffer is never allowed to break the page.
-  `tutorial.js` is the first-run tour and guided first flight, simulator only, plus an
-  optional camera lesson that teaches the vision blocks. Each lesson program is pinned by a
-  fixture (`tests/fixtures/tutorial_lesson.json`, `tutorial_vision_lesson.json`) and flown in
-  every arena by `tests/test_tutorial_lesson.py`, so change all three together
-  (`docs/plans/2026-11-18-first-run-tutorial.md`, `2026-11-20-tutorial-camera-lesson.md`).
+  `tutorial.js` is the first-run tour and guided first flight, simulator only. Its lesson
+  program is pinned by `tests/fixtures/tutorial_lesson.json` and flown in every arena by
+  `tests/test_tutorial_lesson.py`, so change all three together
+  (`docs/plans/2026-11-18-first-run-tutorial.md`).
 - `comp1/window.py` — the pywebview front door. `usable()` proves a window is possible or the
   launcher opens the system browser instead; `NativeWindow` owns the main thread and the
   two-way close protocol. Knows nothing about drones: close *policy* is `request_close` in

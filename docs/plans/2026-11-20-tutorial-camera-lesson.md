@@ -1,7 +1,10 @@
 # Tutorial: the optional camera lesson (2026-11-20)
 
-Status: implemented in `comp1/frontend/tutorial.js`. It extends the
-[first-run tutorial](2026-11-18-first-run-tutorial.md), whose rules all still hold.
+Status: **removed 2026-11-21.** The lesson, its fixture (`tutorial_vision_lesson.json`) and
+its tests are gone from `comp1/frontend/tutorial.js` and `tests/`. The tutorial ends on the
+first flight again, and its final card leaves the "find a target" challenge as a goal, not
+steps. This page is kept as the record of what was tried and measured. It extended the
+[first-run tutorial](2026-11-18-first-run-tutorial.md).
 
 ## Why
 
@@ -95,6 +98,30 @@ The lesson needs an empty program, as the first lesson does:
 
 Back never leads out of the lesson, and its progress bar fills by itself rather than ending
 the first chapter at half full.
+
+### Revisited 2026-11-21: does the lesson hand students the answer?
+
+Mostly not. It teaches the search, approach and signal moves, and it stops at one target.
+The skills the competition actually tests are all left to the student: a search that brings
+every stand into view, re-facing after `approach target` has turned the drone, the `if` and
+distance blocks, and getting home safely.
+
+The console challenge that was logged after the first lesson was the exception. It listed
+all five blocks in order, so it was a recipe with none of the reasons the lesson gives. It
+now gives the goal and which drawers to look in.
+
+Letting the student pick the turn angle (anything from 10° to 60°) was tried and dropped. The
+angle teaches nothing in the lesson: every angle up to 90° found a target in both arenas
+(square arena, 20 layouts; the competition arena's layout is fixed), and only 120° failed,
+in the competition arena, by circling until the loop gave up. The lesson keeps a fixed 30°.
+Students find out what their numbers do when they program the competition arena themselves.
+
+### Flown in the square arena
+
+The whole tutorial now switches to the square arena as it opens and switches back when it
+ends (see the first-run plan's rules). For this lesson, that means students no longer meet
+the corridor's "lost sight" warning described below. The lesson is still flown in every
+arena by the tests.
 
 ## Measured before it was chosen
 

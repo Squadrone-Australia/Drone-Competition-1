@@ -7,26 +7,8 @@ FIRE = "fire"
 # destination is the one at the end of the corridor) is the student's problem.
 DESTINATION = "destination"
 DISTRACTOR_KINDS = ["green_triangle", "black_square", "green_circle", "black_triangle"]
-# Free-standing obstacles: the same printed shapes, but solid. The detector sees
-# them exactly the way it sees a wall distractor -- as "not a red circle", which
-# is the whole definition -- and SimDrone will not let the drone fly through one.
-#
-# The kind names end in _square/_triangle/_circle on purpose: scene3d.js picks
-# three.js geometry off that suffix, so these get the right 3D shape for free.
-OBSTACLE_KINDS = [
-    "obstacle_red_square",
-    "obstacle_green_triangle",
-    "obstacle_blue_circle",
-    "obstacle_yellow_square",
-]
-OBSTACLE_PREFIX = "obstacle_"
 DEFAULT_MARKER_DIAMETER_M = 0.25  # printed A4-ish disc; keep in step with VisionConfig
 DEFAULT_MARKER_HEIGHT_M = 1.0  # tripod-mounted
-# Same printed size as a marker, and that is load-bearing: range is derived from
-# apparent size against VisionConfig.obstacle_diameter_m, so an obstacle drawn at
-# a different size would read at the wrong distance and the simulator would stop
-# agreeing with the arena. Change one, change the other.
-DEFAULT_OBSTACLE_DIAMETER_M = DEFAULT_MARKER_DIAMETER_M
 
 
 @dataclass(frozen=True)
@@ -41,10 +23,6 @@ class Marker:
     def radius_m(self) -> float:
         return self.size_m / 2
 
-    @property
-    def is_obstacle(self) -> bool:
-        """Solid, and something the drone must go around."""
-        return self.kind.startswith(OBSTACLE_PREFIX)
 
 
 @dataclass
@@ -103,10 +81,6 @@ class World:
 
     # --- markers -----------------------------------------------------------
 
-    @property
-    def obstacles(self):
-        return [m for m in self.markers if m.is_obstacle]
-
     def on_wall(self, m: Marker) -> bool:
         """Is this marker a poster on a wall rather than a sign on its own stand?
 
@@ -120,11 +94,11 @@ class World:
 
     @property
     def solids(self):
-        """Every marker the drone can fly into: obstacles, and every free-standing
-        sign whatever it shows -- the competition's red circles and decoys stand
-        on posts in the open, and a run that flies through one is a run that, on
-        the real aircraft, ended against a board."""
-        return [m for m in self.markers if m.is_obstacle or not self.on_wall(m)]
+        """Every marker the drone can fly into: every free-standing sign whatever
+        it shows -- the competition's red circles and decoys stand on posts in the
+        open, and a run that flies through one is a run that, on the real
+        aircraft, ended against a board."""
+        return [m for m in self.markers if not self.on_wall(m)]
 
     @property
     def fires(self):

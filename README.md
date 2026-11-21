@@ -254,7 +254,8 @@ node --test tests\js\blocks.test.js             # frontend serializer tests
 ```
 
 `--drone sim` flags: `--seed N` (repeatable arena), `--noise 0.05` (movement drift),
-`--scenery {arena,corridor}` (also switchable in the browser). Server flags: `--port`,
+`--scenery {corridor,arena}` (default `corridor`, the competition arena; also switchable
+in the browser). Server flags: `--port`,
 `--no-window` (use the system browser rather than a window of our own), `--no-browser` (open
 nothing at all), `--no-check-updates`, `--idle-timeout N` (seconds after the last window closes
 before the program stops itself; `0` never stops). Default port `8765`. Anything not passed falls
@@ -381,5 +382,3 @@ venv\Scripts\python -m comp1 --script examples\04_pilot.py --drone sim
 - [First-run tutorial (2026-11-18)](docs/plans/2026-11-18-first-run-tutorial.md): the guided tour
   and first program a new student sees, the questions it answers, and why the lesson program
   cannot crash.
-- [Tutorial camera lesson (2026-11-20)](docs/plans/2026-11-20-tutorial-camera-lesson.md): the
-  optional second chapter that teaches the vision blocks, what it checks, and how it was measured.

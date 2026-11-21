@@ -41,10 +41,12 @@ order:
    listing every command the drone ran.
 4. **Python view**: the program they just flew, shown as code.
 5. **Final card**: a recap and the next challenge. The challenge is also written to the
-   console, so it is still there after the card closes.
-6. **Camera lesson** (optional, added 2026-11-20): the "find a target" challenge as checked
-   steps, offered from the final card and the welcome card. See
-   [2026-11-20-tutorial-camera-lesson.md](2026-11-20-tutorial-camera-lesson.md).
+   console, so it is still there after the card closes. Since 2026-11-21 the card and the
+   console give the goal and which drawers to look in, not the five blocks in order: the
+   search is the part of a competition program a student should work out.
+
+An optional camera lesson was added on 2026-11-20 and removed on 2026-11-21. See
+[2026-11-20-tutorial-camera-lesson.md](2026-11-20-tutorial-camera-lesson.md).
 
 It opens by itself once, and the **Tutorial** button in the top bar reopens it.
 
@@ -52,6 +54,13 @@ It opens by itself once, and the **Tutorial** button in the top bar reopens it.
 
 - **It only flies the simulator.** It will not start against a real Tello: the button shows
   a notice instead. If the drone is switched while it is open, it closes itself.
+- **It flies in the square arena** (added 2026-11-21). The simulator starts in the competition
+  arena, so the tutorial switches to the square one as it opens and switches back when it
+  ends. It goes back to whichever arena the student was in, unless they picked another one
+  during the tutorial. The square room is the one the text describes ("4 metres across").
+  The server refuses an arena change mid-flight, so a tutorial closed mid-flight waits
+  for the landing before switching back, and one closed by a drone switch waits for the
+  simulator to return.
 - **It never throws away a student's blocks.** If the workspace already has blocks, they
   are put aside, both in memory and in `localStorage` (`comp1.tutorial.stash.v1`), and
   offered back at the end. If the tutorial is skipped, closed, or the drone is switched,
@@ -138,7 +147,5 @@ findings:
   step now waits on the result, and Live execution replays it in words, but the flight
   itself is easy to miss.
 - **Nesting blocks inside a loop has no feedback** once the tutorial is over. A stack that
-  sits inside "repeat" without snapping looks connected. The camera lesson now teaches it,
-  with a check that names a block snapped below a loop instead of inside it, but only for
-  the lesson's own program.
+  sits inside "repeat" without snapping looks connected.
 - **The Next button moves between tour cards** as the card height and position change.

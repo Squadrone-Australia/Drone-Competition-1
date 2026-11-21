@@ -17,7 +17,7 @@ const { JSDOM } = require("jsdom");
 
 const tutorial = require("../../comp1/frontend/tutorial.js");
 const {
-  LESSON, VISION_LESSON, SHELL, COND, FULL, TUTORIAL_KEY, STASH_KEY,
+  LESSON, TUTORIAL_KEY, STASH_KEY,
   checkLesson, fixLesson, chainOf, shouldAutoStart, readFlag, writeFlag,
   saveStash, readStash, install,
 } = tutorial;
@@ -25,8 +25,6 @@ const {
 const FRONTEND = path.join(__dirname, "..", "..", "comp1", "frontend");
 const FIXTURE = JSON.parse(fs.readFileSync(
   path.join(__dirname, "..", "fixtures", "tutorial_lesson.json"), "utf8"));
-const VISION_FIXTURE = JSON.parse(fs.readFileSync(
-  path.join(__dirname, "..", "fixtures", "tutorial_vision_lesson.json"), "utf8"));
 
 // ── doubles ─────────────────────────────────────────────────────────────────
 
@@ -224,120 +222,6 @@ test("Do it for me on a workspace with no start block fails quietly", () => {
   assert.strictEqual(fixLesson(new Blockly.Workspace(), Blockly, 0), false);
 });
 
-// ── the camera lesson, against the real Blockly ─────────────────────────────
-
-const LAST = VISION_LESSON.length - 1;
-
-/** take off, then "keep doing until" holding `cond` and `inside`, then `below`. */
-function loopProgram({ cond = "marker_visible", inside = [["rotate", { DIR: "cw" }, ["DEG", 30]]],
-  below = [] } = {}) {
-  const ws = build(workspace(), [["takeoff"], ["repeat_until"], ...below]);
-  const loop = chainOf(ws)[1];
-  if (cond) loop.getInput("COND").connection.connect(ws.newBlock(cond).outputConnection);
-  let into = loop.getInput("BODY").connection;
-  for (const [type, fields = {}, number] of inside) {
-    const state = { type, fields };
-    if (number) {
-      state.inputs = { [number[0]]: { shadow: { type: "math_number", fields: { NUM: number[1] } } } };
-    }
-    const b = Blockly.serialization.blocks.append(state, ws);
-    into.connect(b.previousConnection);
-    into = b.nextConnection;
-  }
-  return ws;
-}
-
-test("the camera lesson builds exactly the program the simulator test flies", () => {
-  const ws = workspace();
-  assert.strictEqual(fixLesson(ws, Blockly, LAST, VISION_LESSON), true);
-  assert.ok(checkLesson(ws, LAST, VISION_LESSON).ok);
-  const { _comment, ...expected } = VISION_FIXTURE;
-  assert.deepStrictEqual(programOf(ws), expected);
-  assert.deepStrictEqual([...shared.COMP1.warnings], [], "no ⚠ on a student's first camera run");
-});
-
-test("the loop's shell, its test and its insides are separate steps", () => {
-  const shell = loopProgram({ cond: null, inside: [] });
-  assert.ok(checkLesson(shell, 1, VISION_LESSON, SHELL).ok);
-  assert.deepStrictEqual(checkLesson(shell, 1, VISION_LESSON, COND), { ok: false, hint: "" },
-    "an empty slot is the next thing to do, not a mistake");
-  const tested = loopProgram({ inside: [] });
-  assert.ok(checkLesson(tested, 1, VISION_LESSON, COND).ok);
-  assert.strictEqual(checkLesson(tested, 1, VISION_LESSON, FULL).ok, false);
-  assert.ok(checkLesson(loopProgram(), 1, VISION_LESSON, FULL).ok);
-});
-
-test("a test left beside its slot is called out", () => {
-  const ws = loopProgram({ cond: null, inside: [] });
-  ws.newBlock("marker_visible");
-  const { ok, hint } = checkLesson(ws, 1, VISION_LESSON, COND);
-  assert.strictEqual(ok, false);
-  assert.match(hint, /“target seen\?” is on the workspace but not in the slot/);
-});
-
-test("the wrong test in the slot is named", () => {
-  const { hint } = checkLesson(loopProgram({ cond: "obstacle_ahead", inside: [] }), 1,
-    VISION_LESSON, COND);
-  assert.match(hint, /slot in “keep doing until” holds “obstacle in the way\?”/);
-});
-
-test("a turn below the loop instead of inside it says so", () => {
-  // The camera lesson's own beginner trap: it looks connected, runs once
-  // after the loop, and the loop - empty - never looks round at all.
-  const ws = loopProgram({ inside: [], below: [["rotate", { DIR: "cw" }, ["DEG", 30]]] });
-  const { ok, hint } = checkLesson(ws, 1, VISION_LESSON, FULL);
-  assert.strictEqual(ok, false);
-  assert.match(hint, /is below “keep doing until”, not inside it/);
-});
-
-test("the turn inside the loop gets the same number hint as the first lesson", () => {
-  const ws = loopProgram({ inside: [["rotate", { DIR: "cw" }, ["DEG", 90]]] });
-  const { hint } = checkLesson(ws, 1, VISION_LESSON, FULL);
-  assert.match(hint, /The “turn” block has 90°/);
-  assert.match(hint, /type 30/);
-});
-
-test("a block that belongs below the loop but went inside it is called out", () => {
-  const ws = loopProgram({ inside: [["rotate", { DIR: "cw" }, ["DEG", 30]], ["approach_marker"]] });
-  const { ok, hint } = checkLesson(ws, 2, VISION_LESSON);
-  assert.strictEqual(ok, false);
-  assert.match(hint, /“approach target and stop” is inside “keep doing until”/);
-  assert.match(hint, /every time round/);
-});
-
-test("Do it for me on the shell step leaves the slot for the next step", () => {
-  const ws = build(workspace(), [["takeoff"]]);
-  fixLesson(ws, Blockly, 1, VISION_LESSON, SHELL);
-  const loop = chainOf(ws)[1];
-  assert.strictEqual(loop.type, "repeat_until");
-  assert.strictEqual(loop.getInputTargetBlock("COND"), null);
-  assert.strictEqual(loop.getInputTargetBlock("BODY"), null);
-});
-
-test("Do it for me moves the student's turn from below the loop into it", () => {
-  const ws = loopProgram({ inside: [], below: [["rotate", { DIR: "cw" }, ["DEG", 90]], ["land"]] });
-  const turn = chainOf(ws)[2];
-  fixLesson(ws, Blockly, 1, VISION_LESSON, FULL);
-  assert.ok(checkLesson(ws, 1, VISION_LESSON, FULL).ok);
-  assert.strictEqual(chainOf(ws)[1].getInputTargetBlock("BODY").id, turn.id, "theirs, moved");
-  assert.deepStrictEqual(types(ws), ["takeoff", "repeat_until", "land"], "the gap closed up");
-});
-
-test("Do it for me uses the student's loose test", () => {
-  const ws = loopProgram({ cond: null, inside: [] });
-  const loose = ws.newBlock("marker_visible");
-  fixLesson(ws, Blockly, 1, VISION_LESSON, COND);
-  assert.strictEqual(chainOf(ws)[1].getInputTargetBlock("COND").id, loose.id);
-  assert.strictEqual(ws.getBlocksByType("marker_visible", false).length, 1);
-});
-
-test("Do it for me takes a block out of the loop that belongs below it", () => {
-  const ws = loopProgram({ inside: [["rotate", { DIR: "cw" }, ["DEG", 30]], ["approach_marker"]] });
-  fixLesson(ws, Blockly, LAST, VISION_LESSON);
-  assert.ok(checkLesson(ws, LAST, VISION_LESSON).ok);
-  assert.strictEqual(ws.getBlocksByType("approach_marker", false).length, 1, "used, not copied");
-});
-
 // ── storage ─────────────────────────────────────────────────────────────────
 
 test("opens by itself only for a first run in the simulator", () => {
@@ -395,9 +279,10 @@ function page({ storage = fakeStorage(), blocks = [] } = {}) {
   }
   const bus = fakeBus();
   const logged = [];
+  const sent = [];
   const ctl = install({
     window, document: window.document, workspace: ws, Blockly: B,
-    storage, bus, log: (m) => logged.push(m),
+    storage, bus, log: (m) => logged.push(m), send: (m) => { sent.push(m); return true; },
   });
   const $ = (sel) => window.document.querySelector(sel);
   const step = () => ctl.state.active && ctl.state.steps[ctl.state.index].id;
@@ -412,8 +297,15 @@ function page({ storage = fakeStorage(), blocks = [] } = {}) {
   // Closed even when an assertion fails first: a jsdom window left open keeps
   // its poll timer alive, and the runner then waits on it for ever.
   pages.push(done);
-  return { window, B, ws, bus, logged, ctl, storage, $, step, click, done };
+  return { window, B, ws, bus, logged, sent, ctl, storage, $, step, click, done };
 }
+
+/** The arena list as the server sends it, with `current` picked. */
+const sceneries = (current) => ({
+  type: "sceneries", current,
+  sceneries: [{ id: "corridor", name: "Competition arena" }, { id: "arena", name: "Square arena" }],
+});
+const arenaSends = (p) => p.sent.filter((m) => m.type === "scenery").map((m) => m.name);
 
 test("index.html offers a way back to the tutorial, loaded after app.js", () => {
   assert.match(INDEX, /id="tutorial-open"/);
@@ -540,9 +432,7 @@ test("the whole lesson, from the welcome card to a finished flight", () => {
   p.click("Next");
   assert.strictEqual(p.step(), "final");
   assert.match(p.$("#tut-card").textContent, /You flew your first program/);
-  assert.match(p.$("#tut-card").textContent, /Next: use the camera/);
-  assert.ok([...p.window.document.querySelectorAll("#tut-card button")]
-    .some((b) => b.textContent === "Camera lesson ›"), "the camera lesson is offered");
+  assert.match(p.$("#tut-card").textContent, /Next challenge/);
   p.click("Finish");
   assert.strictEqual(p.step(), false);
   assert.strictEqual(p.storage.data.get(TUTORIAL_KEY), "done");
@@ -616,7 +506,9 @@ test("finishing leaves the challenge in the console", () => {
   p.click("Finish");
   const consoleText = p.logged.join("\n");
   assert.match(consoleText, /Next challenge/);
-  assert.match(consoleText, /approach target and stop/);
+  assert.match(consoleText, /Sensing.*Control/, "where to look");
+  // A goal and where to look, not the program to copy.
+  assert.doesNotMatch(consoleText, /approach target and stop|keep doing until|clockwise 30/);
   p.done();
 });
 
@@ -750,131 +642,6 @@ test("blocks put aside when the tab closed come back on the next load", () => {
   p.done();
 });
 
-// ── the camera lesson, clicked through ──────────────────────────────────────
-
-/** From the first lesson's last card into the camera lesson, as a student gets there. */
-function intoCamera(p) {
-  p.ctl.goTo("land");
-  p.click("Do it for me");                    // the first lesson, built
-  p.ctl.goTo("final");
-  p.click("Camera lesson ›");
-}
-
-/** Every build step done for the student, up to the run. */
-function buildCamera(p) {
-  for (const id of ["cam-takeoff", "cam-loop", "cam-seen", "cam-turn", "cam-approach",
-    "cam-signal", "cam-land"]) {
-    assert.strictEqual(p.step(), id);
-    p.click("Do it for me");
-    p.click("Next");
-  }
-}
-
-test("the camera lesson, from the first lesson's end to a counted find", () => {
-  const p = page();
-  p.bus.emit({ type: "drone_mode", mode: "sim" });
-  intoCamera(p);
-  assert.strictEqual(p.step(), "cam-intro");
-  assert.deepStrictEqual(types(p.ws), [], "the first lesson's program made way, unasked");
-  assert.match(p.$(".tut-phase").textContent, /Camera lesson · 1 of 9/);
-  assert.ok(![...p.window.document.querySelectorAll("#tut-card button")]
-    .some((b) => b.textContent === "Back"), "Back never leads out of the lesson");
-  p.click("Next");
-
-  buildCamera(p);
-  assert.deepStrictEqual(types(p.ws),
-    ["takeoff", "repeat_until", "approach_marker", "mark_found", "land"]);
-
-  assert.strictEqual(p.step(), "cam-run");
-  assert.match(p.$("#tut-title").textContent, /Press Run/);
-  p.bus.emit({ type: "running", running: true });
-  assert.match(p.$("#tut-title").textContent, /Watch the camera/);
-  p.bus.emit({ type: "mission", state: "flying", found: 1, signal: "credited" });
-  p.bus.emit({ type: "running", running: false });
-  p.bus.emit({ type: "finished", reason: "done", detail: "" });
-  assert.match(p.$("#tut-title").textContent, /It found one/);
-  assert.match(p.$(".tut-status").textContent, /used the camera/);
-  p.click("Next");
-
-  assert.strictEqual(p.step(), "cam-final");
-  assert.match(p.$("#tut-card").textContent, /find all three/);
-  p.click("Finish");
-  assert.strictEqual(p.storage.data.get(TUTORIAL_KEY), "done");
-  const consoleText = p.logged.join("\n");
-  assert.match(consoleText, /find all three targets/, "the camera lesson's puzzle stays");
-  assert.doesNotMatch(consoleText, /Snap these under/, "not the challenge they just built");
-  p.done();
-});
-
-test("a signal that the scorer did not count is not praised", async () => {
-  // The signal block runs whether or not the approach got there, so a
-  // finished program is not a find. Usually it is a second Run without Reset.
-  const p = page();
-  p.bus.emit({ type: "drone_mode", mode: "sim" });
-  intoCamera(p);
-  p.click("Next");
-  buildCamera(p);
-  p.bus.emit({ type: "running", running: true });
-  p.bus.emit({ type: "mission", state: "flying", found: 1, signal: "no target nearby" });
-  p.bus.emit({ type: "running", running: false });
-  p.bus.emit({ type: "finished", reason: "done", detail: "" });
-  await new Promise((resolve) => p.window.setTimeout(resolve, 800));
-  assert.strictEqual(p.step(), "cam-run");
-  assert.doesNotMatch(p.$("#tut-title").textContent, /found one/);
-  assert.match(p.$(".tut-status").textContent, /didn't count.*Reset/);
-  p.done();
-});
-
-test("a credit that arrives just after the program finished still counts", async () => {
-  const p = page();
-  p.bus.emit({ type: "drone_mode", mode: "sim" });
-  intoCamera(p);
-  p.click("Next");
-  buildCamera(p);
-  p.bus.emit({ type: "running", running: true });
-  p.bus.emit({ type: "running", running: false });
-  p.bus.emit({ type: "finished", reason: "done", detail: "" });
-  p.bus.emit({ type: "mission", state: "flying", found: 1, signal: "credited" });
-  await new Promise((resolve) => p.window.setTimeout(resolve, 800));
-  assert.match(p.$("#tut-title").textContent, /It found one/);
-  p.done();
-});
-
-test("a returning student goes straight to the camera lesson, their blocks put aside", () => {
-  const storage = fakeStorage({ [TUTORIAL_KEY]: "done" });
-  const p = page({ storage, blocks: ["takeoff", "flip", "land"] });
-  p.bus.emit({ type: "drone_mode", mode: "sim" });
-  p.$("#tutorial-open").click();
-  p.click("Camera lesson ›");
-  assert.strictEqual(p.step(), "cam-intro");
-  assert.deepStrictEqual(types(p.ws), ["takeoff", "flip", "land"], "nothing touched yet");
-  p.click("Next");
-  assert.strictEqual(p.step(), "cam-aside");
-  p.click("Put my blocks aside");
-  assert.ok(storage.data.has(STASH_KEY));
-  assert.strictEqual(p.step(), "cam-takeoff");
-  p.ctl.goTo("cam-final");
-  assert.match(p.$("#tut-card").textContent, /earlier blocks are put aside/);
-  p.click("Bring back my earlier blocks");
-  assert.deepStrictEqual(types(p.ws), ["takeoff", "flip", "land"]);
-  assert.strictEqual(storage.data.has(STASH_KEY), false);
-  p.done();
-});
-
-test("closing the camera lesson gives put-aside blocks back", () => {
-  const storage = fakeStorage({ [TUTORIAL_KEY]: "done" });
-  const p = page({ storage, blocks: ["flip"] });
-  p.bus.emit({ type: "drone_mode", mode: "sim" });
-  p.$("#tutorial-open").click();
-  p.click("Camera lesson ›");
-  p.click("Next");
-  p.click("Put my blocks aside");
-  p.click("Close");
-  assert.strictEqual(p.step(), false);
-  assert.deepStrictEqual(types(p.ws), ["flip"]);
-  p.done();
-});
-
 test("the praise for a flight survives the server's own message order", () => {
   // Found in a real browser, not here: the server sends `running: false`
   // after `finished`, and that render wiped the ✓ line it had just shown.
@@ -887,5 +654,83 @@ test("the praise for a flight survives the server's own message order", () => {
   p.bus.emit({ type: "finished", reason: "done", detail: "" });
   p.bus.emit({ type: "running", running: false });
   assert.match(p.$(".tut-status").textContent, /worked/);
+  p.done();
+});
+
+// ── the arena ───────────────────────────────────────────────────────────────
+
+test("the tutorial flies in the square arena, and puts the competition one back after", () => {
+  const p = page();
+  p.bus.emit(sceneries("corridor"));
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  assert.strictEqual(p.step(), "welcome");
+  assert.deepStrictEqual(arenaSends(p), ["arena"]);
+  assert.match(p.logged.join("\n"), /flies in the Square arena.*back in the Competition arena/);
+  p.bus.emit(sceneries("arena"));         // the server's answer
+  p.click("Skip, I've used this before");
+  assert.deepStrictEqual(arenaSends(p), ["arena", "corridor"]);
+  assert.match(p.logged.join("\n"), /Back in the Competition arena/);
+  p.done();
+});
+
+test("on a first launch the arena list can arrive after the tutorial has opened", () => {
+  const p = page();
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  assert.strictEqual(p.step(), "welcome");
+  assert.deepStrictEqual(arenaSends(p), [], "nothing known to switch from yet");
+  p.bus.emit(sceneries("corridor"));
+  assert.deepStrictEqual(arenaSends(p), ["arena"]);
+  p.done();
+});
+
+test("a student already in the square arena is left there", () => {
+  const p = page();
+  p.bus.emit(sceneries("arena"));
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  p.click("Skip, I've used this before");
+  assert.deepStrictEqual(arenaSends(p), []);
+  p.done();
+});
+
+test("closed mid-flight, the arena goes back once the drone has landed", () => {
+  // The server refuses an arena change while a mission runs.
+  const p = page();
+  p.bus.emit(sceneries("corridor"));
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  p.bus.emit(sceneries("arena"));
+  p.ctl.goTo("land");
+  p.click("Do it for me");
+  p.click("Next");
+  p.bus.emit({ type: "running", running: true });
+  p.ctl.finish("skipped");
+  assert.deepStrictEqual(arenaSends(p), ["arena"], "not while it is flying");
+  p.bus.emit({ type: "running", running: false });
+  assert.deepStrictEqual(arenaSends(p), ["arena", "corridor"]);
+  p.done();
+});
+
+test("an arena the student picks mid-tutorial is theirs, and not undone", () => {
+  const p = page();
+  p.bus.emit(sceneries("corridor"));
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  p.bus.emit(sceneries("arena"));
+  p.bus.emit(sceneries("corridor"));      // they used the picker
+  p.click("Skip, I've used this before");
+  assert.deepStrictEqual(arenaSends(p), ["arena"]);
+  p.done();
+});
+
+test("closed by a drone switch, the arena goes back when the simulator does", () => {
+  const p = page();
+  p.bus.emit(sceneries("corridor"));
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  p.bus.emit(sceneries("arena"));
+  p.bus.emit({ type: "drone_mode", mode: "sim", switching: true });
+  assert.strictEqual(p.step(), false);
+  p.bus.emit({ type: "drone_mode", mode: "tello" });
+  assert.deepStrictEqual(arenaSends(p), ["arena"], "a Tello has no arena to change");
+  p.bus.emit({ type: "drone_mode", mode: "sim", switching: true });
+  p.bus.emit({ type: "drone_mode", mode: "sim" });
+  assert.deepStrictEqual(arenaSends(p), ["arena", "corridor"]);
   p.done();
 });

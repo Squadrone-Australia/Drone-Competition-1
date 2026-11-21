@@ -235,9 +235,10 @@ def main():
     )
     ap.add_argument(
         "--scenery",
-        choices=["arena", "corridor"],
+        choices=["corridor", "arena"],
         default=None,
-        help="sim only: which arena to start in (also switchable in the browser)",
+        help="sim only: which arena to start in, default the competition one "
+        "(corridor; also switchable in the browser)",
     )
     ap.add_argument(
         "--check-updates",

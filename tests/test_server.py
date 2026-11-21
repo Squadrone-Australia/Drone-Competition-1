@@ -283,7 +283,8 @@ def test_run_starts_from_the_start_pad_every_time():
 def test_reset_message_returns_the_drone_and_tells_the_clients():
     from comp1.sim.drone import SimDrone
 
-    drone = SimDrone(seed=2, delay=0)
+    # The square room, whose start pad is its centre (2, 2).
+    drone = SimDrone(seed=2, delay=0, scenery_name="arena")
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         ws.send_json(
@@ -663,8 +664,8 @@ def test_the_scenery_list_is_offered_on_connect():
     app = create_app(SimDrone(seed=1, delay=0))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         msg = collect_until(ws, "sceneries")
-        assert [s["id"] for s in msg["sceneries"]] == ["arena", "corridor"]
-        assert msg["current"] == "arena"
+        assert [s["id"] for s in msg["sceneries"]] == ["corridor", "arena"]
+        assert msg["current"] == "corridor"
 
 
 def test_a_drone_with_no_arena_offers_no_sceneries():
@@ -944,39 +945,25 @@ def test_auto_calibration_is_refused_during_a_mission():
     assert "stop the mission" in error["message"]
 
 
-# --- obstacles reach the browser --------------------------------------------
+# --- flying into a sign ------------------------------------------------------
 
 
-def _obstacle_arena():
+def _sign_arena():
+    """A free-standing decoy on its post, straight ahead of the start pad."""
     from comp1.sim.drone import SimDrone
     from comp1.sim.world import FIRE, Marker, World
 
     return SimDrone(
         world=World(
             size_m=4.0,
-            markers=[Marker(2.0, 3.9, FIRE), Marker(2.0, 3.0, "obstacle_red_square")],
+            markers=[Marker(2.0, 3.9, FIRE), Marker(2.0, 3.0, "green_triangle")],
         ),
         delay=0,
     )
 
 
-def test_telemetry_reports_obstacles():
-    with TestClient(create_app(drone=_obstacle_arena())) as c:
-        with c.websocket_connect("/ws") as ws:
-            t = collect_until(ws, "telemetry", limit=200)
-            # Present whether or not anything is in view — the browser reads them
-            # every frame, so a missing key is a broken panel, not a blank one.
-            for key in (
-                "obstacle_count",
-                "obstacle_distance_cm",
-                "obstacle_bearing_deg",
-                "obstacle_ahead",
-            ):
-                assert key in t
-
-
-def test_flying_into_an_obstacle_is_reported_as_a_crashed_mission():
-    drone = _obstacle_arena()
+def test_flying_into_a_sign_is_reported_as_a_crashed_mission():
+    drone = _sign_arena()
     with TestClient(create_app(drone=drone)) as c:
         with c.websocket_connect("/ws") as ws:
             ws.send_text(
@@ -1003,7 +990,7 @@ def test_flying_into_an_obstacle_is_reported_as_a_crashed_mission():
                 if data["type"] == "mission":
                     states.append(data["state"])
                     if data["state"] == "crashed":
-                        assert data["crashed_into"] == "obstacle"
+                        assert data["crashed_into"] == "sign"
                         break
             assert drone.crashed
             # Arrives on the pose loop's cadence, which can be *after* "finished"

@@ -252,14 +252,14 @@ def test_adapters_without_an_arena_expose_no_pose():
     assert MockDrone().pose() is None and MockDrone().scene() is None
 
 
-# --- obstacles are solid ----------------------------------------------------
+# --- free-standing signs are solid -----------------------------------------
 
 
-def obstacle_world():
-    """A 4 m room with one solid obstacle 2 m due north of the start pad."""
+def sign_world():
+    """A 4 m room with one free-standing sign 1 m due north of the start pad."""
     return World(
         size_m=4.0,
-        markers=[Marker(2.0, 4.0, FIRE), Marker(2.0, 3.0, "obstacle_red_square", 0.4)],
+        markers=[Marker(2.0, 4.0, FIRE), Marker(2.0, 3.0, "green_triangle", 0.4)],
     )
 
 
@@ -270,8 +270,8 @@ def flying_at(world, z=1.0):
     return d
 
 
-def test_flying_into_an_obstacle_stops_short_and_records_the_crash():
-    d = flying_at(obstacle_world())
+def test_flying_into_a_sign_stops_short_and_records_the_crash():
+    d = flying_at(sign_world())
     d.move("forward", 200)  # straight at it, from (2, 2)
     assert d.crashed
     # Stopped before reaching it rather than sliding past or through.
@@ -281,18 +281,19 @@ def test_flying_into_an_obstacle_stops_short_and_records_the_crash():
 def test_a_blocked_move_does_not_resume_on_the_far_side():
     """The far end of this move is clear, and that must not rescue it.
 
-    Without the latch the drone stops at the obstacle, then the next animation
+    Without the latch the drone stops at the sign, then the next animation
     step finds open air beyond it and teleports the drone through.
     """
-    d = flying_at(obstacle_world())
-    d.move("forward", 180)  # would end at y=3.8, past the obstacle at y=3.0
+    d = flying_at(sign_world())
+    d.move("forward", 180)  # would end at y=3.8, past the sign at y=3.0
     assert d.crashed and d.y < 3.0
 
 
-def test_flying_over_an_obstacle_is_a_legitimate_way_past():
-    # Obstacles are modelled as short cylinders, not floor-to-ceiling columns,
-    # precisely so that climbing over one stays an option worth discovering.
-    d = flying_at(obstacle_world(), z=2.0)
+def test_flying_over_a_sign_is_a_legitimate_way_past():
+    # Signs are modelled as short cylinders on a post, not floor-to-ceiling
+    # columns, precisely so that climbing over one stays an option worth
+    # discovering.
+    d = flying_at(sign_world(), z=2.0)
     d.move("forward", 150)
     assert not d.crashed
     assert d.y > 3.0
@@ -376,12 +377,12 @@ def test_every_competition_sign_stands_in_the_open():
 
 
 def test_what_was_hit_is_named_and_the_first_cause_sticks():
-    d = flying_at(obstacle_world())
+    d = flying_at(sign_world())
     d.move("forward", 200)
-    assert d.crashed_into == "obstacle"
+    assert d.crashed_into == "sign"
     d.move("back", 500)  # and then into the south wall
-    assert d.crashed_into == "obstacle"
-    assert d.pose()["crashed_into"] == "obstacle"
+    assert d.crashed_into == "sign"
+    assert d.pose()["crashed_into"] == "sign"
     d.reset()
     assert d.crashed_into is None and d.pose()["crashed_into"] is None
 
@@ -393,7 +394,7 @@ def test_a_wall_crash_is_named_as_one():
 
 
 def test_reset_clears_the_crash():
-    d = flying_at(obstacle_world())
+    d = flying_at(sign_world())
     d.move("forward", 200)
     assert d.crashed
     d.reset()
