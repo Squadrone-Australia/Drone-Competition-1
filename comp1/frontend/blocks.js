@@ -85,7 +85,7 @@ const BLOCKS = [
     previousStatement: null },
   { type: "start", message0: "🚁 when mission starts", colour: C.mission,
     tooltip: "The program begins here. Connect the first command underneath this block.",
-    nextStatement: null, deletable: false },
+    nextStatement: null, extensions: ["comp1_start_anchor"] },
 
   // ── control ───────────────────────────────────────────────────────────────
   { type: "repeat_n", message0: "repeat %1 times %2", colour: C.flow, inputsInline: true,
@@ -192,7 +192,21 @@ const BLOCKS = [
 
 // `math_number` is Blockly's own literal block — used as the shadow inside every number socket,
 // so a beginner still just sees a number to type into.
-if (typeof Blockly !== "undefined") Blockly.defineBlocksWithJsonArray(BLOCKS);
+//
+// `start` is the program's only anchor, and is not in the toolbox, so it must
+// never be deleted or copied: a deleted one could only be dragged back out of
+// the bin, and a copy is a second stack that looks like a program and runs
+// nothing (serializeProgram reads the first). JSON has no `deletable` key -
+// one written there is silently ignored - so it is set in code. In Blockly an
+// undeletable block also loses Duplicate, Copy and Cut.
+if (typeof Blockly !== "undefined") {
+  if (!Blockly.Extensions.isRegistered("comp1_start_anchor")) {
+    Blockly.Extensions.register("comp1_start_anchor", function anchor() {
+      this.setDeletable(false);
+    });
+  }
+  Blockly.defineBlocksWithJsonArray(BLOCKS);
+}
 
 const shadowNum = (v) => ({ shadow: { type: "math_number", fields: { NUM: v } } });
 const blk = (type, inputs) => (inputs ? { kind: "block", type, inputs } : { kind: "block", type });
@@ -580,10 +594,39 @@ function unattachedCount(workspace) {
   }
 }
 
+/**
+ * Remove every start block but the first, and return how many went.
+ *
+ * Before start was truly undeletable a student could duplicate it, and that
+ * copy is in their saved workspace. Undeletable now, it would sit there for
+ * good. The first is kept because it is the one serializeProgram has been
+ * running; whatever hung under a copy is left on the canvas as loose blocks,
+ * where unattachedCount reports it, rather than thrown away. Not recorded for
+ * undo: Ctrl+Z must not bring the copy back.
+ */
+function removeExtraStarts(workspace) {
+  let removed = 0;
+  const undo = typeof Blockly !== "undefined" && Blockly.Events.getRecordUndo();
+  try {
+    if (typeof Blockly !== "undefined") Blockly.Events.setRecordUndo(false);
+    for (const extra of workspace.getBlocksByType("start", false).slice(1)) {
+      const below = extra.getNextBlock();
+      if (below) below.unplug(false);
+      extra.dispose(false);
+      removed += 1;
+    }
+  } catch (_error) {
+    // A copy left behind is untidy, never broken: the first start still runs.
+  } finally {
+    if (typeof Blockly !== "undefined") Blockly.Events.setRecordUndo(undo);
+  }
+  return removed;
+}
+
 const COMP1 = {
   blocks: BLOCKS,
   toolbox: TOOLBOX,
-  START_POSITION, unattachedCount,
+  START_POSITION, unattachedCount, removeExtraStarts,
   warnings: WARNINGS, // filled by serializeProgram; app.js prints these to the console
   valueJson, blockJson, chainJson, programToPython,
   serializeProgram(workspace) {

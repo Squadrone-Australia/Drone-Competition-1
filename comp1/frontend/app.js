@@ -47,7 +47,9 @@ const bufferRestore = window.COMP1_BUFFER.restore(workspace);
 // the toolbox — so a workspace arriving without one (a buffer written before it
 // existed, or one Blockly could only partly load) would be a program the
 // student has no way to repair by dragging. Seed it whenever it is missing,
-// which on a first run is always.
+// which on a first run is always. One arriving with several (a copy made before
+// start was undeletable) keeps only the first.
+COMP1.removeExtraStarts(workspace);
 if (workspace.getBlocksByType("start", false).length === 0) {
   const start = workspace.newBlock("start");
   start.initSvg(); start.render();

@@ -389,6 +389,8 @@ function install(env) {
   function loadState(state) {
     try {
       Blockly.serialization.workspaces.load(state, ws);
+      // Blocks put aside before start was undeletable may hold a copy of it.
+      if (win.COMP1 && win.COMP1.removeExtraStarts) win.COMP1.removeExtraStarts(ws);
       if (!startBlock(ws)) seedStart();
       return true;
     } catch (_error) {
