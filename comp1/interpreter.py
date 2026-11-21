@@ -1,4 +1,5 @@
 import asyncio
+import math
 from collections.abc import Callable
 
 from .drone.base import DroneAdapter
@@ -53,6 +54,15 @@ def _clamp(v, lo, hi):
 
 def _truthy(v) -> bool:
     return v if isinstance(v, bool) else float(v) != 0
+
+
+def _tidy(v: float) -> float:
+    """Round off float noise from trig, so sin 30 is 0.5 and not 0.49999999999999994.
+
+    A student testing `sin 30 = 0.5` or `cos 90 = 0` must get true; ten decimal places
+    is far finer than anything a drone can fly and far coarser than the noise.
+    """
+    return round(v, 10) + 0.0  # + 0.0 turns -0.0 into 0.0
 
 
 class Interpreter:
@@ -231,9 +241,57 @@ class Interpreter:
                 v = self._eval(node.operand, depth + 1)
                 if node.op == "not":
                     return not _truthy(v)
-                return -float(v) if node.op == "neg" else abs(float(v))
+                return self._unary(node.op, float(v))
             case "binop":
                 return self._binop(node, depth)
+
+    def _unary(self, op: str, x: float) -> float:
+        """One-number maths. Total by design: no input may raise mid-flight.
+
+        Whatever has no answer becomes 0 with a warning, the same rule division by
+        zero already follows; an input just outside a domain (asin of 1.0000001, from
+        float noise) is clamped onto it instead.
+        """
+        match op:
+            case "neg":
+                return -x
+            case "abs":
+                return abs(x)
+        if not math.isfinite(x):
+            # only reachable through arithmetic that overflowed already; math.floor(inf)
+            # and math.sin(inf) both raise, and a warning beats a crash
+            self._warn(f"{op} of {x:g} has no answer — using 0")
+            return 0.0
+        match op:
+            case "sqrt":
+                if x < 0:
+                    self._warn(f"square root of a negative number ({x:g}) — using 0")
+                    return 0.0
+                return math.sqrt(x)
+            case "round":
+                # halves go up, as taught in school and as JS Math.round does;
+                # Python's round(2.5) == 2 would read as a bug to a student
+                return float(math.floor(x + 0.5))
+            case "floor":
+                return float(math.floor(x))
+            case "ceil":
+                return float(math.ceil(x))
+            case "tan" if (x - 90) % 180 == 0:
+                self._warn(f"tan of {x:g}° has no answer — using 0")
+                return 0.0
+            case "sin" | "cos" | "tan":
+                fn = {"sin": math.sin, "cos": math.cos, "tan": math.tan}[op]
+                return _tidy(fn(math.radians(x)))
+            case "asin" | "acos":
+                if not -1 <= x <= 1:
+                    clamped = _clamp(x, -1.0, 1.0)
+                    self._warn(f"{op} needs a number from -1 to 1 — using {clamped:g}")
+                    x = clamped
+                fn = math.asin if op == "asin" else math.acos
+                return _tidy(math.degrees(fn(x)))
+            case "atan":
+                return _tidy(math.degrees(math.atan(x)))
+        return 0.0  # unreachable: protocol.UN_OPS is closed
 
     def _binop(self, node, depth):
         left = self._eval(node.left, depth + 1)
@@ -254,6 +312,24 @@ class Interpreter:
                     self._warn("division by zero — using 0")
                     return 0.0
                 return a / b
+            case "%":
+                if b == 0:
+                    self._warn("remainder after dividing by zero — using 0")
+                    return 0.0
+                return a % b
+            case "**":
+                try:
+                    # math.pow raises where ** would quietly go complex ((-8) ** (1/3))
+                    return math.pow(a, b)
+                except OverflowError:
+                    self._warn(f"{a:g} to the power {b:g} is too big — using 0")
+                except ValueError:
+                    self._warn(f"{a:g} to the power {b:g} has no answer — using 0")
+                return 0.0
+            case "min":
+                return min(a, b)
+            case "max":
+                return max(a, b)
             case "<":
                 return a < b
             case ">":

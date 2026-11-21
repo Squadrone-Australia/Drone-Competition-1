@@ -117,6 +117,65 @@ test("Python translation renders expressions, variables, branches, and loops", (
   assert.match(python, /else:\s+# block wait \[wait\]\s+drone\.wait/);
 });
 
+// ── maths drawer ────────────────────────────────────────────────────────────
+test("math_single and math_trig serialize to a unop carrying the dropdown's op", () => {
+  for (const [type, op] of [["math_single", "sqrt"], ["math_single", "floor"],
+                            ["math_trig", "sin"], ["math_trig", "atan"]])
+    assert.deepStrictEqual(
+      valueJson(fake(type, { fields: { OP: op }, inputs: { X: n(9) } })),
+      { kind: "unop", op, operand: { kind: "number", value: 9 } });
+});
+
+test("math_minmax and the new math_binop ops serialize to a binop", () => {
+  for (const [type, op] of [["math_minmax", "min"], ["math_minmax", "max"],
+                            ["math_binop", "**"], ["math_binop", "%"]])
+    assert.deepStrictEqual(
+      valueJson(fake(type, { fields: { OP: op }, inputs: { A: n(7), B: n(3) } })),
+      { kind: "binop", op, left: { kind: "number", value: 7 },
+        right: { kind: "number", value: 3 } });
+});
+
+test("an empty maths socket is filled with 0 and a warning", () => {
+  warnings.length = 0;
+  assert.deepStrictEqual(valueJson(fake("math_single", { fields: { OP: "sqrt" } })),
+    { kind: "unop", op: "sqrt", operand: { kind: "number", value: 0 } });
+  assert.strictEqual(warnings.length, 1);
+});
+
+test("every maths dropdown op is one the backend accepts", () => {
+  // mirrors protocol.BIN_OPS / UN_OPS; a block op missing there is a program that won't run
+  const binops = new Set(["+", "-", "*", "/", "%", "**", "min", "max"]);
+  const unops = new Set(["neg", "abs", "sqrt", "round", "floor", "ceil",
+                         "sin", "cos", "tan", "asin", "acos", "atan"]);
+  for (const type of ["math_binop", "math_minmax", "math_single", "math_trig"]) {
+    const def = blocks.find((b) => b.type === type);
+    const ops = def.args0.find((a) => a.name === "OP").options.map(([, v]) => v);
+    const allowed = type === "math_single" || type === "math_trig" ? unops : binops;
+    for (const op of ops) assert.ok(allowed.has(op), `${type} offers unknown op ${op}`);
+  }
+});
+
+test("Python translation renders the maths ops with only the helpers it uses", () => {
+  const set = (value) => ({ id: "s", op: "set_var", name: "x", value });
+  const sqrt = programToPython({ version: 2, blocks: [
+    set({ kind: "unop", op: "sqrt", operand: { kind: "sensor", sensor: "battery" } })] });
+  assert.match(sqrt, /variables\["x"\] = _sqrt\(drone\.battery\)/);
+  assert.match(sqrt, /^import math$/m);
+  assert.match(sqrt, /def _sqrt\(value\):/);
+  assert.doesNotMatch(sqrt, /def _sin\(/);
+
+  const mixed = programToPython({ version: 2, blocks: [set({
+    kind: "binop", op: "min",
+    left: { kind: "binop", op: "%", left: 370, right: 360 },
+    right: { kind: "unop", op: "cos", operand: 60 } })] });
+  assert.match(mixed, /= min\(_safe_mod\(370, 360\), _cos\(60\)\)/);
+  assert.match(mixed, /def _safe_mod\(/);
+  assert.match(mixed, /def _cos\(/);
+
+  const plain = programToPython({ version: 2, blocks: [{ id: "t", op: "takeoff" }] });
+  assert.doesNotMatch(plain, /import math/);
+});
+
 test("wait takes a Value", () => {
   assert.deepStrictEqual(run(fake("wait", { id: "w", inputs: { SECONDS: n(3) } })).blocks,
     [{ id: "w", op: "wait", seconds: 3 }]);
@@ -426,7 +485,9 @@ test("number sockets ship a shadow so beginners still see a typeable number", ()
         shadows[`${b.type}.${name}`] = inp.shadow.fields.NUM;
   assert.deepStrictEqual(shadows, {
     "move.CM": 50, "rotate.DEG": 90, "repeat_n.N": 4, "wait.SECONDS": 2,
-    "compare.A": 0, "compare.B": 0, "math_binop.A": 1, "math_binop.B": 1, "set_var.VALUE": 0,
+    "compare.A": 0, "compare.B": 0, "math_binop.A": 1, "math_binop.B": 1,
+    "math_single.X": 9, "math_trig.X": 30, "math_minmax.A": 1, "math_minmax.B": 1,
+    "set_var.VALUE": 0,
   });
 });
 

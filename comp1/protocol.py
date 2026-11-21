@@ -40,8 +40,19 @@ SENSORS = Literal[
     "obstacle_position_center",
     "obstacle_position_right",
 ]
-BIN_OPS = Literal["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "!=", "and", "or"]
-UN_OPS = Literal["not", "neg", "abs"]
+# `%` is the floored remainder (Python's, so `-30 % 360` is 330 — the one students want
+# for wrapping a heading), `**` is power. Every maths op is total: the interpreter turns
+# what has no answer (√-1, 0 ** -1, x % 0) into 0 with a warning, never an exception.
+BIN_OPS = Literal[
+    "+", "-", "*", "/", "%", "**", "min", "max",
+    "<", ">", "<=", ">=", "==", "!=", "and", "or",
+]
+# Trig works in degrees, like every turn block and every bearing sensor; the inverse
+# functions answer in degrees too. `round` rounds halves up, not to even.
+UN_OPS = Literal[
+    "not", "neg", "abs", "sqrt", "round", "floor", "ceil",
+    "sin", "cos", "tan", "asin", "acos", "atan",
+]
 
 
 class NumberLit(BaseModel):

@@ -33,8 +33,22 @@ A discriminated union on `kind`, recursive through `left`/`right`/`operand`:
 {"kind": "unop",   "op": "not", "operand": Value}
 ```
 
-- `binop.op` ∈ `+ - * / < > <= >= == != and or`
-- `unop.op` ∈ `not neg abs`
+- `binop.op` ∈ `+ - * / % ** min max < > <= >= == != and or`
+- `unop.op` ∈ `not neg abs sqrt round floor ceil sin cos tan asin acos atan`
+
+The maths ops past the original `+ - * /` and `neg abs` were added on 2026-11-21 for the
+Maths drawer (`math_single`, `math_trig`, `math_minmax`, and `^`/`mod` on `math_binop`). They
+only widen the op lists, so every earlier program is still valid and the version stays 2.
+
+- `%` is the floored remainder (Python's): `-30 % 360` is `330`, which is what wrapping a
+  heading wants. `**` is power.
+- Trig is in **degrees**, matching `rotate` and the bearing sensors; `asin`/`acos`/`atan`
+  answer in degrees. Trig results are rounded to 10 decimal places so `sin 30 == 0.5` holds.
+- `round` takes halves up (`2.5 → 3`, `-2.5 → -2`), not Python's round-half-to-even.
+- Every op is total. What has no answer becomes `0` with a warning, as division by zero
+  always has: `x % 0`, `sqrt` of a negative, `tan` at 90° + k·180°, a power that overflows or
+  has no real answer (`0 ** -1`, `(-8) ** 0.5`). `asin`/`acos` outside −1..1 clamp onto it,
+  also with a warning.
 
 **A bare JSON number is accepted anywhere a `Value` is** and normalises to a `NumberLit`. This is
 what keeps `{"op":"move","cm":50}` — every saved program and every test fixture — valid, and keeps
