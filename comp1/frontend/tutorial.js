@@ -40,7 +40,9 @@
 // because nothing is placed within 1.2 m of the start pad (sim/scenery.py).
 // tests/fixtures/tutorial_lesson.json pins the program; tests/js checks this
 // file still builds exactly that, and tests/test_tutorial_lesson.py flies it in
-// every arena. A first flight that crashes is a terrible first lesson.
+// every arena. A first flight that crashes is a terrible first lesson. The
+// optional camera lesson (VISION_LESSON) is held the same way, by
+// tutorial_vision_lesson.json, and flown with both marker finders.
 
 const TUTORIAL_KEY = "comp1.tutorial.v1";       // "done" | "skipped"
 const STASH_KEY = "comp1.tutorial.stash.v1";    // blocks put aside for the lesson
@@ -67,7 +69,36 @@ const LESSON = [
   { type: "land", label: "land" },
 ];
 
+// The camera lesson: the optional second half, offered after the first flight
+// and from the welcome card. It is the old final-card challenge made into
+// checked steps, because a list of block names on a card never taught the two
+// things a vision program needs that a stack of moves does not: a test dropped
+// into a slot, and blocks put *inside* a loop rather than under it. Measured in
+// both arenas with both detectors before it was chosen (see
+// tests/test_tutorial_lesson.py): it finds a target every time and never
+// crashes, because "approach target and stop" stops short of the sign.
+//
+// `cond` is a block that goes into a value slot, `body` the blocks that go
+// inside a loop. A step can ask for a block's shell first and its insides
+// later - SHELL, then COND, then FULL - so each new idea gets a step of its own.
+const SHELL = 0, COND = 1, FULL = 2;
+const TURN_30 = {
+  type: "rotate", label: "turn ↻ clockwise 30°",
+  fields: { DIR: ["cw", "↻ clockwise"] }, number: { input: "DEG", value: 30, unit: "°" },
+};
+const VISION_LESSON = [
+  { type: "takeoff", label: "take off" },
+  { type: "repeat_until", label: "keep doing until",
+    cond: { input: "COND", type: "marker_visible", label: "target seen?" },
+    body: { input: "BODY", blocks: [TURN_30] } },
+  { type: "approach_marker", label: "approach target and stop" },
+  { type: "mark_found", label: "signal target found 🎉" },
+  { type: "land", label: "land" },
+];
+
 // The final card's challenge, as the console keeps it after the card is gone.
+// Logged when a student finishes without taking the camera lesson, which
+// builds exactly this.
 const CHALLENGE_LOG = [
   "🔥 Next challenge: find a target. Snap these under “🚁 when mission starts”:",
   "   1. take off",
@@ -76,6 +107,15 @@ const CHALLENGE_LOG = [
   "   4. signal target found 🎉",
   "   5. land",
   "   “target seen?” is in Sensing, “keep doing until” is in Control.",
+  "   Want it step by step? Press Tutorial at the top and choose the camera lesson.",
+];
+
+// What the console keeps after the camera lesson: the puzzle it leaves open.
+const CAMERA_LOG = [
+  "🔥 Next challenge: find all three targets.",
+  "   After signalling, the drone is still looking at the target it just found.",
+  "   How could you make it look somewhere new before it searches again?",
+  "   Click any Sensing block to read what it measures: distance, direction, left or right.",
 ];
 
 function startBlock(ws) {
@@ -121,16 +161,24 @@ function looseBlock(ws, type) {
   }
 }
 
-function problemWith(b, spec, n) {
+/**
+ * What is wrong with block `b` as lesson block `spec`, in words, or "".
+ *
+ * `place` names a block that is not in the main stack - the one inside a
+ * loop. Otherwise it is named by its position under the start block.
+ */
+function problemWith(b, spec, n, place) {
+  const is = place || `Block ${n} under “when mission starts”`;
+  const says = place || `Block ${n}`;
   if (b.type !== spec.type) {
-    return `Block ${n} under “when mission starts” is “${blockText(b)}”, but it should be `
+    return `${is} is “${blockText(b)}”, but it should be `
       + `“${spec.label}”. Put “${spec.label}” in above it, or drag the wrong block away.`;
   }
   for (const [name, [want, wantText]] of Object.entries(spec.fields || {})) {
     if (b.getFieldValue(name) !== want) {
       const field = b.getField(name);
       const shown = field && field.getText ? field.getText() : b.getFieldValue(name);
-      return `Block ${n} says “${shown}”. Click “${shown}” on the block and choose “${wantText}”.`;
+      return `${says} says “${shown}”. Click “${shown}” on the block and choose “${wantText}”.`;
     }
   }
   if (spec.number) {
@@ -147,20 +195,83 @@ function problemWith(b, spec, n) {
   return "";
 }
 
+/** The blocks inside a loop's statement input, top to bottom. */
+function insideOf(b, input) {
+  const out = [];
+  for (let x = b.getInputTargetBlock(input); x; x = x.getNextBlock()) out.push(x);
+  return out;
+}
+
 /**
- * Does the program match the first `upto + 1` lesson blocks?
+ * What is wrong with what goes *into* block `b`: the test in its slot (from
+ * COND) and the blocks inside it (at FULL). A failed check, or null.
+ *
+ * These exist for the two mistakes a stack of moves never had: a test left
+ * lying beside its slot, and a block snapped below a loop when it belongs
+ * inside it. Below, it runs once after the loop instead of every time round,
+ * and the loop, left empty, never looks round at all.
+ */
+function innerProblem(ws, b, spec, part) {
+  if (spec.cond && part >= COND) {
+    const { input, type, label } = spec.cond;
+    const got = b.getInputTargetBlock(input);
+    if (!got) {
+      return { ok: false, hint: looseBlock(ws, type)
+        ? `“${label}” is on the workspace but not in the slot. Drag it onto the gap at the `
+          + `end of “${spec.label}” until it clicks in.`
+        : "" };
+    }
+    if (got.type !== type) {
+      return { ok: false, hint: `The slot in “${spec.label}” holds “${blockText(got)}”. `
+        + `Drag that out and put “${label}” in instead.` };
+    }
+  }
+  if (spec.body && part >= FULL) {
+    const inside = insideOf(b, spec.body.input);
+    const want = spec.body.blocks;
+    for (let j = 0; j < want.length; j += 1) {
+      const x = inside[j];
+      if (!x) {
+        const below = j === 0 && b.getNextBlock();
+        if (below && below.type === want[j].type) {
+          return { ok: false, hint: `“${blockText(below)}” is below “${spec.label}”, not `
+            + "inside it. Drag it up into the gap inside the loop: only the blocks inside "
+            + "are repeated." };
+        }
+        const loose = looseBlock(ws, want[j].type);
+        return { ok: false, hint: loose
+          ? `“${blockText(loose)}” is on the workspace but not snapped on. Drag it into the `
+            + `gap inside “${spec.label}” until it clicks into place.`
+          : "" };
+      }
+      const problem = problemWith(x, want[j], j + 1, `The block inside “${spec.label}”`);
+      if (problem) return { ok: false, hint: problem };
+    }
+    if (inside.length > want.length) {
+      return { ok: false, hint: `“${blockText(inside[want.length])}” is inside “${spec.label}”, `
+        + "so it would run every time round the loop. Drag it out and snap it below the loop." };
+    }
+  }
+  return null;
+}
+
+/**
+ * Does the program match the first `upto + 1` blocks of `lesson`?
+ *
+ * Every block before `upto` is checked whole; block `upto` only as far as
+ * `part` - its shell, its test, or everything inside it too.
  *
  * `hint` is empty when there is simply nothing there yet: the step's own text
  * already says what to do, and repeating it in an alarming colour before the
  * student has touched anything reads as a telling-off.
  */
-function checkLesson(ws, upto) {
+function checkLesson(ws, upto, lesson = LESSON, part = FULL) {
   const chain = chainOf(ws);
   for (let i = 0; i <= upto; i += 1) {
-    const spec = LESSON[i];
+    const spec = lesson[i];
     const b = chain[i];
     if (!b) {
-      const above = i === 0 ? "🚁 when mission starts" : LESSON[i - 1].label;
+      const above = i === 0 ? "🚁 when mission starts" : lesson[i - 1].label;
       const loose = looseBlock(ws, spec.type);
       return {
         ok: false,
@@ -172,66 +283,134 @@ function checkLesson(ws, upto) {
     }
     const problem = problemWith(b, spec, i + 1);
     if (problem) return { ok: false, hint: problem };
+    const inner = innerProblem(ws, b, spec, i === upto ? part : FULL);
+    if (inner) return inner;
   }
-  if (upto >= LESSON.length - 1 && chain.length > LESSON.length) {
+  if (upto >= lesson.length - 1 && chain.length > lesson.length) {
     return { ok: false, hint: "Nothing should come after “land”. Drag the extra blocks to the trash can." };
   }
   return { ok: true, hint: "" };
 }
 
-function specState(spec) {
+function specState(spec, part = FULL) {
   const state = { type: spec.type };
   if (spec.fields) {
     state.fields = {};
     for (const [name, [value]] of Object.entries(spec.fields)) state.fields[name] = value;
   }
+  const inputs = {};
   if (spec.number) {
-    state.inputs = { [spec.number.input]:
-      { shadow: { type: "math_number", fields: { NUM: spec.number.value } } } };
+    inputs[spec.number.input] =
+      { shadow: { type: "math_number", fields: { NUM: spec.number.value } } };
   }
+  if (spec.cond && part >= COND) inputs[spec.cond.input] = { block: { type: spec.cond.type } };
+  if (spec.body && part >= FULL) {
+    let inner = null;
+    for (const w of [...spec.body.blocks].reverse()) {
+      const s = specState(w);
+      if (inner) s.next = { block: inner };
+      inner = s;
+    }
+    inputs[spec.body.input] = { block: inner };
+  }
+  if (Object.keys(inputs).length) state.inputs = inputs;
   return state;
 }
 
+/** Put right a block of the right type: its dropdowns and its number. */
+function repairBlock(b, spec) {
+  for (const [name, [value]] of Object.entries(spec.fields || {})) {
+    if (b.getFieldValue(name) !== value) b.setFieldValue(value, name);
+  }
+  if (spec.number && numberIn(b, spec.number.input) !== spec.number.value) {
+    const { input, value } = spec.number;
+    const plugged = b.getInputTargetBlock(input);
+    if (plugged && !plugged.isShadow()) plugged.unplug();
+    b.getInput(input).connection.setShadowState(
+      { type: "math_number", fields: { NUM: value } });
+  }
+}
+
+/** A loose block that can serve as `spec` just as it is, or null. */
+function usableLoose(ws, spec, n) {
+  const loose = looseBlock(ws, spec.type);
+  return loose && !loose.getParent() && !loose.getNextBlock()
+    && !problemWith(loose, spec, n) ? loose : null;
+}
+
+/** "Do it for me" for what goes into `b`, as far as `part`: see innerProblem. */
+function fixInner(ws, Blockly, b, spec, part) {
+  if (spec.cond && part >= COND) {
+    const { input, type } = spec.cond;
+    const got = b.getInputTargetBlock(input);
+    if (!got || got.type !== type) {
+      if (got) got.unplug();
+      const loose = looseBlock(ws, type);
+      const block = loose && !loose.getParent() ? loose
+        : Blockly.serialization.blocks.append({ type }, ws);
+      b.getInput(input).connection.connect(block.outputConnection);
+    }
+  }
+  if (spec.body && part >= FULL) {
+    const want = spec.body.blocks;
+    want.forEach((w, j) => {
+      const inside = insideOf(b, spec.body.input);
+      const x = inside[j];
+      if (x && x.type === w.type) {
+        repairBlock(x, w);
+        return;
+      }
+      // Their own block, wherever it went: below the loop is the usual place.
+      const below = j === 0 && !x && b.getNextBlock();
+      let block;
+      if (below && below.type === w.type) {
+        below.unplug(true);          // whatever was under it closes the gap
+        block = below;
+      } else {
+        block = (!x && usableLoose(ws, w, j + 1))
+          || Blockly.serialization.blocks.append(specState(w), ws);
+      }
+      const into = j === 0 ? b.getInput(spec.body.input).connection : inside[j - 1].nextConnection;
+      into.connect(block.previousConnection);
+      repairBlock(block, w);
+    });
+    const extra = insideOf(b, spec.body.input)[want.length];
+    if (extra) extra.unplug(false);
+  }
+}
+
 /**
- * "Do it for me": make the program match the lesson up to step `upto`.
+ * "Do it for me": make the program match `lesson` up to step `upto`, and
+ * block `upto` as far as `part` (see checkLesson).
  *
  * It repairs rather than rebuilds - a right block with a wrong number keeps
  * its place and gets the number - so the student sees their own attempt
  * finished, not replaced. A block that does not belong is pushed down, not
  * deleted: Blockly re-attaches whatever was below an insertion point.
  */
-function fixLesson(ws, Blockly, upto) {
+function fixLesson(ws, Blockly, upto, lesson = LESSON, part = FULL) {
   try {
     const start = startBlock(ws);
     if (!start) return false;
     for (let i = 0; i <= upto; i += 1) {
-      const spec = LESSON[i];
+      const spec = lesson[i];
+      const depth = i === upto ? part : FULL;
       const chain = chainOf(ws);
-      const b = chain[i];
+      let b = chain[i];
       const prev = i === 0 ? start : chain[i - 1];
       if (!b || b.type !== spec.type) {
         // The student's own loose block, if one is lying about on its own -
         // snapping theirs in teaches more than conjuring a twin beside it.
-        const loose = !b && looseBlock(ws, spec.type);
-        const usable = loose && !loose.getParent() && !loose.getNextBlock()
-          && !problemWith(loose, spec, i + 1);
-        const block = usable ? loose : Blockly.serialization.blocks.append(specState(spec), ws);
-        prev.nextConnection.connect(block.previousConnection);
-        continue;
+        b = (!b && usableLoose(ws, spec, i + 1))
+          || Blockly.serialization.blocks.append(specState(spec, depth), ws);
+        prev.nextConnection.connect(b.previousConnection);
+      } else {
+        repairBlock(b, spec);
       }
-      for (const [name, [value]] of Object.entries(spec.fields || {})) {
-        if (b.getFieldValue(name) !== value) b.setFieldValue(value, name);
-      }
-      if (spec.number && numberIn(b, spec.number.input) !== spec.number.value) {
-        const { input, value } = spec.number;
-        const plugged = b.getInputTargetBlock(input);
-        if (plugged && !plugged.isShadow()) plugged.unplug();
-        b.getInput(input).connection.setShadowState(
-          { type: "math_number", fields: { NUM: value } });
-      }
+      fixInner(ws, Blockly, b, spec, depth);
     }
-    if (upto >= LESSON.length - 1) {
-      const extra = chainOf(ws)[LESSON.length];
+    if (upto >= lesson.length - 1) {
+      const extra = chainOf(ws)[lesson.length];
       if (extra) extra.unplug(false);
     }
     return true;
@@ -354,8 +533,10 @@ function install(env) {
     active: false, index: 0, steps: [],
     mode: null, running: false, autoChecked: false,
     stash: null,                 // blocks put aside for the lesson
-    flight: null,                // "flying" | "done" | "failed" while on the run step
+    flight: null,                // "flying" | "done" | "failed" while on a run step
     crashed: false,
+    credited: false,             // the scorer counted a find during this flight
+    camAsideNeeded: false,       // decided once, as the camera lesson starts
     okTimer: 0, hintTimer: 0, pollTimer: 0, frame: 0,
   };
 
@@ -535,6 +716,8 @@ function install(env) {
       ),
       actions: () => [
         button("Skip, I've used this before", () => finish("skipped"), "link"),
+        // For the student who has done the basics and came back for this.
+        button("Camera lesson ›", startCamera, "link"),
         "gap",
         button("Let's go", next, "primary"),
       ] },
@@ -714,6 +897,7 @@ function install(env) {
     // student wanted to check before flying, and beside the 3D view it covered
     // the blocks lighting up. Only the spotlight moves.
     { id: "run", phase: "build", kind: "run",
+      lesson: () => checkLesson(ws, LESSON.length - 1),
       enter: () => showDebugView("trace"),
       target: el("#debug-panel"), place: "top",
       spotlight: () => (st.flight === "done" ? $("debug-panel")
@@ -757,24 +941,167 @@ function install(env) {
           "Stuck? Read the console. **Stop** lands the drone, **Reset** puts it back on the start pad.",
           "Your blocks are saved automatically on this computer.",
         ],
-        "**Next challenge: find a target 🔥**",
-        "Make the drone turn until it sees a red target, fly up to it, and celebrate. "
-          + "(This list stays in the console after you close this.)",
+        // The challenge that used to be listed here is the camera lesson now:
+        // a list of block names never taught a test in a slot or a block
+        // inside a loop. Finish still leaves the list in the console.
+        "**Next: use the camera 📷** (optional, about 5 minutes)",
+        "So far the drone flies the same moves wherever the targets are. Next you'll build a "
+          + "program that **looks**: it turns until it sees a target, flies to it and signals.",
+        ...(st.stash ? ["**Your earlier blocks are put aside.** Do you want them back?"] : []),
+      ],
+      // The camera lesson clears this program away, and leaves the choice
+      // about blocks put aside to its own last card.
+      actions: () => (st.stash
+        ? [
+          button("Keep this program", () => { keepLesson(); finish("done"); }),
+          button("Bring back my earlier blocks", () => { giveBack(); finish("done"); }),
+          "gap",
+          button("Camera lesson ›", startCamera, "primary"),
+        ]
+        : [
+          button("Finish", () => finish("done")),
+          "gap",
+          button("Camera lesson ›", startCamera, "primary"),
+        ]) },
+
+    // ── the camera lesson ───────────────────────────────────────────────
+    // Optional, and never reached by Next: only by "Camera lesson ›" on the
+    // welcome card or the card above. See VISION_LESSON for why these blocks.
+
+    { id: "cam-intro", phase: "camera", chapter: "camera",
+      target: els("#camera-window", "#telemetry"), place: "left",
+      title: "Use the camera 📷",
+      body: P(
+        "A program of fixed moves only works in one room. Move the targets, and it flies "
+          + "straight past them. A program that **looks** works anywhere.",
+        "[[Sensing:sense]] blocks ask the camera a question. [[target seen?:sense]] is true "
+          + "while a red target is in this picture. The readings under it are what the other "
+          + "Sensing blocks give you.",
+        "You'll build: take off, **turn until a target is seen**, fly to it, signal, land.",
+      ) },
+
+    { id: "cam-aside", phase: "camera", chapter: "camera", center: true,
+      // Decided once, as the lesson starts: see startCamera.
+      skip: () => !st.camAsideNeeded,
+      title: "You already have blocks here",
+      body: P(
+        "To build the camera program, the workspace needs to be empty.",
+        "Your blocks will be **put aside, not deleted**. At the end you choose whether to get "
+          + "them back.",
+      ),
+      actions: () => [
+        button("Not now", () => finish("skipped"), "link"),
+        "gap",
+        button("Put my blocks aside", () => { if (putAside()) next(); }, "primary"),
+      ] },
+
+    cameraStep(0, FULL, { id: "cam-takeoff",
+      title: "Start with “take off”",
+      body: P("Open **Flight** and snap [[take off:flight]] under "
+        + "[[🚁 when mission starts:mission]]. You know this one."),
+      need: "Snap “take off” under “🚁 when mission starts” first, or press Do it for me.",
+      okText: "Up it goes." }),
+
+    cameraStep(1, SHELL, { id: "cam-loop",
+      title: "A loop that waits",
+      body: P(
+        "Open **Control** and snap [[keep doing until:flow]] under [[take off:flight]].",
+        "It repeats the blocks **inside** it, over and over, until the test at its end is true.",
+      ),
+      need: "Snap “keep doing until” under “take off” first, or press Do it for me.",
+      okText: "That's the loop. Now it needs a test." }),
+
+    cameraStep(1, COND, { id: "cam-seen",
+      title: "Ask the camera",
+      body: P(
+        "Open **Sensing** and drag [[target seen?:sense]] onto the gap at the end of "
+          + "[[keep doing until:flow]]. It clicks in like a puzzle piece.",
+        "Now it reads: keep doing this **until a target is seen**.",
+      ),
+      need: "Put “target seen?” into the gap at the end of “keep doing until” first, "
+        + "or press Do it for me.",
+      okText: "The loop stops the moment the camera sees red." }),
+
+    cameraStep(1, FULL, { id: "cam-turn",
+      title: "Look around",
+      body: P(
+        "Drag [[turn ↻ clockwise 90°:flight]] **inside** [[keep doing until:flow]], into the "
+          + "gap in its middle. Then **click the 90 and type 30**.",
+        "Each time round, the drone turns a little and the camera looks again. Small turns, so "
+          + "a target can't slip past between two looks.",
+      ),
+      need: "Put “turn ↻ clockwise 30°” inside “keep doing until” first, or press Do it for me.",
+      okText: "Turn and look, turn and look, until it sees one." }),
+
+    cameraStep(2, FULL, { id: "cam-approach",
+      title: "Fly to it",
+      body: P(
+        "Open **Mission** and snap [[approach target and stop:mission]] **below** the loop, "
+          + "not inside it.",
+        "It steers by the camera's distance and direction readings, and stops a safe distance "
+          + "short, so the drone never flies into the sign.",
+      ),
+      need: "Snap “approach target and stop” below the loop first, or press Do it for me.",
+      okText: "Once it sees a target, it flies over to it." }),
+
+    cameraStep(3, FULL, { id: "cam-signal",
+      title: "Signal the find",
+      body: P(
+        "Add [[signal target found 🎉 by flipping:mission]] under it.",
+        "A find only counts if the drone signals it, close to the target.",
+      ),
+      need: "Snap “signal target found” under “approach target and stop” first, "
+        + "or press Do it for me.",
+      okText: "That's what scores." }),
+
+    cameraStep(4, FULL, { id: "cam-land",
+      title: "Land",
+      body: P("Finish with [[land:flight]]."),
+      need: "Snap “land” at the bottom first, or press Do it for me.",
+      okText: "Your camera program is complete!" }),
+
+    // The same run machinery as the first flight, and the card in the same
+    // place. Lit on the camera while it flies: watching "target seen?" come
+    // true is the whole lesson. A flight only counts if the scorer credited
+    // the signal, because the signal block runs whether the approach got
+    // there or not.
+    { id: "cam-run", phase: "camera", chapter: "camera", kind: "run", needsCredit: true,
+      lesson: () => checkLesson(ws, VISION_LESSON.length - 1, VISION_LESSON),
+      enter: () => showDebugView("trace"),
+      target: el("#debug-panel"), place: "top",
+      spotlight: () => (st.running || st.flight === "done"
+        ? els("#camera-window", "#telemetry")() : $("run")),
+      title: () => (st.flight === "done" ? "It found one! 🎉"
+        : st.running ? "Watch the camera 👀" : "Press Run"),
+      body: () => (st.flight === "done"
+        ? P("It turned until “target seen?” came true, flew to the target and signalled.",
+          "Press **Reset** and **Run** again: wherever the drone ends up facing, it looks "
+            + "until it finds one. That's what a program that looks can do.")
+        : st.running
+          ? P("The drone turns, a bit at a time. Watch the reading under the camera: the "
+            + "moment it sees a target, the loop ends and the drone flies to it.")
+          : P("Your program: take off → turn until a target is seen → fly to it → signal → land.",
+            "Press the orange **Run** button at the top, and watch the camera.")),
+      okText: "Found and signalled. Your program used the camera!" },
+
+    { id: "cam-final", chapter: "camera", center: true,
+      title: () => (st.flight === "done" ? "📷 Your drone used its camera!"
+        : "That's the camera lesson!"),
+      body: () => [
+        "**Things to remember**",
         [
-          "[[take off:flight]]",
-          "[[keep doing until target seen?:flow]] with [[turn ↻ clockwise 30°:flight]] inside",
-          "[[approach target and stop:mission]]",
-          "[[signal target found 🎉:mission]]",
-          "[[land:flight]]",
+          "[[target seen?:sense]] and the other Sensing blocks are questions for the camera. "
+            + "They go into the slots of other blocks.",
+          "Blocks **inside** a loop repeat. Blocks **below** it run once, after it ends.",
+          "Click any Sensing block to read what it measures: distance, direction, left or right.",
         ],
-        "“target seen?” is in Sensing, “keep doing until” is in Control.",
         // Deliberately a question, not a recipe. Wrapping the search in
         // "repeat 3" mostly re-finds the target it is still looking at, and the
         // obvious fix (turn away first) found all three only half the time in
         // the simulator - so there is no honest one-liner to hand out here.
-        "**Found one?** Finding all three is the real puzzle: after signalling, the drone is "
-          + "still looking at the target it just found. How could you make it look somewhere "
-          + "new before it searches again?",
+        "**Next challenge: find all three 🔥** After signalling, the drone is still looking at "
+          + "the target it just found. How could you make it look somewhere new before it "
+          + "searches again? (This stays in the console after you close this.)",
         ...(st.stash ? ["**Your earlier blocks are put aside.** Do you want them back?"] : []),
       ],
       actions: () => (st.stash
@@ -785,6 +1112,46 @@ function install(env) {
         ]
         : ["gap", button("Finish", () => finish("done"), "primary")]) },
   ];
+
+  function cameraStep(upto, part, step) {
+    return {
+      phase: "camera", chapter: "camera", target: el("#blockly"), place: "right", kind: "check",
+      check: () => checkLesson(ws, upto, VISION_LESSON, part),
+      fix: () => fixLesson(ws, Blockly, upto, VISION_LESSON, part),
+      ...step,
+    };
+  }
+
+  /**
+   * Into the camera lesson, from the welcome card or the first lesson's end.
+   *
+   * The workspace has to be empty, and what is on it decides how. The first
+   * lesson's own program goes quietly: it is the tutorial's, and the student
+   * has just been shown how to rebuild it. Blocks of their own are put aside
+   * like the first lesson does, on a card that asks first - unless some are
+   * already put aside, in which case what is on screen is the tutorial's and
+   * a second put-aside would overwrite their real work.
+   */
+  function startCamera() {
+    let onlyLesson = false;
+    try {
+      onlyLesson = ws.getTopBlocks(false).length === 1
+        && checkLesson(ws, LESSON.length - 1).ok;
+    } catch (_error) {
+      // not provably the lesson: treated as theirs
+    }
+    st.camAsideNeeded = hasBlocks() && !onlyLesson && !st.stash;
+    if (hasBlocks() && !st.camAsideNeeded) {
+      try {
+        ws.clear();
+        seedStart();
+      } catch (_error) {
+        // the first build step says what is in the way
+      }
+    }
+    st.flight = null;
+    goTo("cam-intro");
+  }
 
   // --- rendering ----------------------------------------------------------
 
@@ -798,8 +1165,11 @@ function install(env) {
     const ofPhase = st.steps.filter((s) => s.phase === step.phase && !skipped(s));
     const at = ofPhase.indexOf(step) + 1;
     phase.textContent = step.phase === "tour" ? `Quick tour · ${at} of ${ofPhase.length}`
-      : step.phase === "build" ? `Build & fly · ${at} of ${ofPhase.length}` : "";
-    const counted = st.steps.filter((s) => !skipped(s));
+      : step.phase === "build" ? `Build & fly · ${at} of ${ofPhase.length}`
+        : step.phase === "camera" ? `Camera lesson · ${at} of ${ofPhase.length}` : "";
+    // The bar fills per chapter: the camera lesson is optional, so the first
+    // one must not end at half full.
+    const counted = st.steps.filter((s) => !skipped(s) && chapterOf(s) === chapterOf(step));
     fill.style.width = `${Math.round((100 * (counted.indexOf(step) + 1)) / counted.length)}%`;
 
     title.textContent = value(step.title);
@@ -838,7 +1208,8 @@ function install(env) {
   }
 
   function standardActions(step) {
-    const out = [button("Skip tutorial", () => finish("skipped"), "link")];
+    const out = [button(chapterOf(step) === "camera" ? "Close" : "Skip tutorial",
+      () => finish("skipped"), "link")];
     if (step.phase === "tour") out.push(button("Jump to building ›", jumpToBuild, "link"));
     out.push("gap");
     if (previousIndex() >= 0) out.push(button("Back", back));
@@ -1033,8 +1404,13 @@ function install(env) {
     }
   }
 
+  const chapterOf = (step) => step.chapter || "basics";
+
+  /** The step Back goes to: never a modal card, and never out of the chapter. */
   function previousIndex() {
+    const here = st.steps[st.index];
     for (let i = st.index - 1; i >= 0; i -= 1) {
+      if (here && chapterOf(st.steps[i]) !== chapterOf(here)) return -1;
       if (!skipped(st.steps[i]) && !st.steps[i].center) return i;
     }
     return -1;
@@ -1051,12 +1427,14 @@ function install(env) {
     st.nudged = false;
     const step = st.steps[index];
     // Until building begins, keep asking whether there is anything to put
-    // aside; from then on the answer is fixed (see the "aside" step).
-    if (step.phase !== "build") st.asideNeeded = hasBlocks();
+    // aside; from then on the answer is fixed (see the "aside" step). The
+    // camera lesson decides its own once, in startCamera.
+    if (step.phase !== "build" && chapterOf(step) !== "camera") st.asideNeeded = hasBlocks();
     setStatus("");
-    if (step.id === "run") {
+    if (step.kind === "run") {
       st.flight = null;
       st.crashed = false;
+      st.credited = false;
     }
     try {
       if (step.enter) step.enter();
@@ -1104,11 +1482,21 @@ function install(env) {
   // --- the run step -------------------------------------------------------
 
   function runStatus() {
-    const lesson = checkLesson(ws, LESSON.length - 1);
+    const step = st.steps[st.index];
+    const lesson = step.lesson();
     if (st.flight === "failed") {
       setStatus(st.crashed
         ? "The drone hit something. Read the console, then press Run to try again."
-        : "That didn't go to plan. Read the console to see why, then press Run again.");
+        : st.uncredited
+          // Usually a second Run without Reset: the target in front of it was
+          // already counted on the first.
+          ? "It signalled, but not next to a target it hadn't already found, so it didn't "
+            + "count. Press Reset, then Run again."
+          : "That didn't go to plan. Read the console to see why, then press Run again.");
+    } else if (st.flight === "done") {
+      // Said again, not left alone: the server sends `running: false` after
+      // `finished`, and that render used to wipe the praise it had just shown.
+      setStatus(`✓ ${step.okText}`, true);
     } else if (!st.running && !lesson.ok) {
       setStatus(lesson.hint || "Your program has changed. Go Back to see what's missing.");
     } else {
@@ -1119,19 +1507,28 @@ function install(env) {
   function onRunning(running) {
     const step = st.steps[st.index];
     st.running = running;
-    if (!st.active || !step || step.id !== "run") return;
+    if (!st.active || !step || step.kind !== "run") return;
     if (running) {
       st.flight = "flying";
       st.crashed = false;
+      st.credited = false;
     }
     render();
     runStatus();
   }
 
-  function onFinished(msg) {
+  function onFinished(msg, late = false) {
     const step = st.steps[st.index];
-    if (!st.active || !step || step.id !== "run" || st.flight !== "flying") return;
-    if (msg.reason === "done" && !st.crashed) {
+    if (!st.active || !step || step.kind !== "run" || st.flight !== "flying") return;
+    if (step.needsCredit && !st.credited && !late && msg.reason === "done" && !st.crashed) {
+      // The credit rides on a mission message the server sends from a task of
+      // its own, so it can arrive just after "finished". Give it a moment
+      // before telling a student their find did not count.
+      win.setTimeout(() => onFinished(msg, true), 600);
+      return;
+    }
+    st.uncredited =msg.reason === "done" && !st.crashed && step.needsCredit && !st.credited;
+    if (msg.reason === "done" && !st.crashed && !st.uncredited) {
       // No timer on to the next card: the student moves on when they have seen it.
       st.flight = "done";
       render();
@@ -1204,6 +1601,8 @@ function install(env) {
 
   function finish(outcome) {
     const wasNotice = st.steps[0] && st.steps[0].id === "notice";
+    const here = st.steps[st.index];
+    const fromCamera = Boolean(here) && chapterOf(here) === "camera";
     close();
     if (wasNotice) return;
     // Anything still put aside goes back: see the rules at the top.
@@ -1214,7 +1613,7 @@ function install(env) {
       : "ℹ Tutorial closed. Press Tutorial at the top to start it again.");
     // The challenge went with the card: the second tester pressed Finish and
     // then had to build it from memory. The console keeps it.
-    if (outcome === "done") CHALLENGE_LOG.forEach((line) => log(line));
+    if (outcome === "done") (fromCamera ? CAMERA_LOG : CHALLENGE_LOG).forEach((line) => log(line));
   }
 
   // --- wiring -------------------------------------------------------------
@@ -1246,8 +1645,11 @@ function install(env) {
         onRunning(msg.running);
       } else if (msg.type === "finished") {
         onFinished(msg);
-      } else if (msg.type === "mission" && msg.state === "crashed") {
-        st.crashed = true;
+      } else if (msg.type === "mission") {
+        if (msg.state === "crashed") st.crashed = true;
+        // Only during a flight: the replayed last mission message must not
+        // count a find from before this run.
+        if (msg.signal === "credited" && st.flight === "flying") st.credited = true;
       }
     });
   }
@@ -1281,7 +1683,7 @@ if (typeof window !== "undefined" && window.COMP1_WORKSPACE && !window.COMP1_TUT
 }
 if (typeof module !== "undefined") {
   module.exports = {
-    LESSON, TUTORIAL_KEY, STASH_KEY,
+    LESSON, VISION_LESSON, SHELL, COND, FULL, TUTORIAL_KEY, STASH_KEY,
     checkLesson, fixLesson, chainOf, shouldAutoStart, readFlag, writeFlag,
     saveStash, readStash, dropStash, hueToCss, install,
   };

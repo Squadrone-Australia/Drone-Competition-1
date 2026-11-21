@@ -42,6 +42,9 @@ order:
 4. **Python view**: the program they just flew, shown as code.
 5. **Final card**: a recap and the next challenge. The challenge is also written to the
    console, so it is still there after the card closes.
+6. **Camera lesson** (optional, added 2026-11-20): the "find a target" challenge as checked
+   steps, offered from the final card and the welcome card. See
+   [2026-11-20-tutorial-camera-lesson.md](2026-11-20-tutorial-camera-lesson.md).
 
 It opens by itself once, and the **Tutorial** button in the top bar reopens it.
 
@@ -135,5 +138,7 @@ findings:
   step now waits on the result, and Live execution replays it in words, but the flight
   itself is easy to miss.
 - **Nesting blocks inside a loop has no feedback** once the tutorial is over. A stack that
-  sits inside "repeat" without snapping looks connected.
+  sits inside "repeat" without snapping looks connected. The camera lesson now teaches it,
+  with a check that names a block snapped below a loop instead of inside it, but only for
+  the lesson's own program.
 - **The Next button moves between tour cards** as the card height and position change.
