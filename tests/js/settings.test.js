@@ -104,3 +104,93 @@ test("saving sends the id the catalogue supplied", () => {
   assert.strictEqual(lastSent.type, "save_settings");
   assert.strictEqual(lastSent.settings.scenery, "corridor");
 });
+
+// ── Interface size ─────────────────────────────────────────────────────────
+// Page zoom on the native window's WebView2 control, through pywebview's
+// js_api bridge. Each test gets a fresh page, because what matters is what
+// happens at load: whether a bridge exists, and what this window remembered.
+
+function freshPage({ stored, bridge = null, bridgeLate = false, storageThrows = false } = {}) {
+  const page = new JSDOM(fs.readFileSync(path.join(FRONTEND, "index.html"), "utf8"),
+    { url: "http://localhost/", runScripts: "outside-only" });
+  const w = page.window;
+  w.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  w.HTMLDialogElement.prototype.close = function () { this.open = false; };
+  w.COMP1_SEND = () => {};
+  w.COMP1_BUS = { on: () => {} };
+  if (stored !== undefined) w.localStorage.setItem("comp1.uiZoom.v1", stored);
+  if (storageThrows) {
+    Object.defineProperty(w, "localStorage", { get() { throw new Error("denied"); } });
+  }
+  const calls = [];
+  const api = bridge && {
+    set_zoom: async (value) => { calls.push(value); return bridge === "works"; },
+  };
+  if (api && !bridgeLate) w.pywebview = { api };
+  w.eval(fs.readFileSync(path.join(FRONTEND, "settings.js"), "utf8"));
+  const arrive = () => {
+    w.pywebview = { api };
+    w.dispatchEvent(new w.Event("pywebviewready"));
+  };
+  const el = w.document.getElementById("settings-size");
+  const note = () => w.document.getElementById("settings-size-note").textContent;
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  return { w, el, note, calls, arrive, settle };
+}
+
+test("in a plain browser the size control points at the browser's own zoom", () => {
+  const { el, note } = freshPage();
+  assert.strictEqual(el.disabled, true);
+  assert.match(note(), /Ctrl \+ and Ctrl −/);
+});
+
+test("the bridge arriving after load enables the control and applies the saved size", async () => {
+  const p = freshPage({ stored: "1.25", bridge: "works", bridgeLate: true });
+  assert.strictEqual(p.el.disabled, true, "nothing to drive until the bridge exists");
+  p.arrive();
+  await p.settle();
+  assert.strictEqual(p.el.disabled, false);
+  assert.strictEqual(p.el.value, "1.25");
+  assert.deepStrictEqual(p.calls, [1.25]);
+});
+
+test("with nothing saved, a Ctrl+wheel zoom is left alone", async () => {
+  const p = freshPage({ bridge: "works" });
+  await p.settle();
+  assert.strictEqual(p.el.value, "1");
+  assert.deepStrictEqual(p.calls, []);
+});
+
+test("picking a size applies it at once and remembers it", async () => {
+  const p = freshPage({ bridge: "works" });
+  p.el.value = "1.5";
+  p.el.dispatchEvent(new p.w.Event("change"));
+  await p.settle();
+  assert.deepStrictEqual(p.calls, [1.5]);
+  assert.strictEqual(p.w.localStorage.getItem("comp1.uiZoom.v1"), "1.5");
+});
+
+test("a stored value the menu does not offer is ignored, not applied", async () => {
+  for (const junk of ["7", "abc", "", "0"]) {
+    const p = freshPage({ stored: junk, bridge: "works" });
+    await p.settle();
+    assert.deepStrictEqual(p.calls, [], `applied ${JSON.stringify(junk)}`);
+    assert.strictEqual(p.el.value, "1");
+  }
+});
+
+test("a window that refuses the size says so", async () => {
+  const p = freshPage({ bridge: "refuses" });
+  p.el.value = "1.25";
+  p.el.dispatchEvent(new p.w.Event("change"));
+  await p.settle();
+  assert.match(p.note(), /Could not change the size/);
+});
+
+test("storage that throws costs the memory, not the dialog", async () => {
+  const p = freshPage({ bridge: "works", storageThrows: true });
+  p.el.value = "1.1";
+  p.el.dispatchEvent(new p.w.Event("change"));
+  await p.settle();
+  assert.deepStrictEqual(p.calls, [1.1]);
+});

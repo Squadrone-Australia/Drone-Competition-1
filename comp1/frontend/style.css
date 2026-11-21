@@ -461,6 +461,9 @@ aside > .bar { flex: 0 0 auto; border-top: 1px solid var(--line); }
 }
 .settings-check { flex-direction: row !important; align-items: center; gap: 8px !important; }
 #settings-note { margin-top: 14px; color: var(--text-3); font-size: 12px; line-height: 1.5; }
+/* Interface size: applies at once, so it sits apart from the startup choices. */
+.settings-display { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+#settings-size-note { color: var(--text-3); font-size: 12px; line-height: 1.5; }
 .settings-actions { display: flex; gap: 8px; margin-top: 16px; }
 .settings-actions span { flex: 1; }
 .settings-actions .primary {

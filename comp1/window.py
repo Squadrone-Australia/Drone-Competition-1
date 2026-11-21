@@ -24,6 +24,7 @@ here is what makes this file testable on a machine that has no pywebview at all.
 
 import importlib
 import logging
+import math
 import threading
 
 from .paths import window_dir
@@ -63,6 +64,39 @@ CLOSE_GRACE_S = 20.0
 #: handshake, because the cost of being wrong is one lost edit, not a hang.
 CLOSE_SETTLE_S = 0.15
 FLUSH_JS = "window.COMP1_FLUSH && window.COMP1_FLUSH()"
+
+#: How far the settings dialog's "Interface size" may take the page. Anything
+#: the page asks for is clamped into this, so a corrupt stored value can make
+#: the window ugly but never unusable.
+ZOOM_RANGE = (0.5, 2.0)
+
+
+def _on_ui_thread(form, fn) -> None:
+    """Run ``fn`` on the WinForms UI thread, the only thread WebView2 accepts.
+
+    The same ``Invoke(Func[Type](...))`` pywebview itself uses. A seam, so the
+    zoom can be tested without .NET.
+    """
+    from System import Func, Type  # pythonnet, present wherever WinForms is
+
+    form.Invoke(Func[Type](fn))
+
+
+class _PageApi:
+    """What the page may ask of the window: ``window.pywebview.api`` in JS.
+
+    Deliberately one method wide. Everything else the page wants goes over the
+    WebSocket like it always has; this exists only because page zoom is a
+    property of the WebView2 control, which no web API can reach. pywebview
+    walks this object's public attributes to build the bridge, so the window is
+    held privately.
+    """
+
+    def __init__(self, window):
+        self._window = window
+
+    def set_zoom(self, factor):
+        return self._window.set_zoom(factor)
 
 
 def _probe() -> str | None:
@@ -146,6 +180,14 @@ class NativeWindow:
             height=WINDOW_SIZE[1],
             min_size=MIN_WINDOW_SIZE,
             background_color=BACKGROUND,
+            # False is pywebview's default, and it injects a script that eats
+            # Ctrl+wheel and pinch: the page could not be enlarged at all, which
+            # is no good on a projector or a small laptop screen. The settings
+            # dialog's "Interface size" is the discoverable way; this keeps the
+            # gesture people already know working too. (Ctrl +/- stay off: on
+            # Windows pywebview ties browser accelerator keys to debug mode.)
+            zoomable=True,
+            js_api=_PageApi(self),
         )
         self._window.events.closing += self._on_closing
         self._window.events.shown += self._on_shown
@@ -157,6 +199,47 @@ class NativeWindow:
             private_mode=False,
             storage_path=str(self._storage_path or window_dir()),
         )
+
+    def set_zoom(self, factor) -> bool:
+        """Set the page zoom, as the settings dialog's "Interface size" asks.
+
+        Real browser zoom on the WebView2 control, not CSS: Blockly 13 drags a
+        block further than the mouse moved under CSS ``zoom``, and the floor plan,
+        the camera window and the tutorial's spotlight all mis-place themselves
+        the same way. At the control's level every layout and pointer coordinate
+        stays consistent, exactly as with Ctrl+wheel.
+
+        Returns whether it took. Never raises: called from the page, on
+        pywebview's bridge thread, and a size that cannot be set is cosmetic —
+        the page falls back to telling the student about Ctrl+wheel.
+        """
+        try:
+            factor = float(factor)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(factor):
+            return False
+        factor = min(max(factor, ZOOM_RANGE[0]), ZOOM_RANGE[1])
+        # pywebview's WinForms form, and the WebView2 control it hosts. Absent on
+        # any other platform, and before the window has been shown. Both are
+        # plain Python attributes, safe to read from here; the control's own
+        # members are not — WebView2 throws InvalidOperationException for any of
+        # them touched off the UI thread, reads included, which is why nothing
+        # below looks at the control until `apply` is running there.
+        form = getattr(self._window, "native", None)
+        view = getattr(form, "webview", None)
+        if view is None:
+            return False
+
+        def apply():
+            view.ZoomFactor = factor
+
+        try:
+            _on_ui_thread(form, apply)
+        except Exception:  # noqa: BLE001 — cosmetic, see the docstring
+            log.debug("could not set the page zoom", exc_info=True)
+            return False
+        return True
 
     def close(self) -> None:
         """Destroy the window. Safe from any thread, and safe to repeat.

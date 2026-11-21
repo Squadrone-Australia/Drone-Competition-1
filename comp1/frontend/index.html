@@ -5,7 +5,7 @@
   <title>Squadrone Drone Coder</title>
   <meta name="color-scheme" content="dark">
   <link rel="icon" href="assets/squadrone-logo.webp">
-  <link rel="stylesheet" href="style.css?v=20261121-1">
+  <link rel="stylesheet" href="style.css?v=20261121-2">
   <script src="vendor/blockly.min.js"></script>
   <script type="importmap">
     { "imports": { "three": "./vendor/three.module.min.js" } }
@@ -287,6 +287,24 @@
 
       <p id="settings-note"></p>
 
+      <!-- Apart from the startup preferences above on purpose: this one takes
+           effect immediately, and is kept by this window rather than sent to
+           the server, so the note above ("next time the program starts") does
+           not apply to it. -->
+      <div class="settings-grid settings-display">
+        <label>Interface size
+          <select id="settings-size">
+            <option value="0.8">80%</option>
+            <option value="0.9">90%</option>
+            <option value="1" selected>100%</option>
+            <option value="1.1">110%</option>
+            <option value="1.25">125%</option>
+            <option value="1.5">150%</option>
+          </select>
+        </label>
+        <p id="settings-size-note"></p>
+      </div>
+
       <footer class="settings-actions">
         <span></span>
         <button id="settings-save" class="primary" type="button">Save</button>
@@ -301,7 +319,7 @@
   <script src="app.js?v=20261121-2"></script>
   <script src="calibration.js?v=20261108-1"></script>
   <script src="plan.js?v=20260819-1"></script>
-  <script src="settings.js?v=20260820-1"></script>
+  <script src="settings.js?v=20261121-1"></script>
   <!-- After app.js, which hands it the workspace, the console and the bus. -->
   <script src="tutorial.js?v=20261121-1"></script>
   <script type="module" src="view3d.js?v=20261108-1"></script>
