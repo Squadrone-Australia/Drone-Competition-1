@@ -145,13 +145,17 @@ def check(
         if not is_newer(tag, current):
             return None
         assets = payload.get("assets") or []
+        exes = [a for a in assets if str(a.get("name", "")).lower().endswith(".exe")]
+        # A release carries the installer twice: comp1-Setup-<version>.exe, and a
+        # fixed-name comp1-Setup.exe copy that the README's download button links
+        # to through releases/latest. Prefer the versioned one; any other .exe is
+        # still acceptable, because SHA256SUMS.txt lists both names against the
+        # same digest — which is also what keeps updaters older than this, which
+        # simply take the first .exe, working.
+        versioned = f"comp1-setup-{str(tag).lstrip('vV')}.exe"
         installer = next(
-            (
-                asset
-                for asset in assets
-                if str(asset.get("name", "")).lower().endswith(".exe")
-            ),
-            None,
+            (a for a in exes if str(a.get("name", "")).lower() == versioned),
+            exes[0] if exes else None,
         )
         checksums = next(
             (asset for asset in assets if asset.get("name") == CHECKSUM_ASSET), None

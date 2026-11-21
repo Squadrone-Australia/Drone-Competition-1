@@ -5,7 +5,8 @@
 # and refuses any digest that does not match: a release missing that file, or
 # carrying a stale one, is a release no installed copy can ever update to.
 #
-# The release is left as a draft on purpose. Check both assets, then publish it
+# The release is left as a draft on purpose. Check all three assets (the installer,
+# its fixed-name copy for the README button, SHA256SUMS.txt), then publish it
 # by hand.
 name: Release
 
@@ -91,8 +92,14 @@ jobs:
           if (-not (Test-Path $setup)) { Write-Error "Expected $setup, but it is not there."; exit 1 }
           $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
           $name = Split-Path $setup -Leaf
-          "$hash  $name" | Out-File -FilePath "dist\SHA256SUMS.txt" -Encoding ascii
-          Write-Host "SHA-256 $hash  $name"
+          # The fixed-name copy behind the README's download button
+          # (releases/latest/download/comp1-Setup.exe). Same digest, listed too:
+          # an updater older than 0.3.0 takes the first .exe on the release.
+          $stable = "dist\comp1-Setup.exe"
+          Copy-Item $setup $stable -Force
+          $stableName = Split-Path $stable -Leaf
+          "$hash  $name", "$hash  $stableName" | Out-File -FilePath "dist\SHA256SUMS.txt" -Encoding ascii
+          Write-Host "SHA-256 $hash  $name (and $stableName)"
 
       # On workflow_dispatch there is no tag to release against, so just keep
       # the artifacts for inspection.
@@ -102,6 +109,7 @@ jobs:
           name: comp1-installer-${{ steps.version.outputs.version }}
           path: |
             dist/comp1-Setup-*.exe
+            dist/comp1-Setup.exe
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -114,6 +122,7 @@ jobs:
           gh release create "$env:GITHUB_REF_NAME" `
             --draft `
             --title "Squadrone Drone Coder ${{ steps.version.outputs.version }}" `
-            --notes "Draft build from $env:GITHUB_REF_NAME. Check both assets, then publish." `
+            --notes "Draft build from $env:GITHUB_REF_NAME. Check all three assets, then publish." `
             "dist\comp1-Setup-${{ steps.version.outputs.version }}.exe" `
+            "dist\comp1-Setup.exe" `
             "dist\SHA256SUMS.txt"

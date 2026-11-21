@@ -172,6 +172,19 @@ def test_the_release_uploads_both_assets_or_none():
     assert "SHA256SUMS.txt" in create
 
 
+def test_the_readme_download_button_has_an_asset_to_land_on():
+    # releases/latest/download/<name> only resolves for an asset whose name never
+    # changes, so the release carries a fixed-name copy of the installer, and
+    # both build paths list it in SHA256SUMS.txt (old updaters take the first .exe).
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "/releases/latest/download/comp1-Setup.exe" in readme
+    create = RELEASE_YML.split("gh release create", 1)[1]
+    assert '"dist\\comp1-Setup.exe"' in create
+    for name, text in (("build.ps1", BUILD_PS1), ("release.yml", RELEASE_YML)):
+        assert '$stable = "dist\\comp1-Setup.exe"' in text, name
+        assert '"$hash  $name", "$hash  $stableName"' in text, name
+
+
 def test_the_release_is_gated_on_the_tests():
     assert "pytest -q" in RELEASE_YML
 
@@ -185,7 +198,10 @@ def _iss_directives() -> str:
     The header explains *why* there is no firewall rule, and so names netsh;
     only what the compiler would actually act on should be checked.
     """
-    return "\n".join(line for line in ISS.splitlines() if not line.lstrip().startswith(";"))
+    lines = (line for line in ISS.splitlines() if not line.lstrip().startswith(";"))
+    # and the [Code] section's own `//` comments, for the same reason
+    # (a `//` after whitespace, so the one in https:// is left alone)
+    return "\n".join(re.sub(r"(^|\s)//.*$", "", line) for line in lines)
 
 
 def test_the_installer_never_asks_for_administrator():
@@ -199,8 +215,49 @@ def test_the_installer_never_asks_for_administrator():
 
 
 def test_the_installer_changes_no_machine_wide_state():
-    # netsh/firewall rules, Program Files and HKLM all need elevation, and the
-    # camera's no-admin fallback lives in tello_link.py instead.
+    # netsh/firewall rules, Program Files and writing HKLM all need elevation, and
+    # the camera's no-admin fallback lives in tello_link.py instead.
     directives = _iss_directives().lower()
-    for needs_admin in ("netsh", "advfirewall", "{autopf}", "{commonpf", "hklm"):
+    for needs_admin in ("netsh", "advfirewall", "{autopf}", "{commonpf", "runas"):
         assert needs_admin not in directives, needs_admin
+    # HKLM may be *read* — the WebView2 check does, and reading needs no rights —
+    # but never written, neither by a [Registry] entry nor from [Code].
+    assert not re.search(r"root:\s*hklm", directives)
+    assert not re.search(r"reg(write|delete)\w*\(\s*hklm", directives)
+
+
+# --- the WebView2 runtime (see the header of installer/comp1.iss) ---
+
+
+def test_webview2_is_offered_only_where_it_is_missing():
+    assert re.search(r'^Name: "webview2";[^\n]*\\\n(?:[^\n]*\\\n)*[^\n]*Check: WebView2Missing',
+                     ISS, re.MULTILINE)
+    # Microsoft's documented key, read in both per-machine views and per-user
+    assert "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" in ISS
+    assert "WebView2VersionAt(HKLM32) or WebView2VersionAt(HKCU)" in ISS
+
+
+def test_a_silent_update_never_fetches_webview2():
+    # The in-app updater runs Setup silently; a tick remembered from the first
+    # install (UsePreviousTasks) must not turn an update into a runtime download.
+    code = _iss_directives()
+    assert "(not WizardSilent) and WizardIsTaskSelected('webview2')" in code
+    assert code.count("not WantWebView2") == 2  # the download and the install
+
+
+def test_only_a_microsoft_signed_bootstrapper_is_ever_run():
+    code = _iss_directives()
+    assert "WebView2BootstrapperUrl = 'https://go.microsoft.com/fwlink/" in code
+    assert "Get-AuthenticodeSignature" in code and "O=Microsoft Corporation" in code
+    assert "if not SignedByMicrosoft(Bootstrapper) then" in code
+    # Exec inherits this Setup's (unelevated) token; ShellExec could be asked to elevate
+    assert "ShellExec" not in code
+    assert "Exec(Bootstrapper, '/silent /install'" in code
+
+
+def test_a_missing_webview2_never_fails_the_install():
+    code = _iss_directives()
+    for aborts in ("RaiseException", "Abort;", "Result := False;\n  if (CurPageID"):
+        assert aborts not in code, aborts
+    # the one note it shows must be one /SUPPRESSMSGBOXES can silence
+    assert "SuppressibleMsgBox(" in code and "\n  MsgBox(" not in code

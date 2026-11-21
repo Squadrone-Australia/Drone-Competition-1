@@ -126,6 +126,40 @@ def test_check_ignores_assets_that_are_not_the_installer():
     assert release is not None
     assert release.filename == "comp1-Setup-0.2.0.exe"
 
+def _with_stable_copy(first):
+    """A 0.3.0-style release: the installer twice, listed in either order."""
+    payload = json.loads(release_payload())
+    stable = {"name": "comp1-Setup.exe", "browser_download_url": "https://example.invalid/s"}
+    versioned, sums = payload["assets"]
+    exes = [stable, versioned] if first == "stable" else [versioned, stable]
+    payload["assets"] = [*exes, sums]
+    return json.dumps(payload).encode()
+
+
+@pytest.mark.parametrize("first", ["stable", "versioned"])
+def test_check_prefers_the_versioned_installer_over_the_fixed_name_copy(first):
+    # comp1-Setup.exe exists for the README's releases/latest/download link;
+    # the asset order on a release page is not ours to rely on.
+    digest = hashlib.sha256(b"MZ fake installer").hexdigest()
+    fetch = fetcher(**{
+        update.LATEST_URL: _with_stable_copy(first),
+        "https://example.invalid/SHA256SUMS.txt": (
+            f"{digest}  comp1-Setup-0.2.0.exe\n{digest}  comp1-Setup.exe\n".encode()
+        ),
+    })
+    release = update.check("0.1.0", fetch=fetch)
+    assert release is not None
+    assert release.filename == "comp1-Setup-0.2.0.exe"
+
+
+def test_an_old_first_exe_updater_still_finds_the_fixed_name_copy_in_the_sums():
+    # Copies older than 0.3.0 take the first .exe they see. If that is the
+    # fixed-name copy, it must still have a digest, or they never update again.
+    sums = "\n".join(f"{'9f' * 32}  {n}" for n in ("comp1-Setup-0.3.0.exe", "comp1-Setup.exe"))
+    parsed = update._parse_checksums(sums + "\n")
+    assert parsed["comp1-Setup.exe"] == parsed["comp1-Setup-0.3.0.exe"]
+
+
 def test_check_is_silent_when_the_release_carries_no_installer():
     payload = json.loads(release_payload())
     payload["assets"] = [payload["assets"][1]]  # SHA256SUMS.txt, no .exe

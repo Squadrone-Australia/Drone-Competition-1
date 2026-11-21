@@ -77,12 +77,15 @@ if (-not (Test-Path "dist\comp1\_internal\onnxruntime")) {
 # Inno Setup is a separate download (jrsoftware.org/isdl.php) and is not on PATH
 # by default, so look where it actually installs before giving up. Newest major
 # first: the script targets 6+ syntax and every later version still compiles it.
+# %LOCALAPPDATA%\Programs is its "install for me only" location, the one a
+# machine without administrator gets.
 $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
 if (-not $iscc) {
     $candidates = @()
     foreach ($major in 7, 6) {
         $candidates += "$env:ProgramFiles\Inno Setup $major\ISCC.exe"
         $candidates += "${env:ProgramFiles(x86)}\Inno Setup $major\ISCC.exe"
+        $candidates += "$env:LOCALAPPDATA\Programs\Inno Setup $major\ISCC.exe"
     }
     $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 }
@@ -104,7 +107,14 @@ if (-not (Test-Path $setup)) { Write-Error "Expected $setup, but it is not there
 # the plain "<hash>  <filename>" one, with no path in front of the name.
 $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
 $name = Split-Path $setup -Leaf
-"$hash  $name" | Out-File -FilePath "dist\SHA256SUMS.txt" -Encoding ascii
+# A fixed-name copy, for the README's download button: GitHub only offers a
+# releases/latest/download/<file> link to an asset whose name never changes.
+# Same bytes, so the same digest, and listed here as well — an updater older
+# than 0.3.0 takes whichever .exe the release lists first, and must find it.
+$stable = "dist\comp1-Setup.exe"
+Copy-Item $setup $stable -Force
+$stableName = Split-Path $stable -Leaf
+"$hash  $name", "$hash  $stableName" | Out-File -FilePath "dist\SHA256SUMS.txt" -Encoding ascii
 
 Write-Host ""
 Write-Host "Built $setup" -ForegroundColor Green
