@@ -107,7 +107,14 @@ if (-not (Test-Path $setup)) { Write-Error "Expected $setup, but it is not there
 # the plain "<hash>  <filename>" one, with no path in front of the name.
 $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
 $name = Split-Path $setup -Leaf
-"$hash  $name" | Out-File -FilePath "dist\SHA256SUMS.txt" -Encoding ascii
+# A fixed-name copy, for the README's download button: GitHub only offers a
+# releases/latest/download/<file> link to an asset whose name never changes.
+# Same bytes, so the same digest, and listed here as well — an updater older
+# than 0.3.0 takes whichever .exe the release lists first, and must find it.
+$stable = "dist\comp1-Setup.exe"
+Copy-Item $setup $stable -Force
+$stableName = Split-Path $stable -Leaf
+"$hash  $name", "$hash  $stableName" | Out-File -FilePath "dist\SHA256SUMS.txt" -Encoding ascii
 
 Write-Host ""
 Write-Host "Built $setup" -ForegroundColor Green

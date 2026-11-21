@@ -172,6 +172,19 @@ def test_the_release_uploads_both_assets_or_none():
     assert "SHA256SUMS.txt" in create
 
 
+def test_the_readme_download_button_has_an_asset_to_land_on():
+    # releases/latest/download/<name> only resolves for an asset whose name never
+    # changes, so the release carries a fixed-name copy of the installer, and
+    # both build paths list it in SHA256SUMS.txt (old updaters take the first .exe).
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "/releases/latest/download/comp1-Setup.exe" in readme
+    create = RELEASE_YML.split("gh release create", 1)[1]
+    assert '"dist\\comp1-Setup.exe"' in create
+    for name, text in (("build.ps1", BUILD_PS1), ("release.yml", RELEASE_YML)):
+        assert '$stable = "dist\\comp1-Setup.exe"' in text, name
+        assert '"$hash  $name", "$hash  $stableName"' in text, name
+
+
 def test_the_release_is_gated_on_the_tests():
     assert "pytest -q" in RELEASE_YML
 

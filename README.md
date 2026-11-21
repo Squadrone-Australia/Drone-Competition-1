@@ -7,6 +7,18 @@ room, find red targets, and signal each one it finds - by dragging together colo
 puzzle-piece blocks, like Scratch. No coding experience is needed to get started, and there's a
 built-in flight simulator so students can practice and compete without ever touching a real drone.
 
+<p align="center">
+  <a href="https://github.com/Squadrone-Australia/Drone-Competition-1/releases/latest/download/comp1-Setup.exe">
+    <img alt="Download for Windows" src="https://img.shields.io/badge/Download_for_Windows-comp1--Setup.exe-2ea44f?style=for-the-badge&logo=windows&logoColor=white" height="48">
+  </a>
+  <br>
+  <a href="https://github.com/Squadrone-Australia/Drone-Competition-1/releases/latest">
+    <img alt="Latest release" src="https://img.shields.io/github/v/release/Squadrone-Australia/Drone-Competition-1?label=latest&style=flat-square">
+  </a>
+  <br>
+  <sub>Windows 10 or 11 · no administrator needed · then see <a href="#installing-the-program">Installing the program</a></sub>
+</p>
+
 This page is written for anyone setting the program up for the first time - teachers, students,
 or helpers — with no assumption you've used a terminal or installed developer tools before.
 
@@ -37,12 +49,16 @@ page.)
 
 ## Installing the program
 
-1. Download **`comp1-Setup-<version>.exe`** from the
-   [latest release](https://github.com/Squadrone-Australia/Drone-Competition-1/releases/latest).
+1. Click **[Download for Windows](https://github.com/Squadrone-Australia/Drone-Competition-1/releases/latest/download/comp1-Setup.exe)**
+   (the green button at the top of this page). It always fetches the newest installer,
+   `comp1-Setup.exe`. The same file, named with its version (`comp1-Setup-<version>.exe`), is on
+   the [latest release](https://github.com/Squadrone-Australia/Drone-Competition-1/releases/latest)
+   page.
 2. Double-click it. Windows may show a blue **"Windows protected your PC"** box, because the
    installer is not signed by a paid certificate authority. Click **More info**, then **Run
    anyway**. (If you want to check the download first, the release page publishes a
-   `SHA256SUMS.txt` you can compare against `Get-FileHash comp1-Setup-<version>.exe`.)
+   `SHA256SUMS.txt` you can compare against `Get-FileHash comp1-Setup.exe`. Both names are
+   listed, with the same digest.)
 3. Follow the prompts. It installs for the current user only, so it does **not** ask for an
    administrator password.
 4. Start it from the **Start Menu** entry (or the desktop shortcut, if you asked for one). The
