@@ -50,7 +50,8 @@ const bufferRestore = window.COMP1_BUFFER.restore(workspace);
 // which on a first run is always.
 if (workspace.getBlocksByType("start", false).length === 0) {
   const start = workspace.newBlock("start");
-  start.initSvg(); start.render(); start.moveBy(30, 30);
+  start.initSvg(); start.render();
+  start.moveBy(COMP1.START_POSITION.x, COMP1.START_POSITION.y);
 }
 
 const statusEl = document.getElementById("status");
@@ -98,15 +99,23 @@ workspace.addChangeListener((event) => {
  * module has subscribed — so the last one is replayed to late subscribers rather
  * than lost, leaving an empty 3D stage for the rest of the session.
  */
+// Not only `scene`: every state the server sends once on connect has the same
+// race. The parser fetches each later <script> while the socket is already
+// delivering, so on a cold cache (a fresh install, the very first launch) a
+// panel can subscribe after its message has gone. The tutorial missed
+// `drone_mode` exactly that way and then refused to open, beside a green
+// "connected". Each of these is a whole state, so replaying the last is safe.
+const STICKY_TYPES = new Set(
+  ["scene", "sceneries", "drone_mode", "settings", "mission", "update_available"]);
 const bus = window.COMP1_BUS = {
   handlers: [],
-  sticky: {},                       // last `scene` / `sceneries`, replayed on subscribe
+  sticky: {},                       // last of each STICKY_TYPES, replayed on subscribe
   on(fn) {
     this.handlers.push(fn);
     Object.values(this.sticky).forEach(fn);
   },
   emit(msg) {
-    if (msg.type === "scene" || msg.type === "sceneries") this.sticky[msg.type] = msg;
+    if (STICKY_TYPES.has(msg.type)) this.sticky[msg.type] = msg;
     this.handlers.forEach((fn) => fn(msg));
   },
 };
@@ -115,6 +124,10 @@ function log(msg) {
   consoleEl.textContent += msg + "\n";
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
+// Handed to tutorial.js, which has to read the student's blocks and talk to
+// them in the same console every other message uses.
+window.COMP1_WORKSPACE = workspace;
+window.COMP1_LOG = log;
 
 // The server attaches `hint` — what to try next — to the failures it knows a
 // cure for (comp1/hints.py), so it is printed straight under the error.
@@ -311,6 +324,7 @@ function showDroneMode(msg) {
   if (previousMode && previousMode !== droneMode) {
     foundEl.textContent = "Targets found: 0";
     missionState = null;
+    foundLogged = 0;
     log(`switched to ${names[droneMode] || droneMode}`);
   }
 }
@@ -418,8 +432,31 @@ function showTelemetry(t) {
 // arena in play the header shows the *credited* count rather than the number of
 // times the student pressed the button.
 let missionState = null;
+// Said in the console as well as counted in the header: a student watching the
+// drone does not see a number change at the top of the screen, and the find is
+// the whole point of the mission.
+let foundLogged = 0;
+// What the console says when a run crashes, by what the drone hit. "The attempt
+// does not count" left the second tester asking which attempt, and whether a
+// later find still scored, so each says it in full. And each gives its own
+// advice: the Obstacles drawer is right for an obstacle and wrong for a wall or
+// for a target's own post, which the obstacle sensors are not built to see.
+const RUN_VOID = "so this run won't count for the mission, even if it finds targets afterwards.";
+const CRASH_TEXT = {
+  obstacle: `💥 The drone hit an obstacle, ${RUN_VOID} To get past obstacles, look in ` +
+    "the Obstacles drawer: “obstacle in the way?” and “step around obstacle”.",
+  wall: `💥 The drone flew into a wall, ${RUN_VOID} Check how far each “fly” block ` +
+    "goes: the room is smaller than it looks.",
+  sign: `💥 The drone flew into a sign or the post it stands on, ${RUN_VOID} The real ` +
+    "drone would hit it too. Stop short of the sign before you signal: " +
+    "“approach target and stop” halts at a safe distance.",
+};
 function showMission(m) {
   foundEl.textContent = `Targets found: ${m.found} / ${m.total}`;
+  if (m.found > foundLogged) {
+    log(`🎯 Target found! ${m.found} of ${m.total}`);
+  }
+  foundLogged = m.found;
   if (m.signal === "no target nearby") {
     log("⚠ no target close enough to that signal, it did not count");
   }
@@ -428,8 +465,7 @@ function showMission(m) {
     log(`🏆 mission success: every target found and landed at ${goal}`);
   }
   if (m.state === "crashed" && missionState !== "crashed") {
-    log("💥 hit an obstacle — the attempt does not count. Use “obstacle in the way?” " +
-        "and “step around obstacle” to get past it.");
+    log(CRASH_TEXT[m.crashed_into] ?? CRASH_TEXT.obstacle);
   }
   missionState = m.state;
 }
@@ -519,10 +555,15 @@ function connect() {
       workspace.highlightBlock(null);
       foundEl.textContent = "Targets found: 0";
       missionState = null;
+      foundLogged = 0;
+      // Every Run starts with a reset too. Said as a reset there, it was the
+      // first line a student read after pressing Run, and "back on the start
+      // pad" sounds like the end of a flight rather than the start of one.
+      if (missionRunning) log("▶ Running your program…");
       // On real hardware reset() cannot move the aircraft, so say what actually
       // happened. Telling a student the drone is on its pad while it hovers
       // where they left it is worse than saying nothing.
-      log(msg.repositioned
+      else log(msg.repositioned
         ? "↺ back on the start pad"
         : "↺ counters cleared, the drone has not moved");
     }
@@ -534,6 +575,25 @@ document.getElementById("run").onclick = () => {
   const program = COMP1.serializeProgram(workspace);
   showDebugProgram(program);
   clearDebugTrace();
+  // A block dropped near the program rather than into it runs nothing and says
+  // nothing, and an empty plan reports "mission done" as though it had worked.
+  // Both are the commonest beginner failure there is, so both are said here,
+  // at the moment the student is looking for a result.
+  const loose = COMP1.unattachedCount(workspace);
+  const blocksWord = (n) => `${n} block${n === 1 ? "" : "s"}`;
+  if (program.blocks.length === 0) {
+    log(loose
+      ? `⚠ Nothing to run: your ${blocksWord(loose)} ${loose === 1 ? "isn't" : "aren't"} `
+        + "snapped under “🚁 when mission starts”."
+      : "⚠ Nothing to run: there are no blocks under “🚁 when mission starts” yet.");
+    log("   💡 How to fix: drag a block until it clicks into place underneath "
+      + "“🚁 when mission starts”.");
+    return;
+  }
+  if (loose) {
+    log(`⚠ ${blocksWord(loose)} ${loose === 1 ? "isn't" : "aren't"} snapped under `
+      + "“🚁 when mission starts”, so " + (loose === 1 ? "it" : "they") + " will be skipped.");
+  }
   // empty sockets are filled in with a harmless default rather than refusing to run —
   // say so out loud so a half-built program isn't a silent mystery
   COMP1.warnings.forEach((w) => log("⚠ " + w));

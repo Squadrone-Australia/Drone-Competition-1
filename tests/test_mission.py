@@ -114,6 +114,7 @@ def test_all_three_together_is_a_mission_success(scorer):
         "needs_destination": True,
         "goal": "destination",
         "crashed": False,
+        "crashed_into": None,
         "state": "success",
     }
 

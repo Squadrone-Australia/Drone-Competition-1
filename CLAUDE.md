@@ -52,6 +52,11 @@ the README.
   `buffer.js` auto-saves the Blockly workspace to `localStorage` and restores it as
   `app.js` injects. Deliberately client-side: no socket message, nothing in
   `paths.data_dir()`, and losing a buffer is never allowed to break the page.
+  `tutorial.js` is the first-run tour and guided first flight, simulator only, plus an
+  optional camera lesson that teaches the vision blocks. Each lesson program is pinned by a
+  fixture (`tests/fixtures/tutorial_lesson.json`, `tutorial_vision_lesson.json`) and flown in
+  every arena by `tests/test_tutorial_lesson.py`, so change all three together
+  (`docs/plans/2026-11-18-first-run-tutorial.md`, `2026-11-20-tutorial-camera-lesson.md`).
 - `comp1/window.py` — the pywebview front door. `usable()` proves a window is possible or the
   launcher opens the system browser instead; `NativeWindow` owns the main thread and the
   two-way close protocol. Knows nothing about drones: close *policy* is `request_close` in

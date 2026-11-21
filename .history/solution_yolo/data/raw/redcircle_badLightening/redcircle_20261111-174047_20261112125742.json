@@ -1,0 +1,14 @@
+{
+  "file": "redcircle_20261111-174047.mp4",
+  "format": "mp4",
+  "frames": 396,
+  "fps": 24.0,
+  "seconds": 16.52,
+  "size": [
+    960,
+    720
+  ],
+  "drone": "tello",
+  "started": "2026-11-11T17:40:47",
+  "notes": "strong light at the back"
+}

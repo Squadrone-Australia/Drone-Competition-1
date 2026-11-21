@@ -1,0 +1,11 @@
+{
+  "_comment": "The program the first-run tutorial teaches (comp1/frontend/tutorial.js). tests/js/tutorial.test.js checks the tutorial still builds exactly this; tests/test_tutorial_lesson.py flies it in every arena. Change all three together.",
+  "version": 2,
+  "blocks": [
+    {"op": "takeoff"},
+    {"op": "move", "dir": "forward", "cm": 50},
+    {"op": "rotate", "dir": "cw", "deg": 180},
+    {"op": "move", "dir": "forward", "cm": 50},
+    {"op": "land"}
+  ]
+}

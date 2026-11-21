@@ -1,0 +1,12 @@
+{
+  "_comment": "The program the tutorial's optional camera lesson teaches (VISION_LESSON in comp1/frontend/tutorial.js). tests/js/tutorial.test.js checks the tutorial still builds exactly this; tests/test_tutorial_lesson.py flies it in every arena with both detectors. Change all three together.",
+  "version": 2,
+  "blocks": [
+    {"op": "takeoff"},
+    {"op": "repeat_until", "cond": {"kind": "sensor", "sensor": "target_visible"},
+     "body": [{"op": "rotate", "dir": "cw", "deg": 30}]},
+    {"op": "approach_marker"},
+    {"op": "mark_found", "signal": "flip"},
+    {"op": "land"}
+  ]
+}

@@ -128,6 +128,12 @@ def test_var_read_and_unop_and_binop_evaluate():
         ("-", 3, 4, -1),
         ("*", 3, 4, 12),
         ("/", 3, 4, 0.75),
+        ("%", 7, 3, 1),
+        ("%", -30, 360, 330),  # floored, so wrapping a heading lands in 0..360
+        ("**", 2, 3, 8),
+        ("**", 9, 0.5, 3),
+        ("min", 3, 4, 3),
+        ("max", 3, 4, 4),
         ("<", 3, 4, True),
         (">", 3, 4, False),
         ("<=", 4, 4, True),
@@ -463,6 +469,117 @@ async def test_division_by_zero_warns_and_yields_zero():
     assert ev(events, "warning")[0]["blockId"] == "a"
     assert "zero" in ev(events, "warning")[0]["message"]
     assert events[-1]["reason"] == "done"  # not a crash
+
+
+# --- the Maths drawer: one-number ops ---
+
+
+def unop(op, x):
+    return prog(
+        [{"id": "a", "op": "set_var", "name": "x", "value": {"kind": "unop", "op": op,
+                                                           "operand": x}}]
+    ).blocks[0].value
+
+
+@pytest.mark.parametrize(
+    "op,x,want",
+    [
+        ("sqrt", 9, 3),
+        ("sqrt", 0, 0),
+        ("abs", -30, 30),
+        ("neg", 5, -5),
+        ("round", 2.5, 3),  # halves up, not Python's banker's rounding
+        ("round", 2.4, 2),
+        ("round", -2.5, -2),  # same as JS Math.round
+        ("floor", 2.9, 2),
+        ("floor", -2.1, -3),
+        ("ceil", 2.1, 3),
+        # trig is in degrees and exact at the angles a student would test
+        ("sin", 30, 0.5),
+        ("sin", 180, 0),
+        ("cos", 60, 0.5),
+        ("cos", 90, 0),
+        ("tan", 45, 1),
+        ("tan", -45, -1),
+        ("asin", 0.5, 30),
+        ("acos", 0.5, 60),
+        ("atan", 1, 45),
+    ],
+)
+def test_every_maths_unop(op, x, want):
+    got, events = value_of(unop(op, x))
+    assert got == want
+    assert ev(events, "warning") == []
+
+
+@pytest.mark.parametrize(
+    "op,x,want,words",
+    [
+        ("sqrt", -4, 0, "negative"),
+        ("tan", 90, 0, "no answer"),
+        ("tan", -270, 0, "no answer"),
+        ("asin", 2, 90, "-1 to 1"),  # clamped onto the domain, not zeroed
+        ("acos", -1.5, 180, "-1 to 1"),
+    ],
+)
+async def test_maths_with_no_answer_warns_instead_of_crashing(op, x, want, words):
+    _, events, it = await run(
+        [{"id": "a", "op": "set_var", "name": "x",
+          "value": {"kind": "unop", "op": op, "operand": x}}]
+    )
+    assert it.vars["x"] == want
+    [warning] = ev(events, "warning")
+    assert warning["blockId"] == "a" and words in warning["message"]
+    assert events[-1]["reason"] == "done"
+
+
+@pytest.mark.parametrize(
+    "op,left,right,words",
+    [
+        ("%", 10, 0, "zero"),
+        ("**", 0, -1, "no answer"),
+        ("**", -8, 0.5, "no answer"),  # would be a complex number in plain Python
+        ("**", 10, 1000, "too big"),
+    ],
+)
+async def test_binops_with_no_answer_warn_and_yield_zero(op, left, right, words):
+    _, events, it = await run(
+        [{"id": "a", "op": "set_var", "name": "x",
+          "value": {"kind": "binop", "op": op, "left": left, "right": right}}]
+    )
+    assert it.vars["x"] == 0
+    [warning] = ev(events, "warning")
+    assert warning["blockId"] == "a" and words in warning["message"]
+    assert events[-1]["reason"] == "done"
+
+
+async def test_maths_of_an_overflowed_number_warns_instead_of_crashing():
+    # 1e308 * 10 is inf; math.floor(inf) would raise mid-flight
+    inf = {"kind": "binop", "op": "*", "left": 1e308, "right": 10}
+    _, events, it = await run(
+        [{"id": "a", "op": "set_var", "name": "x",
+          "value": {"kind": "unop", "op": "floor", "operand": inf}}]
+    )
+    assert it.vars["x"] == 0
+    assert len(ev(events, "warning")) == 1
+    assert events[-1]["reason"] == "done"
+
+
+async def test_a_maths_result_drives_a_move():
+    # fly forward √10000 cm: the computed value goes through the normal clamp path
+    drone, events, _ = await run(
+        [
+            {"id": "m", "op": "move", "dir": "forward",
+             "cm": {"kind": "unop", "op": "sqrt", "operand": 10000}},
+        ]
+    )
+    assert drone.log == [("move", "forward", 100)]
+    assert ev(events, "warning") == []
+
+
+def test_unknown_maths_op_rejected_at_parse():
+    with pytest.raises(ValidationError):
+        unop("log", 10)
 
 
 # --- runtime clamping ---

@@ -180,9 +180,39 @@ const BLOCKS = [
   { type: "math_binop", message0: "%1 %2 %3", colour: C.math, inputsInline: true,
     args0: [{ type: "input_value", name: "A", check: "Number" },
             { type: "field_dropdown", name: "OP", options: [
-              ["+", "+"], ["−", "-"], ["×", "*"], ["÷", "/"]] },
+              ["+", "+"], ["−", "-"], ["×", "*"], ["÷", "/"],
+              ["^", "**"], ["mod", "%"]] },
             { type: "input_value", name: "B", check: "Number" }],
-    tooltip: "Dividing by 0 gives 0 and a warning rather than crashing the mission.",
+    tooltip: "^ is 'to the power of': 2 ^ 3 is 8. mod is the remainder: 7 mod 3 is 1, " +
+             "and heading mod 360 keeps an angle between 0 and 360. " +
+             "Dividing by 0 gives 0 and a warning rather than crashing the mission.",
+    output: "Number" },
+  // The op values are the wire-format unop names (protocol.UN_OPS), so the serializer
+  // passes them straight through.
+  { type: "math_single", message0: "%1 %2", colour: C.math, inputsInline: true,
+    args0: [{ type: "field_dropdown", name: "OP", options: [
+              ["√", "sqrt"], ["absolute value of", "abs"], ["−", "neg"],
+              ["round", "round"], ["round down", "floor"], ["round up", "ceil"]] },
+            { type: "input_value", name: "X", check: "Number" }],
+    tooltip: "√ is the square root: √ 9 is 3. Absolute value drops the minus sign: " +
+             "it turns -30 into 30. round takes 2.5 up to 3. " +
+             "The square root of a negative number gives 0 and a warning.",
+    output: "Number" },
+  { type: "math_trig", message0: "%1 %2", colour: C.math, inputsInline: true,
+    args0: [{ type: "field_dropdown", name: "OP", options: [
+              ["sin", "sin"], ["cos", "cos"], ["tan", "tan"],
+              ["asin", "asin"], ["acos", "acos"], ["atan", "atan"]] },
+            { type: "input_value", name: "X", check: "Number" }],
+    tooltip: "Angles are in degrees, like every turn block: sin 30 is 0.5. " +
+             "asin, acos and atan go the other way and answer in degrees.",
+    output: "Number" },
+  { type: "math_minmax", message0: "%1 of %2 and %3", colour: C.math, inputsInline: true,
+    args0: [{ type: "field_dropdown", name: "OP", options: [
+              ["smaller", "min"], ["bigger", "max"]] },
+            { type: "input_value", name: "A", check: "Number" },
+            { type: "input_value", name: "B", check: "Number" }],
+    tooltip: "Picks one of the two numbers. 'smaller of distance and 100' never goes " +
+             "above 100, which makes a handy limit.",
     output: "Number" },
 
   // ── variables ─────────────────────────────────────────────────────────────
@@ -227,7 +257,9 @@ const TOOLBOX = { kind: "categoryToolbox", contents: [
   cat("Logic", C.logic, [
     blk("compare", { A: shadowNum(0), B: shadowNum(0) }), blk("logic_op"), blk("logic_not")]),
   cat("Maths", C.math, [
-    blk("math_number"), blk("math_binop", { A: shadowNum(1), B: shadowNum(1) })]),
+    blk("math_number"), blk("math_binop", { A: shadowNum(1), B: shadowNum(1) }),
+    blk("math_single", { X: shadowNum(9) }), blk("math_trig", { X: shadowNum(30) }),
+    blk("math_minmax", { A: shadowNum(1), B: shadowNum(1) })]),
   cat("Variables", C.vars, [
     blk("set_var", { VALUE: shadowNum(0) }), blk("var_get")]),
 ] };
@@ -305,9 +337,11 @@ function valueJson(b) {
       return { kind: "binop", op: ">=",
                left: { kind: "sensor", sensor: "found_count" },
                right: num(Number(b.getFieldValue("N"))) };
-    case "math_binop": case "compare": case "logic_op":
+    case "math_binop": case "math_minmax": case "compare": case "logic_op":
       return { kind: "binop", op: b.getFieldValue("OP"),
                left: operand(b, "A"), right: operand(b, "B") };
+    case "math_single": case "math_trig":
+      return { kind: "unop", op: b.getFieldValue("OP"), operand: operand(b, "X") };
     case "logic_not":
       return { kind: "unop", op: "not", operand: operand(b, "VALUE") };
     case "var_get":
@@ -416,13 +450,21 @@ function pythonValue(value) {
     case "unop": {
       const operand = pythonValue(value.operand);
       if (value.op === "not") return `(not ${operand})`;
-      if (value.op === "abs") return `abs(${operand})`;
-      return `(-${operand})`;
+      if (value.op === "neg") return `(-${operand})`;
+      // the rest are calls; helpers marked _ mirror the interpreter's warn-don't-raise
+      // rules (and its degrees), so the preview computes what the flight would
+      const call = {
+        abs: "abs", sqrt: "_sqrt", round: "_round", floor: "math.floor", ceil: "math.ceil",
+        sin: "_sin", cos: "_cos", tan: "_tan", asin: "_asin", acos: "_acos", atan: "_atan",
+      }[value.op];
+      return call ? `${call}(${operand})` : "0";
     }
     case "binop": {
       const left = pythonValue(value.left);
       const right = pythonValue(value.right);
-      if (value.op === "/") return `_safe_div(${left}, ${right})`;
+      const call = { "/": "_safe_div", "%": "_safe_mod", "**": "_safe_pow",
+                     min: "min", max: "max" }[value.op];
+      if (call) return `${call}(${left}, ${right})`;
       return `(${left} ${value.op} ${right})`;
     }
     default:
@@ -489,10 +531,61 @@ function pythonBlocks(blocks, depth = 0) {
   return lines;
 }
 
+// The maths helpers, each emitted only when the translation calls it: a beginner's
+// preview should not open on a page of trigonometry they never asked for. Each one
+// mirrors the interpreter's warn-don't-raise rule, so the preview computes what the
+// flight would (the warning itself is the interpreter's job).
+const MATH_HELPERS = {
+  _safe_mod: [
+    "def _safe_mod(left, right):",
+    "    return left % right if right else 0"],
+  _safe_pow: [
+    "def _safe_pow(base, power):",
+    "    try:",
+    "        return math.pow(base, power)",
+    "    except (ValueError, OverflowError):",
+    "        return 0"],
+  _sqrt: [
+    "def _sqrt(value):",
+    "    return math.sqrt(value) if value >= 0 else 0"],
+  _round: [
+    "def _round(value):",
+    "    return math.floor(value + 0.5)  # halves round up, unlike round()"],
+  _sin: [
+    "def _sin(degrees):",
+    "    return round(math.sin(math.radians(degrees)), 10)"],
+  _cos: [
+    "def _cos(degrees):",
+    "    return round(math.cos(math.radians(degrees)), 10)"],
+  _tan: [
+    "def _tan(degrees):",
+    "    if (degrees - 90) % 180 == 0:",
+    "        return 0  # no answer at 90°",
+    "    return round(math.tan(math.radians(degrees)), 10)"],
+  _asin: [
+    "def _asin(value):",
+    "    return round(math.degrees(math.asin(_clamp(value, -1, 1))), 10)"],
+  _acos: [
+    "def _acos(value):",
+    "    return round(math.degrees(math.acos(_clamp(value, -1, 1))), 10)"],
+  _atan: [
+    "def _atan(value):",
+    "    return round(math.degrees(math.atan(value)), 10)"],
+};
+
 function programToPython(program) {
+  const body = pythonBlocks(program?.blocks || [], 1);
+  const mission = body.length
+    ? body
+    : ["    # Connect blocks beneath 'when mission starts' to translate them."];
+  const code = mission.join("\n");
+  const maths = Object.keys(MATH_HELPERS)
+    .filter((name) => code.includes(name + "("))
+    .flatMap((name) => ["", ...MATH_HELPERS[name]]);
   const preamble = [
     "# Display-only Python equivalent.",
     "# The competition app executes validated JSON, not this generated text.",
+    ...(maths.length || code.includes("math.") ? ["import math", ""] : []),
     "from comp1.api import Drone",
     "",
     "drone = Drone()",
@@ -500,10 +593,6 @@ function programToPython(program) {
     "",
     "def mission():",
   ];
-  const body = pythonBlocks(program?.blocks || [], 1);
-  const mission = body.length
-    ? body
-    : ["    # Connect blocks beneath 'when mission starts' to translate them."];
   const helpers = [
     "",
     "def _clamp(value, low, high):",
@@ -511,6 +600,7 @@ function programToPython(program) {
     "",
     "def _safe_div(left, right):",
     "    return left / right if right else 0",
+    ...maths,
     "",
     "def _target_value(name, default):",
     "    target = drone.target()",
@@ -526,9 +616,36 @@ function programToPython(program) {
   return [...preamble, ...mission, ...helpers].join("\n");
 }
 
+// Where a fresh workspace puts its start block, in workspace units from the left
+// edge of the canvas. Far enough right that no open drawer covers it: a student's
+// very first drag ends on this block, and with the old (30, 30) every drawer was
+// drawn on top of it, so the first drop of their life was made blind. The widest
+// drawer (Mission) reaches about 310 units in; measured, not guessed, so a new
+// block wide enough to widen a drawer past this wants the number revisited.
+const START_POSITION = { x: 340, y: 30 };
+
+/**
+ * How many real blocks are on the workspace but not under the start block.
+ *
+ * They run nothing and, left to the console, say nothing: the run reports
+ * "mission done" as though it had worked. Shadows are not counted, because
+ * they are the number boxes inside a block, not something the student placed.
+ */
+function unattachedCount(workspace) {
+  try {
+    return workspace.getTopBlocks(false)
+      .filter((b) => b.type !== "start")
+      .reduce((total, b) => total
+        + b.getDescendants(false).filter((d) => !d.isShadow()).length, 0);
+  } catch (_error) {
+    return 0;
+  }
+}
+
 const COMP1 = {
   blocks: BLOCKS,
   toolbox: TOOLBOX,
+  START_POSITION, unattachedCount,
   warnings: WARNINGS, // filled by serializeProgram; app.js prints these to the console
   valueJson, blockJson, chainJson, programToPython,
   serializeProgram(workspace) {

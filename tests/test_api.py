@@ -4,6 +4,7 @@ import threading
 import time
 from dataclasses import replace
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -582,3 +583,52 @@ def test_avoid_obstacle_steps_away_and_reports_giving_up():
     assert [x for x in adapter.log if x[0] == "move"] == [
         ("move", "left", DEFAULT_CONFIG.avoid_sidestep_cm)
     ] * 2
+
+
+# ------------------------------------------------------------------ the camera
+
+
+def test_frame_reads_the_hosts_frame_and_hands_back_a_copy():
+    """Under the server, frame() is the video loop's raw frame, not a second
+    read of the adapter — and drawing on it must not reach the detector."""
+    raw = np.full((4, 6, 3), 7, np.uint8)
+    session, adapter = mock_session(get_frame=lambda: raw)
+    d = Drone()
+    d._s, d._d = session, adapter
+    frame = d.frame()
+    assert frame.shape == (4, 6, 3) and frame.dtype == np.uint8
+    frame[:] = 0
+    assert raw.min() == 7  # the student's scribbles stayed in their copy
+
+
+def test_frame_is_none_until_a_picture_arrives():
+    session, adapter = mock_session(get_frame=lambda: None)
+    d = Drone()
+    d._s, d._d = session, adapter
+    assert d.frame() is None
+
+
+def test_standalone_frame_comes_from_the_simulator():
+    d = Drone(sim=True, seed=1)
+    frame = d.frame()
+    assert frame is not None and frame.ndim == 3 and frame.shape[2] == 3
+
+
+def test_frame_honours_the_stop_flag():
+    session, adapter = mock_session(get_frame=lambda: np.zeros((2, 2, 3), np.uint8))
+    d = Drone()
+    d._s, d._d = session, adapter
+    session.stop.set()
+    with pytest.raises(EmergencyStop):
+        d.frame()
+
+
+async def test_script_frame_reads_what_the_host_passed():
+    raw = np.full((3, 3, 3), 42, np.uint8)
+    seen = []
+    run = ScriptRun(
+        MockDrone(), lost, lambda ev: None, settle_s=0, get_frame=lambda: raw
+    )
+    reason, _ = await run.run(lambda: seen.append(Drone().frame()))
+    assert reason == "done"
+    assert seen[0] is not raw and (seen[0] == raw).all()

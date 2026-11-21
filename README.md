@@ -348,32 +348,20 @@ The script runs alongside the server, so the video feed, telemetry panel, and **
 button stay live while the student's own code flies the drone. See [`examples/`](examples/) for
 annotated starting points.
 
+For teams writing their own vision code, `drone.frame()` returns the raw camera picture as an
+OpenCV-ready BGR array. [`examples/04_pilot.py`](examples/04_pilot.py) shows it in use: fly by
+keyboard in an OpenCV window while it records video and snapshots of the markers to `recordings\`.
+
+```powershell
+venv\Scripts\python -m comp1 --script examples\04_pilot.py --drone sim
+```
+
 ### Documentation
 
-- [Colour calibration for beginners](docs/vision-calibration.md): how to tune marker detection in
-  a new room, understand the preview and sliders, save venue profiles, and fix common problems.
-- [Platform architecture — options, comparison, and decision](docs/architecture/platform-options.md):
-  why the platform is a custom Blockly web frontend + local Python service (FastAPI + djitellopy +
-  OpenCV) packaged with PyInstaller, which alternatives were rejected, and the open items still to
-  confirm (Chromebook support, safe-distance judging threshold).
-- [Windows installer and in-app updates (2026-08-20)](docs/plans/2026-08-20-windows-installer-and-updates.md):
-  how the packaged build, the settings store and the update check fit together.
-- [Architecture planning notes (2026-07-28)](docs/plans/2026-07-28-platform-architecture.md)
-- [Implementation plan (2026-07-28)](docs/plans/2026-07-28-implementation-plan.md)
-- [Simulator design (2026-07-28)](docs/specs/2026-07-28-simulator-design.md) — the hardware-free
-  random arena; partly superseded by the sensing work below.
-- [Target sensing, expression blocks, and the A→B competition (2026-07-31)](docs/plans/2026-07-31-target-sensing-and-expressions.md):
-  the roadmap for exposing distance/direction to students, giving the block language real
-  expressions, adding a Python pathway, and scoring a point A → point B search-and-rescue run.
-  Phase 1 is implemented; includes an assessment of what still needs hardware validation.
-- [Target sensing design (2026-07-31)](docs/specs/2026-07-31-target-sensing-design.md): the camera
-  model, how pixels become metres, multi-target tracking, and the tuning constants — read this
-  before changing anything in `comp1/vision/`.
-- [Program schema v2 (2026-07-31)](docs/specs/2026-07-31-program-schema-v2.md): the block program
-  wire format — value expressions, sensors, runtime clamping, and the v1 compatibility path. The
-  contract shared by `comp1/protocol.py` and `comp1/frontend/blocks.js`.
 - [Python pathway (2026-07-31)](docs/specs/2026-07-31-python-pathway.md): the student-facing
   `comp1.api` surface, how `--script` runs alongside the server, and the stop mechanism.
-- [Runtime drone switching (2026-08-03)](docs/specs/2026-08-03-drone-mode-switching.md): the
-  reversible Simulator/Tello UI, WebSocket messages, retained simulator state, and safety rules.
-
+- [First-run tutorial (2026-11-18)](docs/plans/2026-11-18-first-run-tutorial.md): the guided tour
+  and first program a new student sees, the questions it answers, and why the lesson program
+  cannot crash.
+- [Tutorial camera lesson (2026-11-20)](docs/plans/2026-11-20-tutorial-camera-lesson.md): the
+  optional second chapter that teaches the vision blocks, what it checks, and how it was measured.

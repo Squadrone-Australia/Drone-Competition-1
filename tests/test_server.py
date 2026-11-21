@@ -786,13 +786,16 @@ def _corridor_drone():
     return SimDrone(world=world, delay=0)
 
 
-# start pad -> fire -> destination, then land
+# start pad -> stop short of the fire -> step aside past its post -> destination,
+# then land. The fire stands in the middle of the corridor on a post, so flying
+# straight on through it is a crash, not a route.
 FLY_THE_CORRIDOR = {
     "version": 2,
     "blocks": [
         {"id": "a", "op": "takeoff"},
-        {"id": "b", "op": "move", "dir": "forward", "cm": 240},
+        {"id": "b", "op": "move", "dir": "forward", "cm": 190},
         {"id": "c", "op": "mark_found"},
+        {"id": "c2", "op": "move", "dir": "right", "cm": 80},
         {"id": "d", "op": "move", "dir": "forward", "cm": 500},
         {"id": "e", "op": "move", "dir": "forward", "cm": 140},
         {"id": "f", "op": "land"},
@@ -1000,6 +1003,7 @@ def test_flying_into_an_obstacle_is_reported_as_a_crashed_mission():
                 if data["type"] == "mission":
                     states.append(data["state"])
                     if data["state"] == "crashed":
+                        assert data["crashed_into"] == "obstacle"
                         break
             assert drone.crashed
             # Arrives on the pose loop's cadence, which can be *after* "finished"
