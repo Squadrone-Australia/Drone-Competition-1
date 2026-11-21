@@ -2,13 +2,13 @@
 
 A scenery is just a recipe for a :class:`~comp1.sim.world.World`. Two exist:
 
+``corridor`` (the default)
+    The fixed ICONIP 2026 Search and Find competition layout: a 6 m by 4 m
+    flight area with three red-circle fires and four specified decoys.
+
 ``arena``
     The original 4 m square room, markers on the four walls, drone starting in
     the middle.
-
-``corridor``
-    The fixed ICONIP 2026 Search and Find competition layout: a 6 m by 4 m
-    flight area with three red-circle fires and four specified decoys.
 
 **These are absolute arena coordinates.** Like :meth:`DroneAdapter.scene`, they
 reach the browser so the arena can be drawn and edited, and they must never
@@ -46,17 +46,19 @@ MIN_FIRE_SEP_M = 1.2  # two closer than this read as one blob to the detector
 PAD_CLEARANCE_M = 1.2  # keep the start pad and its approach clear
 def catalog() -> list[dict]:
     """What the frontend's scenery picker offers."""
+    # The competition arena first: it is the default, and the picker lists
+    # these in this order.
     return [
-        {
-            "id": "arena",
-            "name": "Square arena",
-            "description": "4 m room, markers around the walls.",
-        },
         {
             "id": "corridor",
             "name": "Competition arena",
             "description": f"Fixed {CORRIDOR_W_M:g} x {CORRIDOR_L_M:g} x "
             f"{CORRIDOR_HEIGHT_M:g} m Search and Find layout.",
+        },
+        {
+            "id": "arena",
+            "name": "Square arena",
+            "description": "4 m room, markers around the walls.",
         },
     ]
 
@@ -65,7 +67,7 @@ def names() -> list[str]:
     return [s["id"] for s in catalog()]
 
 
-def build(name: str = "arena", seed=None) -> World:
+def build(name: str = "corridor", seed=None) -> World:
     """A fresh world for ``name``. ``seed`` makes the layout repeatable."""
     if name == "corridor":
         return _corridor(seed)

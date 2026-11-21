@@ -283,7 +283,8 @@ def test_run_starts_from_the_start_pad_every_time():
 def test_reset_message_returns_the_drone_and_tells_the_clients():
     from comp1.sim.drone import SimDrone
 
-    drone = SimDrone(seed=2, delay=0)
+    # The square room, whose start pad is its centre (2, 2).
+    drone = SimDrone(seed=2, delay=0, scenery_name="arena")
     app = create_app(drone)
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         ws.send_json(
@@ -663,8 +664,8 @@ def test_the_scenery_list_is_offered_on_connect():
     app = create_app(SimDrone(seed=1, delay=0))
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         msg = collect_until(ws, "sceneries")
-        assert [s["id"] for s in msg["sceneries"]] == ["arena", "corridor"]
-        assert msg["current"] == "arena"
+        assert [s["id"] for s in msg["sceneries"]] == ["corridor", "arena"]
+        assert msg["current"] == "corridor"
 
 
 def test_a_drone_with_no_arena_offers_no_sceneries():

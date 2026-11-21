@@ -27,7 +27,7 @@ from .paths import settings_file
 #: Everything the browser is allowed to persist. Kept flat and boring: this file
 #: is written by a machine and occasionally read by a human debugging a venue.
 DRONE_MODES = ("sim", "tello", "mock")
-SCENERIES = ("arena", "corridor")
+SCENERIES = ("corridor", "arena")
 #: The marker finders (comp1/vision/config.py ``detector``): colour, or the AI model.
 DETECTORS = ("hsv", "yolo")
 
@@ -35,7 +35,9 @@ DETECTORS = ("hsv", "yolo")
 @dataclass
 class Settings:
     drone: str = "sim"
-    scenery: str = "arena"
+    #: The competition arena: it is what students are practising for, and a
+    #: first flight in a different room teaches the wrong distances.
+    scenery: str = "corridor"
     seed: int | None = None
     noise: float = 0.0
     #: Whether the app may look for a newer release at startup. Off is a valid

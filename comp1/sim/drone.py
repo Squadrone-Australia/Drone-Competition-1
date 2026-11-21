@@ -66,7 +66,7 @@ class SimDrone(DroneAdapter):
     can_reset = True  # unlike hardware, this one really can go home
 
     def __init__(
-        self, world=None, noise=0.0, delay=0.3, seed=None, scenery_name="arena"
+        self, world=None, noise=0.0, delay=0.3, seed=None, scenery_name="corridor"
     ):
         self.scenery_name = world.name if world is not None else scenery_name
         self.world = (

@@ -254,7 +254,8 @@ node --test tests\js\blocks.test.js             # frontend serializer tests
 ```
 
 `--drone sim` flags: `--seed N` (repeatable arena), `--noise 0.05` (movement drift),
-`--scenery {arena,corridor}` (also switchable in the browser). Server flags: `--port`,
+`--scenery {corridor,arena}` (default `corridor`, the competition arena; also switchable
+in the browser). Server flags: `--port`,
 `--no-window` (use the system browser rather than a window of our own), `--no-browser` (open
 nothing at all), `--no-check-updates`, `--idle-timeout N` (seconds after the last window closes
 before the program stops itself; `0` never stops). Default port `8765`. Anything not passed falls

@@ -24,7 +24,7 @@ def _free_spot(world):
 
 def test_catalog_offers_both_arenas():
     ids = [s["id"] for s in scenery.catalog()]
-    assert ids == ["arena", "corridor"]
+    assert ids == ["corridor", "arena"]
     assert all(s["name"] and s["description"] for s in scenery.catalog())
 
 
