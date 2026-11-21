@@ -35,7 +35,6 @@ from .vision.calibration import (
 )
 from .vision.config import DEFAULT_CONFIG, VisionConfig
 from .vision.detector import Detection, TargetTracker, draw_overlay
-from .vision.obstacles import is_in_the_way
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 #: The real Tello's camera rate. The video loop does ~5 ms of work a frame
@@ -843,16 +842,6 @@ def create_app(
             "distance_cm": round(det.distance_m * 100) if det.found else None,
             "bearing_deg": round(det.bearing_deg) if det.found else None,
             "elevation_deg": round(det.elevation_deg) if det.found else None,
-            # Obstacles are reported whether or not a target is in view: the
-            # moment they matter most is while the drone is still searching.
-            "obstacle_count": det.obstacle_count,
-            "obstacle_distance_cm": (
-                round(det.obstacle.distance_m * 100) if det.obstacle else None
-            ),
-            "obstacle_bearing_deg": (
-                round(det.obstacle.bearing_deg) if det.obstacle else None
-            ),
-            "obstacle_ahead": is_in_the_way(det.obstacle, cfg),
         }
 
     def _vision_message(message_type: str, active_cfg: VisionConfig) -> dict:

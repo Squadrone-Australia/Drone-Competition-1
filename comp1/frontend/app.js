@@ -416,16 +416,6 @@ function showTelemetry(t) {
     t.visible ? `${t.distance_cm} cm` : "-";
   document.getElementById("t-bearing").textContent =
     t.visible ? `${t.bearing_deg > 0 ? "+" : ""}${t.bearing_deg}°` : "-";
-  // Obstacles are shown even while no target is in view — searching is exactly
-  // when the drone is most likely to fly into something.
-  const obstacle = document.getElementById("t-obstacle");
-  const seen = t.obstacle_count > 0;
-  obstacle.textContent = t.obstacle_ahead
-    ? "IN THE WAY"
-    : seen ? (t.obstacle_count > 1 ? `${t.obstacle_count} seen` : "seen") : "clear";
-  obstacle.className = t.obstacle_ahead ? "warn" : seen ? "" : "ok";
-  document.getElementById("t-obstacle-distance").textContent =
-    seen ? `${t.obstacle_distance_cm} cm` : "-";
 }
 
 // The simulator scores a find against where the targets actually are, so with an
@@ -438,13 +428,9 @@ let missionState = null;
 let foundLogged = 0;
 // What the console says when a run crashes, by what the drone hit. "The attempt
 // does not count" left the second tester asking which attempt, and whether a
-// later find still scored, so each says it in full. And each gives its own
-// advice: the Obstacles drawer is right for an obstacle and wrong for a wall or
-// for a target's own post, which the obstacle sensors are not built to see.
+// later find still scored, so each says it in full, with its own advice.
 const RUN_VOID = "so this run won't count for the mission, even if it finds targets afterwards.";
 const CRASH_TEXT = {
-  obstacle: `💥 The drone hit an obstacle, ${RUN_VOID} To get past obstacles, look in ` +
-    "the Obstacles drawer: “obstacle in the way?” and “step around obstacle”.",
   wall: `💥 The drone flew into a wall, ${RUN_VOID} Check how far each “fly” block ` +
     "goes: the room is smaller than it looks.",
   sign: `💥 The drone flew into a sign or the post it stands on, ${RUN_VOID} The real ` +
@@ -465,7 +451,7 @@ function showMission(m) {
     log(`🏆 mission success: every target found and landed at ${goal}`);
   }
   if (m.state === "crashed" && missionState !== "crashed") {
-    log(CRASH_TEXT[m.crashed_into] ?? CRASH_TEXT.obstacle);
+    log(CRASH_TEXT[m.crashed_into] ?? CRASH_TEXT.sign);
   }
   missionState = m.state;
 }

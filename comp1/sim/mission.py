@@ -38,10 +38,10 @@ class MissionScorer:
             self.destination = None
             self.goal = None
         self.credited: set[int] = set()
-        # Latched, not read live: the drone can be pushed clear of an obstacle by
+        # Latched, not read live: the drone can be pushed clear of a sign by
         # a later command, but the mission still hit it.
         self.crashed = False
-        self.crashed_into = None  # "wall" | "obstacle" | "sign", latched with it
+        self.crashed_into = None  # "wall" | "sign", latched with it
 
     @property
     def total(self) -> int:
@@ -106,8 +106,8 @@ class MissionScorer:
             # A-to-B lesson, and getting there is the whole of it.
             success = all_found and arrived and landed
         # Hitting something ends the attempt as a failure however much of the
-        # rest went right -- a drone that reached the destination through an
-        # obstacle did not solve the problem it was set.
+        # rest went right -- a drone that reached the destination through a
+        # sign did not solve the problem it was set.
         if self.crashed:
             success = False
         return {

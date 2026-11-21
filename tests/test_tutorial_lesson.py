@@ -4,7 +4,7 @@ The tutorial (``comp1/frontend/tutorial.js``) ends with a student pressing Run
 on a program it walked them through: out 50 cm, turn round, back 50 cm, land.
 That is somebody's first ever flight, so it has to work whatever arena they
 start in and whatever layout the arena rolled. A first lesson that ends with
-"you hit an obstacle" teaches only that the app is unfair.
+"you crashed" teaches only that the app is unfair.
 
 It was chosen because it cannot hit anything rather than because it usually
 does not: nothing solid is placed within ``PAD_CLEARANCE_M`` of the start pad,

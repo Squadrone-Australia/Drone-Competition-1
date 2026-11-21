@@ -50,7 +50,7 @@ const STASH_FORMAT = 1;
 
 // Blockly's colour for each toolbox category, so a block named in the text is
 // drawn the colour the student is looking for. Mirrors `C` in blocks.js.
-const HUES = { flight: 205, sense: 185, obstacle: 20, mission: 32, flow: 120 };
+const HUES = { flight: 205, sense: 185, mission: 32, flow: 120 };
 
 // ── the lesson ──────────────────────────────────────────────────────────────
 // `fields` pairs each value with the text the dropdown shows, because the hint
@@ -771,7 +771,7 @@ function install(env) {
       title: "The floor plan",
       body: P(
         "The room seen from above. **Red dots are the targets** your mission has to find. Grey "
-          + "dots are decoys and obstacles. **S** is the start pad, and the orange arrow is your "
+          + "dots are decoys. **S** is the start pad, and the orange arrow is your "
           + "drone.",
         "**Shuffle** makes a new random layout. **Edit** lets you click to add or remove targets.",
       ) },

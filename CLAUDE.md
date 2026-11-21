@@ -44,7 +44,7 @@ the README.
 - `comp1/api.py` — the student-facing `Drone` class (the Python pathway, `--script`).
 - `comp1/drone/` — `base.DroneAdapter` ABC plus `tello`/`mock`; `config.FlightConfig`.
 - `comp1/sim/` — the hardware-free simulator: world, scene, scenery, render, mission scoring.
-- `comp1/vision/` — HSV marker detection, distance/bearing estimation, obstacles, auto-calibration.
+- `comp1/vision/` — HSV marker detection, distance/bearing estimation, auto-calibration.
   `vision/yolo.py` is the alternative AI marker finder: `models/fire_pose.onnx` (trained in
   `solution_fire/`) on onnxruntime, never torch. `VisionConfig.detector` (`hsv`|`yolo`) picks the
   finder inside `TargetTracker`, so every tracker call site follows the live switch.

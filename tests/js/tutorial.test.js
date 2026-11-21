@@ -276,9 +276,9 @@ test("a test left beside its slot is called out", () => {
 });
 
 test("the wrong test in the slot is named", () => {
-  const { hint } = checkLesson(loopProgram({ cond: "obstacle_ahead", inside: [] }), 1,
+  const { hint } = checkLesson(loopProgram({ cond: "marker_position_is", inside: [] }), 1,
     VISION_LESSON, COND);
-  assert.match(hint, /slot in “keep doing until” holds “obstacle in the way\?”/);
+  assert.match(hint, /slot in “keep doing until” holds “target is /);
 });
 
 test("a turn below the loop instead of inside it says so", () => {

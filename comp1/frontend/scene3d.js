@@ -32,11 +32,6 @@ const MARKER_COL = {
   fire: COL.fire, destination: COL.fire, red_square: COL.fire,
   blue_circle: 0x2563eb, green_triangle: 0x16a34a, green_circle: 0x16a34a,
   black_square: 0x111827, black_triangle: 0x111827, yellow_square: 0xeab308,
-  // Solid obstacles carry the same colours as the wall decorations of the same
-  // name — they look identical to the camera, and the 3D view must not give
-  // away which ones are solid any more than it gives away the destination.
-  obstacle_red_square: COL.fire, obstacle_green_triangle: 0x16a34a,
-  obstacle_blue_circle: 0x2563eb, obstacle_yellow_square: 0xeab308,
 };
 
 const deg = (d) => (d * Math.PI) / 180;
