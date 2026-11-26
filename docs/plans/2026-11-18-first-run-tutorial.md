@@ -43,10 +43,11 @@ order:
 5. **Final card**: a recap and the next challenge. The challenge is also written to the
    console, so it is still there after the card closes. Since 2026-11-21 the card and the
    console give the goal and which drawers to look in, not the five blocks in order: the
-   search is the part of a competition program a student should work out.
-
-An optional camera lesson was added on 2026-11-20 and removed on 2026-11-21. See
-[2026-11-20-tutorial-camera-lesson.md](2026-11-20-tutorial-camera-lesson.md).
+   search is the part of a competition program a student should work out. The console
+   line also points to the camera lesson, where the search is taught step by step.
+6. **Camera lesson** (optional): the "find a target" challenge as checked steps, offered
+   from the final card and the welcome card. Added 2026-11-20, removed 2026-11-21, and
+   restored 2026-11-26. See [2026-11-20-tutorial-camera-lesson.md](2026-11-20-tutorial-camera-lesson.md).
 
 It opens by itself once, and the **Tutorial** button in the top bar reopens it.
 
@@ -147,5 +148,7 @@ findings:
   step now waits on the result, and Live execution replays it in words, but the flight
   itself is easy to miss.
 - **Nesting blocks inside a loop has no feedback** once the tutorial is over. A stack that
-  sits inside "repeat" without snapping looks connected.
+  sits inside "repeat" without snapping looks connected. The camera lesson teaches it,
+  with a check that names a block snapped below a loop instead of inside it, but only for
+  the lesson's own program.
 - **The Next button moves between tour cards** as the card height and position change.

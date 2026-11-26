@@ -1,10 +1,14 @@
 # Tutorial: the optional camera lesson (2026-11-20)
 
-Status: **removed 2026-11-21.** The lesson, its fixture (`tutorial_vision_lesson.json`) and
-its tests are gone from `comp1/frontend/tutorial.js` and `tests/`. The tutorial ends on the
-first flight again, and its final card leaves the "find a target" challenge as a goal, not
-steps. This page is kept as the record of what was tried and measured. It extended the
-[first-run tutorial](2026-11-18-first-run-tutorial.md).
+Status: implemented in `comp1/frontend/tutorial.js`. It extends the
+[first-run tutorial](2026-11-18-first-run-tutorial.md), whose rules all still hold.
+
+Removed on 2026-11-21 and **restored on 2026-11-26**: students still needed to be taught how
+to write a search loop, and the goal-only challenge left on the final card did not teach it.
+It came back as it was, with its fixture (`tests/fixtures/tutorial_vision_lesson.json`) and
+tests. Two things from the removal stayed: the whole tutorial flies in the square arena, and
+the console challenge after the first lesson gives a goal and where to look, not the five
+blocks (it now also points to this lesson).
 
 ## Why
 
@@ -108,7 +112,8 @@ distance blocks, and getting home safely.
 
 The console challenge that was logged after the first lesson was the exception. It listed
 all five blocks in order, so it was a recipe with none of the reasons the lesson gives. It
-now gives the goal and which drawers to look in.
+now gives the goal and which drawers to look in, and (since the 2026-11-26 restore) names
+this lesson as the step-by-step route.
 
 Letting the student pick the turn angle (anything from 10° to 60°) was tried and dropped. The
 angle teaches nothing in the lesson: every angle up to 90° found a target in both arenas

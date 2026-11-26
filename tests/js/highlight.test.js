@@ -11,18 +11,8 @@ const HL = require("../../comp1/frontend/highlight.js");
 const COMP1 = require("../../comp1/frontend/blocks.js");
 
 const FRONTEND = path.join(__dirname, "../../comp1/frontend");
-// A program with a bit of everything: a loop, a sensor test, nesting, numbers.
-const FIXTURE = {
-  version: 2,
-  blocks: [
-    { op: "takeoff" },
-    { op: "repeat_until", cond: { kind: "sensor", sensor: "target_visible" },
-      body: [{ op: "rotate", dir: "cw", deg: 30 }] },
-    { op: "approach_marker" },
-    { op: "mark_found", signal: "flip" },
-    { op: "land" },
-  ],
-};
+const FIXTURE = JSON.parse(fs.readFileSync(
+  path.join(__dirname, "../fixtures/tutorial_vision_lesson.json"), "utf8"));
 
 const text = (tokens) => tokens.map(([, t]) => t).join("");
 const classOf = (tokens, t) => (tokens.find(([, s]) => s === t) || [])[0];
